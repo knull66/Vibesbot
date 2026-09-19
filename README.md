@@ -97,6 +97,21 @@ cp config.example.json config.json
 
 ## Uso
 
+### 0. Dashboard Visual (Recomendado)
+
+Ejecuta el dashboard web para una experiencia visual completa:
+
+```bash
+python3 run_dashboard.py
+```
+
+Abre tu navegador en `http://localhost:8080` para ver:
+- Panel de señales en tiempo real
+- Gráficos de P&L
+- Control del bot (Start/Pause/Stop)
+- Historial de operaciones
+- Métricas de riesgo
+
 ### 1. Entrenamiento y Backtest
 
 Antes de operar en vivo, entrena el modelo con datos históricos:

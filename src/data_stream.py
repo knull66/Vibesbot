@@ -228,7 +228,7 @@ class DataStream:
         """URL base para WebSocket."""
         if self.config.use_testnet:
             return "wss://testnet.binance.vision/ws"
-        return "wss://stream.binance.com:9443/ws"
+        return "wss://fstream.binance.com/ws"
     
     @property
     def base_api_url(self) -> str:
