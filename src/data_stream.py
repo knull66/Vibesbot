@@ -235,7 +235,7 @@ class DataStream:
         """URL base para API REST."""
         if self.config.use_testnet:
             return "https://testnet.binance.vision/api/v3"
-        return "https://api.binance.com/api/v3"
+        return "https://data-api.binance.vision/api/v3"
     
     def on_candle(self, callback: Callable[[str, Candle], None]) -> None:
         """Registra callback para nuevas velas."""

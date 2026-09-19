@@ -17,14 +17,23 @@ async def get_binance_server_time() -> int:
     Raises:
         Exception: Si no se puede conectar al servidor
     """
-    url = "https://api.binance.com/api/v3/time"
+    urls = [
+        "https://data-api.binance.vision/api/v3/time",
+        "https://api.binance.com/api/v3/time",
+    ]
     
     async with aiohttp.ClientSession() as session:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
-            if response.status == 200:
-                data = await response.json()
-                return data["serverTime"]
-            raise Exception(f"Error getting Binance time: {response.status}")
+        for url in urls:
+            try:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data["serverTime"]
+            except Exception:
+                continue
+        
+        from datetime import datetime, timezone
+        return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 
 async def sync_binance_time() -> float:

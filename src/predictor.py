@@ -134,57 +134,80 @@ class FeatureGenerator:
         """Genera features de indicadores técnicos."""
         features = {}
         
-        if len(df) < 20:
+        if len(df) < 30:
             return features
         
-        features[f"rsi_14_{suffix}"] = ta.momentum.RSIIndicator(
-            df["close"], window=14
-        ).rsi().iloc[-1]
-        
-        features[f"rsi_7_{suffix}"] = ta.momentum.RSIIndicator(
-            df["close"], window=7
-        ).rsi().iloc[-1]
-        
-        macd = ta.trend.MACD(df["close"])
-        features[f"macd_{suffix}"] = macd.macd().iloc[-1]
-        features[f"macd_signal_{suffix}"] = macd.macd_signal().iloc[-1]
-        features[f"macd_hist_{suffix}"] = macd.macd_diff().iloc[-1]
-        
-        if len(df) >= 3:
+        try:
+            close = df["close"].astype(float)
+            high = df["high"].astype(float)
+            low = df["low"].astype(float)
+            volume = df["volume"].astype(float)
+            
+            rsi_14 = ta.momentum.RSIIndicator(close, window=14).rsi()
+            if len(rsi_14.dropna()) > 0:
+                features[f"rsi_14_{suffix}"] = rsi_14.iloc[-1]
+            
+            rsi_7 = ta.momentum.RSIIndicator(close, window=7).rsi()
+            if len(rsi_7.dropna()) > 0:
+                features[f"rsi_7_{suffix}"] = rsi_7.iloc[-1]
+            
+            macd = ta.trend.MACD(close)
+            macd_line = macd.macd()
+            macd_signal = macd.macd_signal()
             macd_hist = macd.macd_diff()
-            features[f"macd_hist_delta_{suffix}"] = macd_hist.iloc[-1] - macd_hist.iloc[-2]
-        
-        bb = ta.volatility.BollingerBands(df["close"], window=20, window_dev=2)
-        features[f"bb_high_{suffix}"] = bb.bollinger_hband().iloc[-1]
-        features[f"bb_low_{suffix}"] = bb.bollinger_lband().iloc[-1]
-        features[f"bb_mid_{suffix}"] = bb.bollinger_mavg().iloc[-1]
-        features[f"bb_width_{suffix}"] = bb.bollinger_wband().iloc[-1]
-        features[f"bb_pband_{suffix}"] = bb.bollinger_pband().iloc[-1]
-        
-        bb_width = bb.bollinger_wband()
-        bb_width_percentile = (bb_width.iloc[-1] - bb_width.rolling(50).min().iloc[-1]) / \
-                             (bb_width.rolling(50).max().iloc[-1] - bb_width.rolling(50).min().iloc[-1] + 1e-10)
-        features[f"bb_squeeze_{suffix}"] = 1 if bb_width_percentile < 0.2 else 0
-        
-        stoch = ta.momentum.StochasticOscillator(df["high"], df["low"], df["close"])
-        features[f"stoch_k_{suffix}"] = stoch.stoch().iloc[-1]
-        features[f"stoch_d_{suffix}"] = stoch.stoch_signal().iloc[-1]
-        
-        features[f"atr_{suffix}"] = ta.volatility.AverageTrueRange(
-            df["high"], df["low"], df["close"], window=14
-        ).average_true_range().iloc[-1]
-        
-        features[f"adx_{suffix}"] = ta.trend.ADXIndicator(
-            df["high"], df["low"], df["close"], window=14
-        ).adx().iloc[-1]
-        
-        features[f"cci_{suffix}"] = ta.trend.CCIIndicator(
-            df["high"], df["low"], df["close"], window=20
-        ).cci().iloc[-1]
-        
-        features[f"mfi_{suffix}"] = ta.volume.MFIIndicator(
-            df["high"], df["low"], df["close"], df["volume"], window=14
-        ).money_flow_index().iloc[-1]
+            
+            if len(macd_line.dropna()) > 0:
+                features[f"macd_{suffix}"] = macd_line.iloc[-1]
+            if len(macd_signal.dropna()) > 0:
+                features[f"macd_signal_{suffix}"] = macd_signal.iloc[-1]
+            if len(macd_hist.dropna()) > 0:
+                features[f"macd_hist_{suffix}"] = macd_hist.iloc[-1]
+                if len(macd_hist.dropna()) >= 2:
+                    features[f"macd_hist_delta_{suffix}"] = macd_hist.dropna().iloc[-1] - macd_hist.dropna().iloc[-2]
+            
+            bb = ta.volatility.BollingerBands(close, window=20, window_dev=2)
+            bb_high = bb.bollinger_hband()
+            bb_low = bb.bollinger_lband()
+            bb_mid = bb.bollinger_mavg()
+            bb_width = bb.bollinger_wband()
+            bb_pband = bb.bollinger_pband()
+            
+            if len(bb_high.dropna()) > 0:
+                features[f"bb_high_{suffix}"] = bb_high.iloc[-1]
+                features[f"bb_low_{suffix}"] = bb_low.iloc[-1]
+                features[f"bb_mid_{suffix}"] = bb_mid.iloc[-1]
+                features[f"bb_width_{suffix}"] = bb_width.iloc[-1]
+                features[f"bb_pband_{suffix}"] = bb_pband.iloc[-1]
+            
+            if len(df) >= 14:
+                stoch = ta.momentum.StochasticOscillator(high, low, close, window=14, smooth_window=3)
+                stoch_k = stoch.stoch()
+                stoch_d = stoch.stoch_signal()
+                if len(stoch_k.dropna()) > 0:
+                    features[f"stoch_k_{suffix}"] = stoch_k.iloc[-1]
+                    features[f"stoch_d_{suffix}"] = stoch_d.iloc[-1]
+            
+            atr = ta.volatility.AverageTrueRange(high, low, close, window=14).average_true_range()
+            if len(atr.dropna()) > 0:
+                features[f"atr_{suffix}"] = atr.iloc[-1]
+            
+            if len(df) >= 14:
+                adx = ta.trend.ADXIndicator(high, low, close, window=14).adx()
+                if len(adx.dropna()) > 0:
+                    features[f"adx_{suffix}"] = adx.iloc[-1]
+            
+            if len(df) >= 20:
+                cci = ta.trend.CCIIndicator(high, low, close, window=20).cci()
+                if len(cci.dropna()) > 0:
+                    features[f"cci_{suffix}"] = cci.iloc[-1]
+            
+            if len(df) >= 14:
+                mfi = ta.volume.MFIIndicator(high, low, close, volume, window=14).money_flow_index()
+                if len(mfi.dropna()) > 0:
+                    features[f"mfi_{suffix}"] = mfi.iloc[-1]
+                    
+        except Exception as e:
+            pass
         
         return features
     

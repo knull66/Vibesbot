@@ -142,7 +142,7 @@ class DataLoader:
     
     def __init__(self, symbol: str = "BTCUSDT"):
         self.symbol = symbol
-        self.base_url = "https://api.binance.com/api/v3"
+        self.base_url = "https://data-api.binance.vision/api/v3"
     
     async def fetch_klines(
         self,
@@ -259,48 +259,56 @@ class Backtester:
         Returns:
             X_train, y_train, X_test, y_test
         """
-        if self._df_5m is None:
+        if self._df_5m is None or self._df_1m is None:
             raise ValueError("Data not loaded. Call load_data first.")
         
         features_list = []
         labels = []
+        errors = []
         
-        window_1m = self.config.prediction.feature_window_1m
-        window_5m = self.config.prediction.feature_window_5m
+        window_5m = min(self.config.prediction.feature_window_5m, 20)
+        min_1m_candles = 30
         
-        for i in range(max(window_5m, window_1m // 5) + 1, len(self._df_5m) - 1):
-            start_idx_1m = max(0, i * 5 - window_1m)
-            end_idx_1m = i * 5
-            
-            if end_idx_1m > len(self._df_1m):
-                continue
-            
-            df_1m_window = self._df_1m.iloc[start_idx_1m:end_idx_1m].copy()
-            df_5m_window = self._df_5m.iloc[max(0, i - window_5m):i].copy()
-            
-            if len(df_1m_window) < 30 or len(df_5m_window) < 10:
-                continue
-            
+        logger.info(f"Processing {len(self._df_5m)} 5m candles...")
+        
+        for i in range(window_5m + 5, len(self._df_5m) - 1):
             try:
+                ts_5m = self._df_5m.iloc[i]["timestamp"]
+                
+                mask_1m = self._df_1m["timestamp"] < ts_5m
+                df_1m_window = self._df_1m[mask_1m].tail(60).copy()
+                
+                df_5m_window = self._df_5m.iloc[max(0, i - window_5m):i].copy()
+                
+                if len(df_1m_window) < min_1m_candles or len(df_5m_window) < 10:
+                    continue
+                
                 features = self.feature_generator.generate_features(
                     df_1m_window, df_5m_window, None, None
                 )
                 
-                current_open = self._df_5m.iloc[i]["open"]
-                next_close = self._df_5m.iloc[i]["close"]
-                label = 1 if next_close > current_open else 0
+                current_open = float(self._df_5m.iloc[i]["open"])
+                current_close = float(self._df_5m.iloc[i]["close"])
+                label = 1 if current_close > current_open else 0
                 
                 features_list.append(features)
                 labels.append(label)
                 
             except Exception as e:
+                errors.append(str(e))
                 continue
         
         if not features_list:
-            raise ValueError("Could not generate enough features for training")
+            if errors:
+                logger.error(f"Sample errors: {errors[:5]}")
+            raise ValueError(f"Could not generate features. Total 5m candles: {len(self._df_5m)}, 1m candles: {len(self._df_1m)}")
+        
+        logger.info(f"Generated {len(features_list)} feature samples")
         
         X = pd.concat(features_list, ignore_index=True)
         y = pd.Series(labels)
+        
+        X = X.replace([np.inf, -np.inf], np.nan).fillna(0)
         
         split_idx = int(len(X) * train_ratio)
         
@@ -310,6 +318,7 @@ class Backtester:
         y_test = y.iloc[split_idx:]
         
         logger.info(f"Training samples: {len(X_train)}, Test samples: {len(X_test)}")
+        logger.info(f"Label distribution - UP: {y.sum()}, DOWN: {len(y) - y.sum()}")
         
         return X_train, y_train, X_test, y_test
     
