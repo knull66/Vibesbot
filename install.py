@@ -122,23 +122,50 @@ def create_macos_app():
     <string>com.vibesbot.app</string>
     <key>CFBundleVersion</key>
     <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
     <string>vibesbot</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>LSUIElement</key>
+    <false/>
 </dict>
 </plist>'''
     
     with open(contents_dir / "Info.plist", "w") as f:
         f.write(info_plist)
     
+    try:
+        import shutil
+        icon_src = VIBESBOT_DIR / "assets" / "icon.svg"
+        if icon_src.exists():
+            shutil.copy(icon_src, resources_dir / "icon.svg")
+    except:
+        pass
+    
     launcher = f'''#!/bin/bash
 cd "{VIBESBOT_DIR}"
-"{sys.executable}" vibesbot.py
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+
+if command -v python3 &> /dev/null; then
+    PYTHON=python3
+elif [ -f "/usr/local/bin/python3" ]; then
+    PYTHON=/usr/local/bin/python3
+elif [ -f "/opt/homebrew/bin/python3" ]; then
+    PYTHON=/opt/homebrew/bin/python3
+else
+    osascript -e 'display dialog "Python3 no encontrado. Instala Python desde python.org" buttons {{"OK"}} default button "OK"'
+    exit 1
+fi
+
+$PYTHON "{VIBESBOT_DIR}/vibesbot.py" 2>&1 | tee "{VIBESBOT_DIR}/logs/app.log"
 '''
     
     launcher_path = macos_dir / "vibesbot"
@@ -146,7 +173,10 @@ cd "{VIBESBOT_DIR}"
         f.write(launcher)
     os.chmod(launcher_path, 0o755)
     
+    (VIBESBOT_DIR / "logs").mkdir(exist_ok=True)
+    
     print(f"✅ App creada: {app_dir}")
+    print(f"   Puedes arrastrarla al Dock o abrirla desde Finder")
     return app_dir
 
 
