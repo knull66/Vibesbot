@@ -415,6 +415,47 @@ class VibesbotDashboard {
     document.getElementById('btn-stop').addEventListener('click', () => {
       this.sendCommand('stop');
     });
+    
+    // Settings button
+    document.getElementById('btn-settings').addEventListener('click', () => {
+      this.openSettings();
+    });
+    
+    document.getElementById('settings-close').addEventListener('click', () => {
+      this.closeSettings();
+    });
+    
+    document.querySelector('.modal-backdrop').addEventListener('click', () => {
+      this.closeSettings();
+    });
+    
+    // Settings tabs
+    document.querySelectorAll('.settings-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabId = tab.dataset.tab;
+        document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`panel-${tabId}`).classList.add('active');
+      });
+    });
+    
+    // Binance settings
+    document.getElementById('btn-test-binance').addEventListener('click', () => this.testBinanceConnection());
+    document.getElementById('btn-save-binance').addEventListener('click', () => this.saveBinanceSettings());
+    
+    // Trading settings
+    document.getElementById('btn-save-trading').addEventListener('click', () => this.saveTradingSettings());
+    document.getElementById('trading-confidence').addEventListener('input', (e) => {
+      document.getElementById('confidence-value').textContent = `${e.target.value}%`;
+    });
+    
+    // Simulation
+    document.getElementById('btn-reset-simulation').addEventListener('click', () => this.resetSimulation());
+    
+    // Updates
+    document.getElementById('btn-check-updates').addEventListener('click', () => this.checkForUpdates());
+    document.getElementById('btn-install-update').addEventListener('click', () => this.installUpdate());
   }
 
   setupTabs() {
@@ -448,6 +489,251 @@ class VibesbotDashboard {
   updateClock() {
     const clock = document.getElementById('footer-time');
     clock.textContent = new Date().toLocaleTimeString();
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // SETTINGS
+  // ═══════════════════════════════════════════════════════════
+
+  openSettings() {
+    document.getElementById('settings-modal').classList.add('active');
+    this.loadSettings();
+  }
+
+  closeSettings() {
+    document.getElementById('settings-modal').classList.remove('active');
+  }
+
+  async loadSettings() {
+    try {
+      const response = await fetch('/api/settings');
+      const settings = await response.json();
+      
+      // Binance
+      document.getElementById('binance-api-key').value = settings.binance?.api_key || '';
+      document.getElementById('binance-testnet').checked = settings.binance?.is_testnet !== false;
+      
+      // Trading
+      document.getElementById('trading-mode').value = settings.trading?.mode || 'simulation';
+      document.getElementById('trading-bet-amount').value = settings.trading?.bet_amount || 1;
+      document.getElementById('trading-confidence').value = (settings.trading?.confidence_threshold || 0.62) * 100;
+      document.getElementById('confidence-value').textContent = `${Math.round((settings.trading?.confidence_threshold || 0.62) * 100)}%`;
+      document.getElementById('trading-max-loss').value = settings.trading?.max_daily_loss || 50;
+      document.getElementById('trading-max-trades').value = settings.trading?.max_trades_per_day || 50;
+      document.getElementById('trading-auto').checked = settings.trading?.auto_trade || false;
+      
+      // Simulation
+      this.updateSimulationUI(settings.simulation);
+      
+      // Updates
+      this.checkForUpdates();
+      
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+  }
+
+  async testBinanceConnection() {
+    const statusEl = document.getElementById('binance-status');
+    statusEl.className = 'connection-status';
+    statusEl.style.display = 'block';
+    statusEl.textContent = 'Probando conexión...';
+    
+    // Save first
+    await this.saveBinanceSettings();
+    
+    try {
+      const response = await fetch('/api/settings/binance/test', { method: 'POST' });
+      const result = await response.json();
+      
+      if (result.success) {
+        statusEl.className = 'connection-status success';
+        let info = `✓ ${result.message}`;
+        if (result.account_info) {
+          info += `\n${result.account_info.account_type} - Can Trade: ${result.account_info.can_trade ? 'Sí' : 'No'}`;
+          if (result.account_info.balances) {
+            const balances = Object.entries(result.account_info.balances)
+              .slice(0, 3)
+              .map(([asset, amount]) => `${asset}: ${amount}`)
+              .join(', ');
+            if (balances) info += `\nBalances: ${balances}`;
+          }
+        }
+        statusEl.textContent = info;
+      } else {
+        statusEl.className = 'connection-status error';
+        statusEl.textContent = `✗ ${result.message}`;
+      }
+    } catch (error) {
+      statusEl.className = 'connection-status error';
+      statusEl.textContent = `✗ Error: ${error.message}`;
+    }
+  }
+
+  async saveBinanceSettings() {
+    const apiKey = document.getElementById('binance-api-key').value;
+    const apiSecret = document.getElementById('binance-api-secret').value;
+    const isTestnet = document.getElementById('binance-testnet').checked;
+    
+    try {
+      await fetch('/api/settings/binance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: apiKey,
+          api_secret: apiSecret,
+          is_testnet: isTestnet
+        })
+      });
+    } catch (error) {
+      console.error('Error saving Binance settings:', error);
+    }
+  }
+
+  async saveTradingSettings() {
+    const settings = {
+      mode: document.getElementById('trading-mode').value,
+      bet_amount: parseFloat(document.getElementById('trading-bet-amount').value),
+      confidence_threshold: parseFloat(document.getElementById('trading-confidence').value) / 100,
+      max_daily_loss: parseFloat(document.getElementById('trading-max-loss').value),
+      max_trades_per_day: parseInt(document.getElementById('trading-max-trades').value),
+      auto_trade: document.getElementById('trading-auto').checked
+    };
+    
+    try {
+      const response = await fetch('/api/settings/trading', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+      
+      if (response.ok) {
+        this.showNotification('Configuración guardada', 'success');
+      }
+    } catch (error) {
+      console.error('Error saving trading settings:', error);
+      this.showNotification('Error guardando configuración', 'error');
+    }
+  }
+
+  updateSimulationUI(sim) {
+    if (!sim) return;
+    
+    document.getElementById('sim-balance').textContent = `$${sim.balance?.toFixed(2) || '1,000.00'}`;
+    
+    const pnlEl = document.getElementById('sim-pnl');
+    const pnl = sim.total_pnl || 0;
+    pnlEl.textContent = `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
+    pnlEl.className = `sim-stat-value ${pnl >= 0 ? 'positive' : 'negative'}`;
+    
+    const winRate = (sim.win_rate || 0) * 100;
+    document.getElementById('sim-winrate').textContent = `${winRate.toFixed(1)}%`;
+    document.getElementById('sim-trades').textContent = `${sim.total_trades || 0}`;
+    
+    // History
+    const historyEl = document.getElementById('sim-history');
+    const history = sim.history || [];
+    
+    if (history.length === 0) {
+      historyEl.innerHTML = '<p class="settings-hint">No hay trades en el historial</p>';
+    } else {
+      historyEl.innerHTML = history.slice(-20).reverse().map(trade => `
+        <div class="sim-history-item">
+          <span class="sim-history-direction ${trade.direction.toLowerCase()}">${trade.direction}</span>
+          <span>$${trade.amount.toFixed(2)}</span>
+          <span class="sim-history-pnl ${trade.pnl >= 0 ? 'positive' : 'negative'}">
+            ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}
+          </span>
+        </div>
+      `).join('');
+    }
+  }
+
+  async resetSimulation() {
+    if (!confirm('¿Estás seguro de reiniciar la simulación? Se perderá todo el historial.')) {
+      return;
+    }
+    
+    const startingBalance = parseFloat(document.getElementById('sim-starting-balance').value) || 1000;
+    
+    try {
+      const response = await fetch('/api/simulation/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ starting_balance: startingBalance })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        this.updateSimulationUI(result.simulation);
+        this.showNotification('Simulación reiniciada', 'success');
+      }
+    } catch (error) {
+      console.error('Error resetting simulation:', error);
+    }
+  }
+
+  async checkForUpdates() {
+    const statusEl = document.getElementById('update-status');
+    const installBtn = document.getElementById('btn-install-update');
+    
+    statusEl.textContent = 'Verificando actualizaciones...';
+    statusEl.className = 'update-status';
+    
+    try {
+      const response = await fetch('/api/updates/check');
+      const info = await response.json();
+      
+      document.getElementById('current-version').textContent = info.current_version;
+      
+      if (info.available) {
+        statusEl.innerHTML = `<strong>Nueva versión disponible:</strong> ${info.latest_version}`;
+        statusEl.className = 'update-status available';
+        installBtn.disabled = false;
+        
+        if (info.release_notes) {
+          statusEl.innerHTML += `<br><small>${info.release_notes.substring(0, 100)}...</small>`;
+        }
+      } else {
+        statusEl.textContent = '✓ Estás usando la última versión';
+        statusEl.className = 'update-status';
+        installBtn.disabled = true;
+      }
+    } catch (error) {
+      statusEl.textContent = 'Error verificando actualizaciones';
+      statusEl.className = 'update-status error';
+    }
+  }
+
+  async installUpdate() {
+    const statusEl = document.getElementById('update-status');
+    const installBtn = document.getElementById('btn-install-update');
+    
+    installBtn.disabled = true;
+    statusEl.textContent = 'Instalando actualización...';
+    
+    try {
+      const response = await fetch('/api/updates/install', { method: 'POST' });
+      const result = await response.json();
+      
+      if (result.success) {
+        statusEl.innerHTML = `✓ ${result.message}<br><strong>Reinicia la aplicación para aplicar los cambios.</strong>`;
+        statusEl.className = 'update-status available';
+      } else {
+        statusEl.textContent = `Error: ${result.message}`;
+        statusEl.className = 'update-status error';
+        installBtn.disabled = false;
+      }
+    } catch (error) {
+      statusEl.textContent = `Error: ${error.message}`;
+      statusEl.className = 'update-status error';
+      installBtn.disabled = false;
+    }
+  }
+
+  showNotification(message, type = 'info') {
+    // Simple notification - could be enhanced with a toast library
+    console.log(`[${type.toUpperCase()}] ${message}`);
   }
 }
 

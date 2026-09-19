@@ -1,0 +1,438 @@
+"""
+Gestión de configuración de usuario para Vibesbot.
+
+Maneja la configuración personal, credenciales de Binance,
+y preferencias del bot.
+"""
+import asyncio
+import json
+import os
+from dataclasses import dataclass, field, asdict
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+from enum import Enum
+import hashlib
+import base64
+
+import aiohttp
+
+from .utils.logger import get_logger
+
+logger = get_logger("user_settings")
+
+
+class TradingMode(Enum):
+    """Modos de trading disponibles."""
+    SIMULATION = "simulation"  # Paper trading con dinero virtual
+    LIVE = "live"              # Trading real
+
+
+@dataclass
+class BinanceCredentials:
+    """Credenciales de Binance."""
+    api_key: str = ""
+    api_secret: str = ""
+    is_testnet: bool = True  # Usar testnet por defecto para seguridad
+    
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.api_key and self.api_secret)
+    
+    def to_dict(self) -> dict:
+        return {
+            "api_key": self.api_key,
+            "api_secret": self._mask_secret(self.api_secret),
+            "is_testnet": self.is_testnet
+        }
+    
+    def _mask_secret(self, secret: str) -> str:
+        if len(secret) <= 8:
+            return "*" * len(secret)
+        return secret[:4] + "*" * (len(secret) - 8) + secret[-4:]
+
+
+@dataclass
+class TradingSettings:
+    """Configuración de trading."""
+    mode: TradingMode = TradingMode.SIMULATION
+    symbol: str = "BTCUSDT"
+    bet_amount: float = 1.0  # USD por apuesta
+    max_daily_loss: float = 50.0  # USD
+    max_trades_per_day: int = 50
+    confidence_threshold: float = 0.62  # 62% mínimo
+    auto_trade: bool = False  # Si ejecuta trades automáticamente
+    
+    def to_dict(self) -> dict:
+        return {
+            "mode": self.mode.value,
+            "symbol": self.symbol,
+            "bet_amount": self.bet_amount,
+            "max_daily_loss": self.max_daily_loss,
+            "max_trades_per_day": self.max_trades_per_day,
+            "confidence_threshold": self.confidence_threshold,
+            "auto_trade": self.auto_trade
+        }
+
+
+@dataclass
+class SimulationAccount:
+    """Cuenta de simulación (paper trading)."""
+    balance: float = 1000.0  # Balance inicial en USD
+    starting_balance: float = 1000.0
+    total_trades: int = 0
+    wins: int = 0
+    losses: int = 0
+    total_pnl: float = 0.0
+    history: List[Dict] = field(default_factory=list)
+    
+    @property
+    def win_rate(self) -> float:
+        if self.total_trades == 0:
+            return 0.0
+        return self.wins / self.total_trades
+    
+    def record_trade(self, direction: str, amount: float, result: str, pnl: float, price: float):
+        """Registra un trade en el historial."""
+        self.total_trades += 1
+        if result == "WIN":
+            self.wins += 1
+        else:
+            self.losses += 1
+        
+        self.total_pnl += pnl
+        self.balance += pnl
+        
+        self.history.append({
+            "timestamp": datetime.now().isoformat(),
+            "direction": direction,
+            "amount": amount,
+            "result": result,
+            "pnl": pnl,
+            "price": price,
+            "balance_after": self.balance
+        })
+        
+        # Mantener solo últimos 100 trades
+        if len(self.history) > 100:
+            self.history = self.history[-100:]
+    
+    def reset(self):
+        """Reinicia la cuenta de simulación."""
+        self.balance = self.starting_balance
+        self.total_trades = 0
+        self.wins = 0
+        self.losses = 0
+        self.total_pnl = 0.0
+        self.history = []
+    
+    def to_dict(self) -> dict:
+        return {
+            "balance": self.balance,
+            "starting_balance": self.starting_balance,
+            "total_trades": self.total_trades,
+            "wins": self.wins,
+            "losses": self.losses,
+            "total_pnl": self.total_pnl,
+            "win_rate": self.win_rate,
+            "history": self.history[-20:]  # Últimos 20 trades
+        }
+
+
+@dataclass
+class UserSettings:
+    """Configuración completa del usuario."""
+    binance: BinanceCredentials = field(default_factory=BinanceCredentials)
+    trading: TradingSettings = field(default_factory=TradingSettings)
+    simulation: SimulationAccount = field(default_factory=SimulationAccount)
+    
+    # UI Preferences
+    theme: str = "dark"
+    sound_enabled: bool = True
+    notifications_enabled: bool = True
+    
+    # Auto-update
+    auto_update: bool = True
+    last_update_check: Optional[str] = None
+    
+    def to_dict(self) -> dict:
+        return {
+            "binance": self.binance.to_dict(),
+            "trading": self.trading.to_dict(),
+            "simulation": self.simulation.to_dict(),
+            "theme": self.theme,
+            "sound_enabled": self.sound_enabled,
+            "notifications_enabled": self.notifications_enabled,
+            "auto_update": self.auto_update,
+            "last_update_check": self.last_update_check
+        }
+
+
+class BinanceConnector:
+    """
+    Conector para la API de Binance.
+    
+    Soporta tanto la API real como el testnet.
+    """
+    
+    MAINNET_API = "https://api.binance.com"
+    TESTNET_API = "https://testnet.binance.vision"
+    
+    def __init__(self, credentials: BinanceCredentials):
+        self.credentials = credentials
+        self.base_url = self.TESTNET_API if credentials.is_testnet else self.MAINNET_API
+    
+    async def test_connection(self) -> Dict[str, Any]:
+        """
+        Prueba la conexión con Binance.
+        
+        Returns:
+            {"success": bool, "message": str, "account_info": dict}
+        """
+        if not self.credentials.is_configured:
+            return {
+                "success": False,
+                "message": "API Key y Secret no configurados"
+            }
+        
+        try:
+            import hmac
+            import time
+            
+            timestamp = int(time.time() * 1000)
+            query_string = f"timestamp={timestamp}"
+            
+            signature = hmac.new(
+                self.credentials.api_secret.encode('utf-8'),
+                query_string.encode('utf-8'),
+                hashlib.sha256
+            ).hexdigest()
+            
+            url = f"{self.base_url}/api/v3/account?{query_string}&signature={signature}"
+            
+            headers = {
+                "X-MBX-APIKEY": self.credentials.api_key
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        # Extraer balances relevantes
+                        balances = {}
+                        for asset in data.get("balances", []):
+                            free = float(asset.get("free", 0))
+                            if free > 0:
+                                balances[asset["asset"]] = free
+                        
+                        return {
+                            "success": True,
+                            "message": "Conexión exitosa",
+                            "account_info": {
+                                "can_trade": data.get("canTrade", False),
+                                "balances": balances,
+                                "account_type": "Testnet" if self.credentials.is_testnet else "Real"
+                            }
+                        }
+                    else:
+                        error_data = await response.json()
+                        return {
+                            "success": False,
+                            "message": f"Error: {error_data.get('msg', 'Unknown error')}"
+                        }
+        
+        except aiohttp.ClientError as e:
+            return {
+                "success": False,
+                "message": f"Error de conexión: {str(e)}"
+            }
+        except Exception as e:
+            logger.error(f"Error testing Binance connection: {e}")
+            return {
+                "success": False,
+                "message": f"Error: {str(e)}"
+            }
+    
+    async def get_current_price(self, symbol: str = "BTCUSDT") -> Optional[float]:
+        """Obtiene el precio actual de un símbolo."""
+        try:
+            # Usar API pública (no requiere autenticación)
+            url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return float(data.get("price", 0))
+        except Exception as e:
+            logger.error(f"Error getting price: {e}")
+        
+        return None
+
+
+class SettingsManager:
+    """
+    Gestor de configuración de usuario.
+    
+    Maneja persistencia, validación y acceso a la configuración.
+    """
+    
+    SETTINGS_FILE = "user_settings.json"
+    
+    def __init__(self, app_path: Optional[Path] = None):
+        self.app_path = app_path or Path(__file__).parent.parent
+        self.settings_path = self.app_path / self.SETTINGS_FILE
+        self.settings = UserSettings()
+        self._binance_connector: Optional[BinanceConnector] = None
+        
+        self.load()
+    
+    def load(self):
+        """Carga la configuración desde el archivo."""
+        if not self.settings_path.exists():
+            logger.info("No settings file found, using defaults")
+            return
+        
+        try:
+            with open(self.settings_path, 'r') as f:
+                data = json.load(f)
+            
+            # Binance
+            if "binance" in data:
+                b = data["binance"]
+                self.settings.binance = BinanceCredentials(
+                    api_key=b.get("api_key", ""),
+                    api_secret=b.get("api_secret_encrypted", ""),  # Guardamos encriptado
+                    is_testnet=b.get("is_testnet", True)
+                )
+            
+            # Trading
+            if "trading" in data:
+                t = data["trading"]
+                self.settings.trading = TradingSettings(
+                    mode=TradingMode(t.get("mode", "simulation")),
+                    symbol=t.get("symbol", "BTCUSDT"),
+                    bet_amount=t.get("bet_amount", 1.0),
+                    max_daily_loss=t.get("max_daily_loss", 50.0),
+                    max_trades_per_day=t.get("max_trades_per_day", 50),
+                    confidence_threshold=t.get("confidence_threshold", 0.62),
+                    auto_trade=t.get("auto_trade", False)
+                )
+            
+            # Simulation
+            if "simulation" in data:
+                s = data["simulation"]
+                self.settings.simulation = SimulationAccount(
+                    balance=s.get("balance", 1000.0),
+                    starting_balance=s.get("starting_balance", 1000.0),
+                    total_trades=s.get("total_trades", 0),
+                    wins=s.get("wins", 0),
+                    losses=s.get("losses", 0),
+                    total_pnl=s.get("total_pnl", 0.0),
+                    history=s.get("history", [])
+                )
+            
+            # Preferences
+            self.settings.theme = data.get("theme", "dark")
+            self.settings.sound_enabled = data.get("sound_enabled", True)
+            self.settings.notifications_enabled = data.get("notifications_enabled", True)
+            self.settings.auto_update = data.get("auto_update", True)
+            self.settings.last_update_check = data.get("last_update_check")
+            
+            logger.info("Settings loaded successfully")
+            
+        except Exception as e:
+            logger.error(f"Error loading settings: {e}")
+    
+    def save(self):
+        """Guarda la configuración en el archivo."""
+        try:
+            data = {
+                "binance": {
+                    "api_key": self.settings.binance.api_key,
+                    "api_secret_encrypted": self.settings.binance.api_secret,
+                    "is_testnet": self.settings.binance.is_testnet
+                },
+                "trading": self.settings.trading.to_dict(),
+                "simulation": {
+                    "balance": self.settings.simulation.balance,
+                    "starting_balance": self.settings.simulation.starting_balance,
+                    "total_trades": self.settings.simulation.total_trades,
+                    "wins": self.settings.simulation.wins,
+                    "losses": self.settings.simulation.losses,
+                    "total_pnl": self.settings.simulation.total_pnl,
+                    "history": self.settings.simulation.history
+                },
+                "theme": self.settings.theme,
+                "sound_enabled": self.settings.sound_enabled,
+                "notifications_enabled": self.settings.notifications_enabled,
+                "auto_update": self.settings.auto_update,
+                "last_update_check": self.settings.last_update_check
+            }
+            
+            with open(self.settings_path, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            logger.info("Settings saved successfully")
+            
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
+    
+    def update_binance_credentials(self, api_key: str, api_secret: str, is_testnet: bool = True):
+        """Actualiza las credenciales de Binance."""
+        self.settings.binance = BinanceCredentials(
+            api_key=api_key,
+            api_secret=api_secret,
+            is_testnet=is_testnet
+        )
+        self._binance_connector = None  # Reset connector
+        self.save()
+    
+    def update_trading_settings(self, **kwargs):
+        """Actualiza la configuración de trading."""
+        if "mode" in kwargs:
+            kwargs["mode"] = TradingMode(kwargs["mode"])
+        
+        for key, value in kwargs.items():
+            if hasattr(self.settings.trading, key):
+                setattr(self.settings.trading, key, value)
+        
+        self.save()
+    
+    def get_binance_connector(self) -> BinanceConnector:
+        """Obtiene el conector de Binance."""
+        if self._binance_connector is None:
+            self._binance_connector = BinanceConnector(self.settings.binance)
+        return self._binance_connector
+    
+    async def test_binance_connection(self) -> Dict[str, Any]:
+        """Prueba la conexión con Binance."""
+        connector = self.get_binance_connector()
+        return await connector.test_connection()
+    
+    def record_simulation_trade(self, direction: str, amount: float, result: str, pnl: float, price: float):
+        """Registra un trade en la cuenta de simulación."""
+        self.settings.simulation.record_trade(direction, amount, result, pnl, price)
+        self.save()
+    
+    def reset_simulation(self, starting_balance: float = 1000.0):
+        """Reinicia la cuenta de simulación."""
+        self.settings.simulation.starting_balance = starting_balance
+        self.settings.simulation.reset()
+        self.save()
+    
+    def get_settings_for_frontend(self) -> dict:
+        """Retorna la configuración formateada para el frontend."""
+        return self.settings.to_dict()
+
+
+# Singleton
+_settings_manager: Optional[SettingsManager] = None
+
+def get_settings_manager() -> SettingsManager:
+    """Obtiene el gestor de configuración."""
+    global _settings_manager
+    if _settings_manager is None:
+        _settings_manager = SettingsManager()
+    return _settings_manager

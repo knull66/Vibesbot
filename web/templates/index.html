@@ -72,6 +72,7 @@
         <button class="btn btn-start" id="btn-start" disabled>▶ START</button>
         <button class="btn btn-pause" id="btn-pause" disabled>⏸ PAUSE</button>
         <button class="btn btn-stop" id="btn-stop" disabled>⏹ STOP</button>
+        <button class="btn btn-settings" id="btn-settings">⚙ SETTINGS</button>
       </div>
     </header>
 
@@ -279,6 +280,175 @@
         <span class="footer-time" id="footer-time">--:--:--</span>
       </div>
     </footer>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal" id="settings-modal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title">⚙ Settings</h2>
+        <button class="modal-close" id="settings-close">✕</button>
+      </div>
+      
+      <div class="modal-body">
+        <!-- Tabs -->
+        <div class="settings-tabs">
+          <button class="settings-tab active" data-tab="binance">Binance</button>
+          <button class="settings-tab" data-tab="trading">Trading</button>
+          <button class="settings-tab" data-tab="simulation">Simulación</button>
+          <button class="settings-tab" data-tab="updates">Updates</button>
+        </div>
+        
+        <!-- Binance Tab -->
+        <div class="settings-panel active" id="panel-binance">
+          <div class="settings-section">
+            <h3>Conexión a Binance</h3>
+            <p class="settings-hint">Conecta tu cuenta de Binance para trading real o usa el testnet para practicar.</p>
+            
+            <div class="form-group">
+              <label>API Key</label>
+              <input type="text" id="binance-api-key" placeholder="Tu API Key de Binance" />
+            </div>
+            
+            <div class="form-group">
+              <label>API Secret</label>
+              <input type="password" id="binance-api-secret" placeholder="Tu API Secret" />
+            </div>
+            
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="binance-testnet" checked />
+                <span>Usar Testnet (recomendado para practicar)</span>
+              </label>
+            </div>
+            
+            <div class="form-actions">
+              <button class="btn btn-secondary" id="btn-test-binance">Probar Conexión</button>
+              <button class="btn btn-primary" id="btn-save-binance">Guardar</button>
+            </div>
+            
+            <div class="connection-status" id="binance-status"></div>
+          </div>
+        </div>
+        
+        <!-- Trading Tab -->
+        <div class="settings-panel" id="panel-trading">
+          <div class="settings-section">
+            <h3>Configuración de Trading</h3>
+            
+            <div class="form-group">
+              <label>Modo de Trading</label>
+              <select id="trading-mode">
+                <option value="simulation">Simulación (Paper Trading)</option>
+                <option value="live">Real (Dinero Real)</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label>Monto por Apuesta (USD)</label>
+              <input type="number" id="trading-bet-amount" value="1" min="0.1" step="0.1" />
+            </div>
+            
+            <div class="form-group">
+              <label>Umbral de Confianza Mínimo (%)</label>
+              <input type="range" id="trading-confidence" min="50" max="90" value="62" />
+              <span class="range-value" id="confidence-value">62%</span>
+            </div>
+            
+            <div class="form-group">
+              <label>Pérdida Máxima Diaria (USD)</label>
+              <input type="number" id="trading-max-loss" value="50" min="1" />
+            </div>
+            
+            <div class="form-group">
+              <label>Máximo de Trades por Día</label>
+              <input type="number" id="trading-max-trades" value="50" min="1" max="200" />
+            </div>
+            
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="trading-auto" />
+                <span>Trading Automático (ejecutar trades sin confirmación)</span>
+              </label>
+            </div>
+            
+            <div class="form-actions">
+              <button class="btn btn-primary" id="btn-save-trading">Guardar Configuración</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Simulation Tab -->
+        <div class="settings-panel" id="panel-simulation">
+          <div class="settings-section">
+            <h3>Cuenta de Simulación</h3>
+            
+            <div class="sim-stats">
+              <div class="sim-stat">
+                <span class="sim-stat-label">Balance</span>
+                <span class="sim-stat-value" id="sim-balance">$1,000.00</span>
+              </div>
+              <div class="sim-stat">
+                <span class="sim-stat-label">PnL Total</span>
+                <span class="sim-stat-value" id="sim-pnl">$0.00</span>
+              </div>
+              <div class="sim-stat">
+                <span class="sim-stat-label">Win Rate</span>
+                <span class="sim-stat-value" id="sim-winrate">0%</span>
+              </div>
+              <div class="sim-stat">
+                <span class="sim-stat-label">Trades</span>
+                <span class="sim-stat-value" id="sim-trades">0</span>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>Balance Inicial para Reset</label>
+              <input type="number" id="sim-starting-balance" value="1000" min="100" />
+            </div>
+            
+            <div class="form-actions">
+              <button class="btn btn-danger" id="btn-reset-simulation">Reiniciar Simulación</button>
+            </div>
+            
+            <h4 style="margin-top: 20px;">Historial de Trades</h4>
+            <div class="sim-history" id="sim-history">
+              <p class="settings-hint">No hay trades en el historial</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Updates Tab -->
+        <div class="settings-panel" id="panel-updates">
+          <div class="settings-section">
+            <h3>Actualizaciones</h3>
+            
+            <div class="update-info">
+              <div class="update-version">
+                <span class="update-label">Versión Actual:</span>
+                <span class="update-value" id="current-version">1.0.0</span>
+              </div>
+              <div class="update-status" id="update-status">
+                <span>Verificando actualizaciones...</span>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="auto-update" checked />
+                <span>Buscar actualizaciones automáticamente</span>
+              </label>
+            </div>
+            
+            <div class="form-actions">
+              <button class="btn btn-secondary" id="btn-check-updates">Buscar Actualizaciones</button>
+              <button class="btn btn-primary" id="btn-install-update" disabled>Instalar Actualización</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>
