@@ -70,18 +70,23 @@ git clone https://github.com/knullproject/Vibesbot.git
 cd Vibesbot
 ```
 
-2. **Crear entorno virtual**
+2. **Crear entorno virtual** (opcional pero recomendado)
 ```bash
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate  # Linux/Mac
 # o
 venv\Scripts\activate  # Windows
 ```
 
-3. **Instalar dependencias**
+3. **Instalar dependencias** (opción rápida)
+```bash
+python3 setup.py
+```
+
+O manualmente:
 ```bash
 pip install -r requirements.txt
-playwright install chromium
+python3 -m playwright install chromium
 ```
 
 4. **Configurar**
@@ -97,7 +102,7 @@ cp config.example.json config.json
 Antes de operar en vivo, entrena el modelo con datos históricos:
 
 ```bash
-python -m src.backtest --days 30
+python3 run_backtest.py --days 30
 ```
 
 Opciones disponibles:
@@ -111,7 +116,7 @@ Opciones disponibles:
 La primera vez, necesitas iniciar sesión manualmente:
 
 ```bash
-python -m src.main
+python3 run_bot.py
 ```
 
 El navegador se abrirá. Inicia sesión en tu cuenta de Binance y navega a la página de Prediction. El bot guardará la sesión para futuros usos.
@@ -119,7 +124,7 @@ El navegador se abrirá. Inicia sesión en tu cuenta de Binance y navega a la p�
 ### 3. Ejecutar el Bot
 
 ```bash
-python -m src.main
+python3 run_bot.py
 ```
 
 Opciones disponibles:
