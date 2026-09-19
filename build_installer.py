@@ -136,7 +136,7 @@ def create_window():
                 NSMakeRect(0, 0, 1400, 900), style, NSBackingStoreBuffered, False
             )
             
-            self.window.setTitle_("⚡ Vibesbot - Cargando...")
+            self.window.setTitle_("VIBESBOT - Loading...")
             self.window.setContentView_(self.webView)
             self.window.center()
             self.window.makeKeyAndOrderFront_(None)
@@ -167,7 +167,7 @@ def create_window():
             try:
                 urllib.request.urlopen("http://127.0.0.1:8080", timeout=1)
                 timer.invalidate()
-                self.window.setTitle_("⚡ Vibesbot Trading Radar")
+                self.window.setTitle_("VIBESBOT")
                 url = NSURL.URLWithString_("http://127.0.0.1:8080")
                 self.webView.loadRequest_(NSURLRequest.requestWithURL_(url))
             except:

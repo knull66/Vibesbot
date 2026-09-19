@@ -90,7 +90,7 @@ run_dashboard(port=8080)
             defer: false
         )
         
-        window.title = "⚡ Vibesbot Trading Radar"
+        window.title = "VIBESBOT"
         window.contentView = webView
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -173,7 +173,7 @@ def create_window():
                     ((200, 200), (1400, 900)), style, NSBackingStoreBuffered, False
                 )
                 
-                self.window.setTitle_("⚡ Vibesbot Trading Radar")
+                self.window.setTitle_("VIBESBOT")
                 self.window.setContentView_(self.webView)
                 self.window.center()
                 self.window.makeKeyAndOrderFront_(None)

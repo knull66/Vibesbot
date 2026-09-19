@@ -159,119 +159,133 @@ def main():
                 NSMakeRect(0, 0, 1400, 900), style, NSBackingStoreBuffered, False
             )
             
-            self.window.setTitle_("⚡ Vibesbot - Iniciando...")
+            self.window.setTitle_("VIBESBOT - Loading...")
             self.window.setContentView_(self.webView)
             self.window.center()
             self.window.makeKeyAndOrderFront_(None)
             
-            # Loading screen with bunny logo
+            # Loading screen - Vibes District style with cyan
             loading = """<!DOCTYPE html>
 <html>
 <head>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-    background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
-    color: #00ff88;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif;
+    background: #0a0a0f;
+    color: #00FFFF;
+    font-family: 'Press Start 2P', monospace;
     display: flex;
     justify-content: center;
     align-items: center;
     height: 100vh;
     overflow: hidden;
 }
-.container { text-align: center; }
+/* Matrix rain effect */
+body::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(180deg, 
+        rgba(0,255,255,0.03) 0%, 
+        transparent 50%,
+        rgba(0,255,255,0.02) 100%);
+    pointer-events: none;
+}
+.container { text-align: center; z-index: 10; }
 .logo {
-    width: 120px;
-    height: 120px;
+    width: 100px;
+    height: 100px;
     margin: 0 auto 30px;
     position: relative;
 }
-.bunny {
+.face {
     width: 100%;
     height: 100%;
     background: #000;
-    border-radius: 20px;
+    border-radius: 50% 50% 45% 45%;
     position: relative;
-    box-shadow: 0 0 40px rgba(0, 255, 136, 0.3);
+    box-shadow: 0 0 30px rgba(0, 255, 255, 0.4);
 }
-.ear {
+.horn {
     position: absolute;
-    width: 25px;
-    height: 50px;
+    width: 18px;
+    height: 25px;
     background: #000;
-    top: -40px;
-    border-radius: 10px;
+    top: -18px;
+    border-radius: 50% 50% 0 0;
 }
-.ear.left { left: 20px; transform: rotate(-10deg); }
-.ear.right { right: 20px; transform: rotate(10deg); }
+.horn.left { left: 18px; transform: rotate(-15deg); }
+.horn.right { right: 18px; transform: rotate(15deg); }
 .eye {
     position: absolute;
-    width: 30px;
-    height: 6px;
-    background: #00ff88;
-    top: 50%;
-    border-radius: 3px;
-    box-shadow: 0 0 20px #00ff88, 0 0 40px #00ff88;
-    animation: blink 3s infinite;
+    width: 22px;
+    height: 35px;
+    background: #00FFFF;
+    top: 35%;
+    border-radius: 50%;
+    box-shadow: 0 0 20px #00FFFF, 0 0 40px #00FFFF, 0 0 60px #00FFFF;
+    animation: pulse 2s ease-in-out infinite;
 }
-.eye.left { left: 20px; }
-.eye.right { right: 20px; }
-@keyframes blink {
-    0%, 90%, 100% { opacity: 1; }
-    95% { opacity: 0.3; }
+.eye.left { left: 18px; transform: rotate(-15deg); }
+.eye.right { right: 18px; transform: rotate(15deg); }
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 20px #00FFFF, 0 0 40px #00FFFF; }
+    50% { box-shadow: 0 0 30px #00FFFF, 0 0 60px #00FFFF, 0 0 80px #00FFFF; }
 }
 .title {
-    font-size: 42px;
-    font-weight: 700;
-    margin-bottom: 10px;
-    text-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
+    font-size: 24px;
+    letter-spacing: 4px;
+    margin-bottom: 8px;
+    text-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
 }
 .subtitle {
-    color: #666;
-    font-size: 14px;
+    color: #0aa;
+    font-size: 8px;
+    letter-spacing: 2px;
     margin-bottom: 30px;
 }
 .loader {
     width: 200px;
     height: 4px;
-    background: #1a1a2e;
-    border-radius: 2px;
+    background: #111;
     margin: 0 auto;
     overflow: hidden;
+    border: 1px solid #00FFFF33;
 }
 .loader-bar {
-    width: 40%;
+    width: 30%;
     height: 100%;
-    background: linear-gradient(90deg, #00ff88, #00d4ff);
-    border-radius: 2px;
-    animation: load 1.5s ease-in-out infinite;
+    background: #00FFFF;
+    box-shadow: 0 0 10px #00FFFF;
+    animation: load 1.2s ease-in-out infinite;
 }
 @keyframes load {
     0% { transform: translateX(-100%); }
-    100% { transform: translateX(350%); }
+    100% { transform: translateX(400%); }
 }
 .status {
-    color: #444;
-    font-size: 12px;
+    color: #066;
+    font-size: 8px;
     margin-top: 20px;
+    letter-spacing: 1px;
 }
 </style>
 </head>
 <body>
 <div class="container">
     <div class="logo">
-        <div class="bunny">
-            <div class="ear left"></div>
-            <div class="ear right"></div>
+        <div class="face">
+            <div class="horn left"></div>
+            <div class="horn right"></div>
             <div class="eye left"></div>
             <div class="eye right"></div>
         </div>
     </div>
     <div class="title">VIBESBOT</div>
-    <div class="subtitle">Trading Radar</div>
+    <div class="subtitle">TRADING RADAR</div>
     <div class="loader"><div class="loader-bar"></div></div>
-    <div class="status">Conectando al servidor...</div>
+    <div class="status">CONNECTING...</div>
 </div>
 </body>
 </html>"""
@@ -283,13 +297,13 @@ body {
             try:
                 urllib.request.urlopen("http://127.0.0.1:8080", timeout=1)
                 timer.invalidate()
-                self.window.setTitle_("⚡ Vibesbot Trading Radar")
+                self.window.setTitle_("VIBESBOT")
                 url = NSURL.URLWithString_("http://127.0.0.1:8080")
                 self.webView.loadRequest_(NSURLRequest.requestWithURL_(url))
             except:
                 if self.attempts > 60:
                     timer.invalidate()
-                    self.window.setTitle_("⚡ Vibesbot - Error")
+                    self.window.setTitle_("VIBESBOT - Error")
                     error_html = """<!DOCTYPE html>
 <html><body style="background:#0a0a0f;color:#ff4444;font-family:-apple-system;display:flex;justify-content:center;align-items:center;height:100vh;text-align:center">
 <div>
