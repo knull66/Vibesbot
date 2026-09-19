@@ -58,6 +58,10 @@ def check_dependencies():
     print("  → Instalando dependencias del proyecto...")
     run([sys.executable, "-m", "pip", "install", "-r", str(PROJECT_DIR / "requirements.txt"), "-q"])
     
+    # Dependencias adicionales para empaquetado
+    print("  → Instalando dependencias de empaquetado...")
+    run([sys.executable, "-m", "pip", "install", "appdirs", "packaging", "-q"])
+    
     # Instalar pyobjc para la ventana nativa
     print("  → Instalando PyObjC para ventana nativa...")
     run([sys.executable, "-m", "pip", "install", "pyobjc-framework-WebKit", "pyobjc-framework-Cocoa", "-q"])
@@ -235,6 +239,12 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=[
+        "appdirs",
+        "packaging",
+        "packaging.version",
+        "packaging.specifiers",
+        "packaging.requirements",
+        "uvicorn",
         "uvicorn.logging",
         "uvicorn.loops",
         "uvicorn.loops.auto",
@@ -247,14 +257,21 @@ a = Analysis(
         "uvicorn.lifespan.on",
         "fastapi",
         "starlette",
+        "starlette.routing",
+        "starlette.middleware",
         "jinja2",
         "websockets",
         "lightgbm",
         "sklearn",
+        "sklearn.utils._cython_blas",
+        "sklearn.neighbors._typedefs",
+        "sklearn.neighbors._quad_tree",
+        "sklearn.tree._utils",
         "pandas",
         "numpy",
         "ta",
         "aiohttp",
+        "pkg_resources.py2_warn",
     ],
     hookspath=[],
     hooksconfig={{}},
