@@ -171,6 +171,94 @@ body:not(.is-booting) .boot { opacity: 0; visibility: hidden; pointer-events: no
 }
 
 /* ═══════════════════════════════════════════════════════════
+   BUNNY LOGO
+   ═══════════════════════════════════════════════════════════ */
+
+.bunny-logo {
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 20px;
+}
+
+.bunny-face {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  border-radius: 24px;
+  position: relative;
+  box-shadow: 0 0 40px var(--accent-glow), inset 0 0 20px rgba(0, 255, 136, 0.1);
+}
+
+.bunny-ear {
+  position: absolute;
+  width: 28px;
+  height: 55px;
+  background: #000;
+  top: -45px;
+  border-radius: 14px;
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.bunny-ear.left {
+  left: 22px;
+  transform: rotate(-12deg);
+}
+
+.bunny-ear.right {
+  right: 22px;
+  transform: rotate(12deg);
+}
+
+.bunny-eye {
+  position: absolute;
+  width: 32px;
+  height: 7px;
+  background: var(--accent);
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 4px;
+  box-shadow: 0 0 20px var(--accent), 0 0 40px var(--accent), 0 0 60px var(--accent-glow);
+  animation: eye-glow 2s ease-in-out infinite;
+}
+
+.bunny-eye.left {
+  left: 22px;
+}
+
+.bunny-eye.right {
+  right: 22px;
+}
+
+@keyframes eye-glow {
+  0%, 90%, 100% { opacity: 1; box-shadow: 0 0 20px var(--accent), 0 0 40px var(--accent); }
+  95% { opacity: 0.4; box-shadow: 0 0 10px var(--accent); }
+}
+
+/* Mini bunny for header */
+.bunny-mini {
+  width: 36px;
+  height: 36px;
+  background: #000;
+  border-radius: 8px;
+  position: relative;
+  box-shadow: 0 0 15px var(--accent-glow);
+}
+
+.bunny-mini .bunny-eye {
+  width: 10px;
+  height: 3px;
+  top: 50%;
+}
+
+.bunny-mini .bunny-eye.left {
+  left: 6px;
+}
+
+.bunny-mini .bunny-eye.right {
+  right: 6px;
+}
+
+/* ═══════════════════════════════════════════════════════════
    BACKGROUND EFFECTS
    ═══════════════════════════════════════════════════════════ */
 
