@@ -17,20 +17,23 @@ import pandas as pd
 try:
     import xgboost as xgb
     HAS_XGBOOST = True
-except ImportError:
+except Exception:
     HAS_XGBOOST = False
+    xgb = None
 
 try:
     import lightgbm as lgb
     HAS_LIGHTGBM = True
-except ImportError:
+except Exception:
     HAS_LIGHTGBM = False
+    lgb = None
 
 try:
     import ta
     HAS_TA = True
-except ImportError:
+except Exception:
     HAS_TA = False
+    ta = None
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import TimeSeriesSplit
@@ -392,7 +395,9 @@ class PredictionModel:
         X_train, X_val = X_scaled[:split_idx], X_scaled[split_idx:]
         y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
         
-        if self.model_type == ModelType.LIGHTGBM and HAS_LIGHTGBM:
+        # Intentar usar el modelo solicitado, o fallback al disponible
+        if (self.model_type == ModelType.LIGHTGBM and HAS_LIGHTGBM) or (not HAS_XGBOOST and HAS_LIGHTGBM):
+            self.model_type = ModelType.LIGHTGBM
             self.model = lgb.LGBMClassifier(
                 n_estimators=200,
                 max_depth=6,
@@ -406,7 +411,9 @@ class PredictionModel:
                 random_state=42,
                 verbosity=-1
             )
-        elif self.model_type == ModelType.XGBOOST and HAS_XGBOOST:
+            logger.info("Using LightGBM model")
+        elif (self.model_type == ModelType.XGBOOST and HAS_XGBOOST) or (not HAS_LIGHTGBM and HAS_XGBOOST):
+            self.model_type = ModelType.XGBOOST
             self.model = xgb.XGBClassifier(
                 n_estimators=200,
                 max_depth=6,
@@ -419,8 +426,9 @@ class PredictionModel:
                 use_label_encoder=False,
                 eval_metric="logloss"
             )
+            logger.info("Using XGBoost model")
         else:
-            raise ValueError(f"Model type {self.model_type} not available")
+            raise ValueError("No ML model available. Install lightgbm: pip3 install lightgbm")
         
         self.model.fit(X_train, y_train)
         self._is_trained = True
