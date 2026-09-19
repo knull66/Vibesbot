@@ -397,7 +397,24 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     
     app = FastAPI(title="Vibesbot Dashboard")
     
-    web_dir = Path(__file__).parent.parent / "web"
+    # Buscar directorio web en varias ubicaciones posibles
+    possible_web_dirs = [
+        Path(__file__).parent.parent / "web",  # Desarrollo normal
+        Path.cwd() / "web",  # Directorio actual
+        Path(__file__).parent / "web",  # Mismo nivel que src
+    ]
+    
+    web_dir = None
+    for d in possible_web_dirs:
+        if d.exists() and (d / "templates").exists():
+            web_dir = d
+            logger.info(f"Found web directory at: {web_dir}")
+            break
+    
+    if web_dir is None:
+        web_dir = Path(__file__).parent.parent / "web"
+        logger.warning(f"Web directory not found, using default: {web_dir}")
+    
     templates = Jinja2Templates(directory=str(web_dir / "templates"))
     app.mount("/static", StaticFiles(directory=str(web_dir / "static")), name="static")
     

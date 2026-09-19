@@ -350,40 +350,53 @@ def create_icns():
         return None
     
     iconset_dir = DIST_DIR / "AppIcon.iconset"
+    if iconset_dir.exists():
+        shutil.rmtree(iconset_dir)
     iconset_dir.mkdir(parents=True, exist_ok=True)
     
-    # Crear diferentes tamaños
-    sizes = [16, 32, 64, 128, 256, 512, 1024]
+    # Tamaños requeridos para macOS
+    icon_sizes = [
+        (16, "16x16"),
+        (32, "16x16@2x"),
+        (32, "32x32"),
+        (64, "32x32@2x"),
+        (128, "128x128"),
+        (256, "128x128@2x"),
+        (256, "256x256"),
+        (512, "256x256@2x"),
+        (512, "512x512"),
+        (1024, "512x512@2x"),
+    ]
     
-    for size in sizes:
-        # Normal
-        out_file = iconset_dir / f"icon_{size}x{size}.png"
-        subprocess.run([
+    print("  → Generando tamaños de icono...")
+    for size, name in icon_sizes:
+        out_file = iconset_dir / f"icon_{name}.png"
+        result = subprocess.run([
             "sips", "-z", str(size), str(size),
             str(icon_png), "--out", str(out_file)
         ], capture_output=True)
-        
-        # @2x (retina)
-        if size <= 512:
-            out_file_2x = iconset_dir / f"icon_{size}x{size}@2x.png"
-            subprocess.run([
-                "sips", "-z", str(size*2), str(size*2),
-                str(icon_png), "--out", str(out_file_2x)
-            ], capture_output=True)
+        if result.returncode != 0:
+            print(f"    ⚠ Error creando {name}")
     
     # Convertir a icns
     icns_path = RESOURCES_DIR / "AppIcon.icns"
-    subprocess.run([
+    result = subprocess.run([
         "iconutil", "-c", "icns", str(iconset_dir), "-o", str(icns_path)
-    ], capture_output=True)
+    ], capture_output=True, text=True)
     
     # Limpiar
-    shutil.rmtree(iconset_dir)
+    shutil.rmtree(iconset_dir, ignore_errors=True)
     
     if icns_path.exists():
-        print("  ✓ Icono creado")
+        print("  ✓ Icono .icns creado")
         return icns_path
-    return None
+    else:
+        print(f"  ⚠ Error creando icns: {result.stderr}")
+        # Copiar PNG como fallback
+        fallback = RESOURCES_DIR / "AppIcon.png"
+        shutil.copy(icon_png, fallback)
+        print("  → Usando PNG como fallback")
+        return fallback
 
 
 def build_app():
@@ -446,13 +459,16 @@ def build_app():
 
 
 def create_dmg():
-    """Crea el DMG"""
-    print("\n📦 Creando DMG...")
+    """Crea el DMG con diseño profesional"""
+    print("\n📦 Creando DMG con diseño personalizado...")
     
     dmg_path = DIST_DIR / f"{APP_NAME}-{VERSION}.dmg"
+    temp_dmg = DIST_DIR / "temp.dmg"
     
     if dmg_path.exists():
         dmg_path.unlink()
+    if temp_dmg.exists():
+        temp_dmg.unlink()
     
     # Crear carpeta temporal para DMG
     dmg_staging = DIST_DIR / "dmg_staging"
@@ -466,39 +482,78 @@ def create_dmg():
     # Symlink a Applications
     (dmg_staging / "Applications").symlink_to("/Applications")
     
-    # README
-    readme = dmg_staging / "INSTRUCCIONES.txt"
-    readme.write_text(f"""
-═══════════════════════════════════════════════════════════
-   ⚡ VIBESBOT v{VERSION}
-   Bot de Trading para Binance Prediction
-═══════════════════════════════════════════════════════════
-
-INSTALACIÓN:
-  1. Arrastra "Vibesbot" a "Applications"
-  2. Abre desde Applications o Launchpad
-  
-PRIMERA VEZ:
-  La app instalará dependencias automáticamente.
-  Esto toma ~1 minuto solo la primera vez.
-
-SI MACOS BLOQUEA LA APP:
-  Sistema → Privacidad y Seguridad → "Abrir de todos modos"
-
-═══════════════════════════════════════════════════════════
-""")
+    # Copiar fondo si existe
+    bg_source = PROJECT_DIR / "assets" / "dmg_background.png"
+    if bg_source.exists():
+        bg_dir = dmg_staging / ".background"
+        bg_dir.mkdir()
+        shutil.copy(bg_source, bg_dir / "background.png")
     
-    # Crear DMG
+    # Crear DMG inicial (writable)
     subprocess.run([
         "hdiutil", "create",
         "-volname", APP_NAME,
         "-srcfolder", str(dmg_staging),
         "-ov",
+        "-format", "UDRW",
+        str(temp_dmg)
+    ], capture_output=True)
+    
+    # Montar DMG para configurar diseño
+    mount_result = subprocess.run([
+        "hdiutil", "attach", str(temp_dmg), "-readwrite", "-noverify"
+    ], capture_output=True, text=True)
+    
+    if mount_result.returncode == 0:
+        mount_point = f"/Volumes/{APP_NAME}"
+        
+        # Configurar vista del DMG con AppleScript
+        applescript = f'''
+tell application "Finder"
+    tell disk "{APP_NAME}"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set bounds of container window to {{100, 100, 640, 480}}
+        set theViewOptions to the icon view options of container window
+        set arrangement of theViewOptions to not arranged
+        set icon size of theViewOptions to 100
+        
+        -- Posicionar iconos
+        set position of item "{APP_NAME}.app" of container window to {{140, 180}}
+        set position of item "Applications" of container window to {{400, 180}}
+        
+        -- Configurar fondo si existe
+        try
+            set background picture of theViewOptions to file ".background:background.png"
+        end try
+        
+        close
+        open
+        update without registering applications
+        delay 2
+        close
+    end tell
+end tell
+'''
+        
+        subprocess.run(["osascript", "-e", applescript], capture_output=True)
+        
+        # Desmontar
+        subprocess.run(["hdiutil", "detach", mount_point, "-quiet"], capture_output=True)
+    
+    # Convertir a DMG comprimido final
+    subprocess.run([
+        "hdiutil", "convert", str(temp_dmg),
         "-format", "UDZO",
-        str(dmg_path)
+        "-imagekey", "zlib-level=9",
+        "-o", str(dmg_path)
     ], capture_output=True)
     
     # Limpiar
+    if temp_dmg.exists():
+        temp_dmg.unlink()
     shutil.rmtree(dmg_staging)
     
     if dmg_path.exists():

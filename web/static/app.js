@@ -417,17 +417,29 @@ class VibesbotDashboard {
     });
     
     // Settings button
-    document.getElementById('btn-settings').addEventListener('click', () => {
-      this.openSettings();
-    });
+    const btnSettings = document.getElementById('btn-settings');
+    if (btnSettings) {
+      btnSettings.addEventListener('click', () => {
+        console.log('Settings button clicked');
+        this.openSettings();
+      });
+    } else {
+      console.error('Settings button not found');
+    }
     
-    document.getElementById('settings-close').addEventListener('click', () => {
-      this.closeSettings();
-    });
+    const settingsClose = document.getElementById('settings-close');
+    if (settingsClose) {
+      settingsClose.addEventListener('click', () => {
+        this.closeSettings();
+      });
+    }
     
-    document.querySelector('.modal-backdrop').addEventListener('click', () => {
-      this.closeSettings();
-    });
+    const modalBackdrop = document.querySelector('.modal-backdrop');
+    if (modalBackdrop) {
+      modalBackdrop.addEventListener('click', () => {
+        this.closeSettings();
+      });
+    }
     
     // Settings tabs
     document.querySelectorAll('.settings-tab').forEach(tab => {
@@ -496,12 +508,22 @@ class VibesbotDashboard {
   // ═══════════════════════════════════════════════════════════
 
   openSettings() {
-    document.getElementById('settings-modal').classList.add('active');
-    this.loadSettings();
+    console.log('Opening settings...');
+    const modal = document.getElementById('settings-modal');
+    if (modal) {
+      modal.classList.add('active');
+      this.loadSettings();
+    } else {
+      console.error('Settings modal not found!');
+      alert('Error: Panel de configuración no encontrado');
+    }
   }
 
   closeSettings() {
-    document.getElementById('settings-modal').classList.remove('active');
+    const modal = document.getElementById('settings-modal');
+    if (modal) {
+      modal.classList.remove('active');
+    }
   }
 
   async loadSettings() {
