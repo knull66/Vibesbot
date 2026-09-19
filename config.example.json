@@ -1,0 +1,55 @@
+{
+  "trading": {
+    "initial_capital": 100.0,
+    "base_bet_amount": 1.0,
+    "min_bet_amount": 0.1,
+    "max_bet_amount": 10.0,
+    "sizing_strategy": "half_kelly",
+    "kelly_fraction": 0.5,
+    "percent_of_capital": 0.02,
+    "anti_martingale_multiplier": 1.5,
+    "anti_martingale_max_streak": 3
+  },
+  "prediction": {
+    "confidence_threshold": 0.62,
+    "min_confidence_for_high_bet": 0.70,
+    "model_path": "models/prediction_model.pkl",
+    "scaler_path": "models/feature_scaler.pkl",
+    "lookback_periods": 100,
+    "feature_window_1m": 60,
+    "feature_window_5m": 20,
+    "use_order_book": true,
+    "use_trade_flow": true,
+    "use_technical_indicators": true
+  },
+  "risk": {
+    "max_daily_loss": 20.0,
+    "max_daily_loss_percent": 0.20,
+    "circuit_breaker_consecutive_losses": 5,
+    "circuit_breaker_cooldown_minutes": 30,
+    "min_volatility_threshold": 0.0005,
+    "max_volatility_threshold": 0.02,
+    "max_trades_per_hour": 12,
+    "max_trades_per_day": 100
+  },
+  "data_stream": {
+    "exchange": "binance",
+    "symbol": "BTC/USDT",
+    "timeframes": ["1m", "5m"],
+    "orderbook_depth": 20,
+    "use_testnet": false
+  },
+  "browser": {
+    "user_data_dir": "./user_data",
+    "headless": false,
+    "execution_offset_seconds": 12
+  },
+  "logging": {
+    "log_dir": "./logs",
+    "log_level": "INFO",
+    "console_output": true,
+    "file_output": true,
+    "json_format": false
+  },
+  "environment": "development"
+}
