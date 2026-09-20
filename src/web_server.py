@@ -389,17 +389,17 @@ class DashboardBot:
             if not signal or signal == "WAIT":
                 await self.manager.broadcast({
                     "type": "log", 
-                    "message": "Skipped: No valid prediction",
-                    "level": "warn"
+                    "message": "WAITING FOR SIGNAL",
+                    "level": "info"
                 })
                 return
             
-            # Solo tradear si hay suficiente confianza (>55%)
-            if confidence < 0.55:
+            # Solo tradear si hay suficiente confianza (>50%)
+            if confidence < 0.50:
                 await self.manager.broadcast({
                     "type": "log", 
-                    "message": f"Skipped: Low confidence ({confidence*100:.1f}%)",
-                    "level": "warn"
+                    "message": f"SKIP: Confidence too low ({confidence*100:.0f}%)",
+                    "level": "info"
                 })
                 return
             
