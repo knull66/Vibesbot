@@ -1,11 +1,13 @@
 import unittest
 
 from src.wallet_prediction import (
+    WalletPredictionClient,
     is_btc_short_window,
     outcome_token,
     paper_fill,
     pick_active_btc_window,
     settle_direction,
+    settle_payout,
     taker_fee,
 )
 
@@ -25,6 +27,22 @@ class WalletMathTests(unittest.TestCase):
         self.assertEqual(settle_direction(100.0, 100.2), "UP")
         self.assertEqual(settle_direction(100.0, 99.8), "DOWN")
         self.assertEqual(settle_direction(100.0, 100.0), "FLAT")
+
+    def test_tie_pays_half(self):
+        fill = paper_fill(1.0, 0.50, 200)
+        actual, result, pnl = settle_payout("UP", 100.0, 100.0, fill["shares"], fill["cost"])
+        self.assertEqual(actual, "FLAT")
+        self.assertEqual(result, "PUSH")
+        self.assertAlmostEqual(pnl, -fill["fee"], places=4)
+
+    def test_prefers_prediction_wallet_balance(self):
+        client = WalletPredictionClient("k", "s")
+        account = client._choose_account([
+            {"accountType": "FUNDING", "availableBalanceDisplay": "20", "enabled": True},
+            {"accountType": "CeDefi", "availableBalanceDisplay": "10", "enabled": True},
+            {"accountType": "SPOT", "availableBalanceDisplay": "50", "enabled": True},
+        ])
+        self.assertEqual(account, "CeDefi")
 
 
 class WalletMarketPickerTests(unittest.TestCase):

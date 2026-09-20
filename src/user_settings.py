@@ -47,9 +47,12 @@ def pick_live_wallet(wallets: Dict[str, float]) -> tuple:
     if not wallets:
         return "Spot", 0.0
     preferred = (
+        "wallet cedefi",
+        "cedefi",
         "prediction",
         "binance prediction",
         "predict",
+        "wallet funding",
         "funding",
         "spot",
         "main",

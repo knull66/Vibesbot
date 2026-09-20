@@ -36,7 +36,7 @@ from .wallet_prediction import (
     WalletPredictionClient,
     outcome_token,
     paper_fill,
-    settle_direction,
+    settle_payout,
 )
 
 
@@ -663,14 +663,13 @@ class DashboardBot:
     async def _settle_trade(self, session: ClientSession, pending: PendingWalletTrade, close_price: float) -> None:
         from datetime import datetime
 
-        actual = settle_direction(pending.open_price, close_price)
-        is_win = actual == pending.signal
-        pnl = pending.shares - pending.cost if is_win else -pending.cost
-        result = "WIN" if is_win else "LOSS"
-        if is_win:
+        actual, result, pnl = settle_payout(
+            pending.signal, pending.open_price, close_price, pending.shares, pending.cost
+        )
+        if result == "WIN":
             session.wins += 1
             session.streak = max(1, session.streak + 1) if session.streak >= 0 else 1
-        else:
+        elif result == "LOSS":
             session.losses += 1
             session.streak = min(-1, session.streak - 1) if session.streak <= 0 else -1
         session.cumulative_pnl += pnl
@@ -711,11 +710,16 @@ class DashboardBot:
             "pnl": pnl,
             "result": result,
         })
-        explanation = "Price flat" if actual == "FLAT" else f"Price {actual} [{'correct' if is_win else 'wrong'}]"
+        if actual == "FLAT":
+            explanation = "Tie 50-50 (Chainlink rule)"
+            level = "info"
+        else:
+            explanation = f"Price {actual} [{'correct' if result == 'WIN' else 'wrong'}]"
+            level = "win" if result == "WIN" else "loss"
         await self.manager.send_to_session(session.session_id, {
             "type": "log",
             "message": f"{'REAL' if pending.live else 'SIM'} {pending.signal} | ${pending.open_price:,.2f} -> ${close_price:,.2f} | {result} | {explanation} | P&L ${pnl:+.2f}",
-            "level": "win" if is_win else "loss",
+            "level": level,
         })
         await self.manager.send_to_session(session.session_id, session.stats_payload())
         self._save_session(session)

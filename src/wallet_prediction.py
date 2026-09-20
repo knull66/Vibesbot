@@ -49,6 +49,16 @@ def settle_direction(open_price: float, close_price: float) -> str:
     return "FLAT"
 
 
+def settle_payout(signal: str, open_price: float, close_price: float, shares: float, cost: float) -> tuple:
+    """Wallet rule: Up/Down vs range; exact tie resolves 50-50 (0.50 per share)."""
+    actual = settle_direction(open_price, close_price)
+    if actual == "FLAT":
+        return actual, "PUSH", (float(shares) * 0.5) - float(cost)
+    if actual == str(signal).upper():
+        return actual, "WIN", float(shares) - float(cost)
+    return actual, "LOSS", -float(cost)
+
+
 def is_btc_short_window(topic: Dict[str, Any], minutes: int = 5) -> bool:
     slug = str(topic.get("slug") or "").lower()
     title = str(topic.get("title") or "").lower()
@@ -220,12 +230,23 @@ class WalletPredictionClient:
         return self._wallet
 
     def _choose_account(self, options: List[Dict[str, Any]]) -> str:
+        def balance(row: Dict[str, Any]) -> float:
+            try:
+                return float(row.get("availableBalanceDisplay") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
         enabled = [row for row in options if row.get("enabled") is not False]
-        for preferred in ("FUNDING", "SPOT", "CeDefi"):
+        ranked = ("CEDEFI", "PREDICTION", "WALLET", "FUNDING", "SPOT")
+        for preferred in ranked:
             for row in enabled or options:
-                if str(row.get("accountType") or "").upper() == preferred:
-                    return preferred
-        return "FUNDING"
+                name = str(row.get("accountType") or "").upper()
+                if name == preferred and balance(row) > 0:
+                    return str(row.get("accountType"))
+        funded = [row for row in (enabled or options) if balance(row) > 0]
+        if funded:
+            return str(max(funded, key=balance).get("accountType"))
+        return "CeDefi"
 
     async def quote_and_buy(
         self,
@@ -252,6 +273,7 @@ class WalletPredictionClient:
             "orderType": "MARKET",
             "slippageBps": slippage,
             "binanceChainId": str(topic.get("chainId") or "56"),
+            "fundingSource": "MPC",
         }
         if topic.get("marketTopicId") not in (None, ""):
             quote_req["marketTopicId"] = topic.get("marketTopicId")
@@ -269,6 +291,7 @@ class WalletPredictionClient:
             "orderType": "MARKET",
             "timeInForce": "FOK",
             "accountType": account_type,
+            "fundingSource": "MPC",
         }
         status, placed = await self._request("POST", "trade/place-order-bundle", place_req)
         if status != 200 or not isinstance(placed, dict):
