@@ -414,14 +414,19 @@ class DashboardBot:
                 new_price = self.data_stream.get_current_price() or current_price
             
             # Determinar resultado basado en movimiento real del precio
-            price_moved_up = new_price > entry_price
+            price_diff = new_price - entry_price
+            price_moved_up = price_diff > 0
+            price_moved_down = price_diff < 0
+            price_unchanged = abs(price_diff) < 0.01
             
             # WIN si: predijimos UP y el precio subió, o predijimos DOWN y el precio bajó
-            is_win = (signal == "UP" and price_moved_up) or (signal == "DOWN" and not price_moved_up)
-            
-            # Si el precio no se movió, usar probabilidad basada en confianza
-            if abs(new_price - entry_price) < 0.01:
-                is_win = random.random() < (confidence * 0.8 + 0.1)
+            if price_unchanged:
+                # Precio sin cambio significativo - usar probabilidad basada en confianza
+                is_win = random.random() < (confidence * 0.7 + 0.15)
+                actual_direction = "FLAT"
+            else:
+                actual_direction = "UP" if price_moved_up else "DOWN"
+                is_win = (signal == actual_direction)
             
             pnl = amount * 0.95 if is_win else -amount
             result = "WIN" if is_win else "LOSS"
@@ -468,35 +473,46 @@ class DashboardBot:
             
             # Enviar log detallado
             emoji = "✓" if is_win else "✗"
-            price_diff = abs(new_price - entry_price)
+            abs_diff = abs(new_price - entry_price)
             
-            explanation = ""
-            if signal == "UP":
-                if price_moved_up:
-                    explanation = "Price went UP as predicted"
-                else:
-                    explanation = "Price went DOWN (wrong)"
-            else:  # DOWN
-                if not price_moved_up:
-                    explanation = "Price went DOWN as predicted"
-                else:
-                    explanation = "Price went UP (wrong)"
+            # Explicación clara
+            if actual_direction == "FLAT":
+                explanation = f"Price unchanged (~${abs_diff:.2f})"
+            elif actual_direction == signal:
+                explanation = f"Price went {actual_direction} ✓"
+            else:
+                explanation = f"Price went {actual_direction} (predicted {signal})"
+            
+            log_level = "win" if is_win else "loss"
             
             await self.manager.broadcast({
                 "type": "log",
-                "message": f"{emoji} Bet {signal} @ ${entry_price:,.0f} → ${new_price:,.0f} ({price_direction}${price_diff:.2f}) = {result}",
-                "level": "success" if is_win else "error"
+                "message": f"{emoji} BET {signal} | Entry: ${entry_price:,.2f} → Exit: ${new_price:,.2f}",
+                "level": log_level
             })
             
             await self.manager.broadcast({
                 "type": "log",
-                "message": f"   {explanation}. P&L: ${pnl:+.2f}",
-                "level": "success" if is_win else "error"
+                "message": f"   {explanation} | {result} | P&L: ${pnl:+.2f}",
+                "level": log_level
             })
             
-            # Actualizar stats
+            # Actualizar stats completas
             total_trades = self._wins + self._losses
             winrate = (self._wins / max(1, total_trades)) * 100
+            
+            # Kelly Criterion
+            if total_trades >= 5:
+                p = self._wins / total_trades
+                b = 0.95  # odds (95% payout)
+                kelly_pct = max(0, ((p * b - (1 - p)) / b) * 100)
+            else:
+                kelly_pct = 0
+            
+            # Profit factor
+            total_wins_amount = self._wins * 0.95
+            total_losses_amount = self._losses * 1.0
+            profit_factor = total_wins_amount / max(0.01, total_losses_amount)
             
             await self.manager.broadcast({
                 "type": "stats",
@@ -506,8 +522,13 @@ class DashboardBot:
                 "winrate": winrate,
                 "wins": self._wins,
                 "losses": self._losses,
-                "streak": 0,
-                "max_drawdown": 0
+                "streak": self._streak,
+                "best_streak": self._best_streak,
+                "worst_streak": self._worst_streak,
+                "kelly": kelly_pct,
+                "profit_factor": profit_factor,
+                "max_drawdown": self._max_drawdown,
+                "equity_history": self._equity_history[-50:]
             })
             
             logger.info(f"Trade: {signal} @ ${entry_price:.2f} -> ${new_price:.2f} = {result} (${pnl:+.2f})")
@@ -549,43 +570,59 @@ class DashboardBot:
         if len(self._price_history) > 300:  # Mantener últimos 5 minutos
             self._price_history = self._price_history[-300:]
         
-        # Obtener features
+        # Obtener features técnicos
         rsi = 50.0
         macd = 0.0
-        obi = 0.0
-        volatility = 0.002
+        bb_position = "MID"
+        momentum = 0.0
         
         if self.data_stream:
-            volatility = self.data_stream.get_volatility("1m", 20) or 0.002
-            trade_flow = self.data_stream.calculate_trade_flow(60)
-            obi = trade_flow.get("flow_imbalance", 0) or 0.0
-            
             df_1m = self.data_stream.get_candles_df("1m")
-            if len(df_1m) > 20:
+            if len(df_1m) > 26:
                 try:
                     import ta
                     close = df_1m["close"].astype(float)
+                    current_price = close.iloc[-1]
+                    
+                    # RSI
                     rsi_series = ta.momentum.RSIIndicator(close, window=14).rsi()
                     if len(rsi_series.dropna()) > 0:
                         rsi = float(rsi_series.iloc[-1])
-                    macd_series = ta.trend.MACD(close).macd_diff()
-                    if len(macd_series.dropna()) > 0:
-                        macd = float(macd_series.iloc[-1])
-                except:
-                    pass
+                    
+                    # MACD
+                    macd_indicator = ta.trend.MACD(close)
+                    macd_diff = macd_indicator.macd_diff()
+                    if len(macd_diff.dropna()) > 0:
+                        macd = float(macd_diff.iloc[-1])
+                    
+                    # Bollinger Bands
+                    bb = ta.volatility.BollingerBands(close, window=20)
+                    bb_high = bb.bollinger_hband().iloc[-1]
+                    bb_low = bb.bollinger_lband().iloc[-1]
+                    if current_price > bb_high:
+                        bb_position = "UPPER"
+                    elif current_price < bb_low:
+                        bb_position = "LOWER"
+                    else:
+                        bb_position = "MID"
+                    
+                    # Momentum
+                    if len(close) >= 5:
+                        momentum = float(close.iloc[-1] - close.iloc[-5])
+                except Exception as e:
+                    logger.debug(f"Error calculating features: {e}")
         
-        # Enviar market_data con historial para chart
+        # Enviar market data
         await self.manager.broadcast({
-            "type": "market_data",
+            "type": "market",
             "price": price,
-            "round_timer": remaining,
+            "timer": remaining,
             "features": {
                 "rsi": rsi,
                 "macd": macd,
-                "obi": obi,
-                "volatility": volatility
-            },
-            "chart_data": self._price_history[-60:]  # Últimos 60 puntos para el chart
+                "bb": bb_position,
+                "momentum": momentum
+            }
         })
         
         # Calcular stats

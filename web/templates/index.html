@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VIBESBOT</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- App -->
     <div class="app">
         <!-- Header -->
         <header class="header">
@@ -50,13 +51,14 @@
 
         <!-- Main Content -->
         <main class="main">
-            <!-- Signal Panel -->
+            <!-- Left Panel - Signal & Price -->
             <div class="panel">
                 <div class="panel-header">
                     <span class="panel-icon">◉</span>
                     <span class="panel-title">SIGNAL RADAR</span>
                 </div>
                 <div class="panel-body">
+                    <!-- Signal Display -->
                     <div class="signal-display">
                         <div class="signal-direction wait" id="signal-display">
                             <span class="signal-arrow">—</span>
@@ -81,131 +83,196 @@
                         </div>
                     </div>
 
+                    <!-- Price to Beat Section (like Binance) -->
+                    <div class="price-target-section">
+                        <div class="price-target">
+                            <span class="price-label">ENTRY PRICE</span>
+                            <span class="price-value" id="entry-price">$--</span>
+                        </div>
+                        <div class="price-vs">VS</div>
+                        <div class="price-current">
+                            <span class="price-label">CURRENT</span>
+                            <span class="price-value live" id="live-price">$--</span>
+                        </div>
+                        <div class="price-diff" id="price-diff">
+                            <span>--</span>
+                        </div>
+                    </div>
+
+                    <!-- Mini Chart -->
+                    <div class="mini-chart-container">
+                        <canvas id="mini-chart"></canvas>
+                    </div>
+
+                    <!-- Technical Indicators -->
                     <div class="features-list">
                         <div class="feature-row">
                             <span class="feature-label">RSI(14)</span>
                             <span class="feature-value" id="feature-rsi">--</span>
+                            <div class="feature-bar"><div class="feature-fill rsi" id="rsi-bar"></div></div>
                         </div>
                         <div class="feature-row">
-                            <span class="feature-label">MACD Hist</span>
+                            <span class="feature-label">MACD</span>
                             <span class="feature-value" id="feature-macd">--</span>
+                            <div class="feature-indicator" id="macd-indicator">●</div>
                         </div>
                         <div class="feature-row">
-                            <span class="feature-label">OBI(5)</span>
-                            <span class="feature-value" id="feature-obi">--</span>
+                            <span class="feature-label">BB</span>
+                            <span class="feature-value" id="feature-bb">--</span>
+                            <div class="feature-indicator" id="bb-indicator">●</div>
                         </div>
                         <div class="feature-row">
-                            <span class="feature-label">Volatility</span>
-                            <span class="feature-value" id="feature-vol">--</span>
+                            <span class="feature-label">MOM</span>
+                            <span class="feature-value" id="feature-mom">--</span>
+                            <div class="feature-indicator" id="mom-indicator">●</div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Center Panel -->
-            <div class="panel">
+            <!-- Center Panel - Stats & Chart -->
+            <div class="panel panel-center">
                 <div class="tabs">
                     <button class="tab active" data-tab="stats">STATS</button>
                     <button class="tab" data-tab="chart">CHART</button>
-                    <button class="tab" data-tab="risk">RISK</button>
+                    <button class="tab" data-tab="history">HISTORY</button>
                 </div>
 
                 <div class="tab-content active" id="tab-stats">
+                    <!-- Main Stats Row -->
+                    <div class="main-stats">
+                        <div class="main-stat capital">
+                            <div class="main-stat-value" id="stat-capital">$100.00</div>
+                            <div class="main-stat-label">CAPITAL</div>
+                        </div>
+                        <div class="main-stat pnl">
+                            <div class="main-stat-value positive" id="stat-pnl">+$0.00</div>
+                            <div class="main-stat-label">TOTAL P&L</div>
+                        </div>
+                        <div class="main-stat winrate">
+                            <div class="main-stat-value" id="stat-winrate">0.0%</div>
+                            <div class="main-stat-label">WIN RATE</div>
+                            <div class="winrate-bar">
+                                <div class="winrate-fill" id="winrate-fill"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stats Grid -->
                     <div class="stats-grid">
                         <div class="stat-card">
-                            <div class="stat-value" id="stat-capital">$100.00</div>
-                            <div class="stat-label">Capital</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value positive" id="stat-pnl">$0.00</div>
-                            <div class="stat-label">Daily P&L</div>
-                        </div>
-                        <div class="stat-card">
+                            <div class="stat-icon">📊</div>
                             <div class="stat-value" id="stat-trades">0</div>
                             <div class="stat-label">Trades</div>
                         </div>
-                        <div class="stat-card">
-                            <div class="stat-value" id="stat-winrate">0.0%</div>
-                            <div class="stat-label">Win Rate</div>
-                        </div>
-                        <div class="stat-card">
+                        <div class="stat-card win">
+                            <div class="stat-icon">✓</div>
                             <div class="stat-value" id="stat-wins">0</div>
                             <div class="stat-label">Wins</div>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card loss">
+                            <div class="stat-icon">✗</div>
                             <div class="stat-value" id="stat-losses">0</div>
                             <div class="stat-label">Losses</div>
                         </div>
                         <div class="stat-card">
+                            <div class="stat-icon">🔥</div>
                             <div class="stat-value" id="stat-streak">0</div>
                             <div class="stat-label">Streak</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value negative" id="stat-drawdown">0.0%</div>
-                            <div class="stat-label">Max DD</div>
+                            <div class="stat-icon">📈</div>
+                            <div class="stat-value" id="stat-best-streak">0</div>
+                            <div class="stat-label">Best</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value" id="stat-kelly">--</div>
-                            <div class="stat-label">Kelly %</div>
+                            <div class="stat-icon">📉</div>
+                            <div class="stat-value" id="stat-worst-streak">0</div>
+                            <div class="stat-label">Worst</div>
                         </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">⚡</div>
+                            <div class="stat-value" id="stat-kelly">--%</div>
+                            <div class="stat-label">Kelly</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">🎯</div>
+                            <div class="stat-value" id="stat-profit-factor">--</div>
+                            <div class="stat-label">PF</div>
+                        </div>
+                        <div class="stat-card danger">
+                            <div class="stat-icon">⚠</div>
+                            <div class="stat-value" id="stat-max-dd">0.0%</div>
+                            <div class="stat-label">Max DD</div>
+                        </div>
+                    </div>
+
+                    <!-- Equity Mini Chart -->
+                    <div class="equity-section">
+                        <div class="section-title">EQUITY CURVE</div>
+                        <canvas id="equity-chart"></canvas>
                     </div>
                 </div>
 
                 <div class="tab-content" id="tab-chart">
+                    <div class="chart-header">
+                        <span>BTC/USDT PRICE</span>
+                        <span class="chart-price" id="chart-current-price">$--</span>
+                    </div>
                     <div class="chart-container">
                         <canvas id="price-chart"></canvas>
                     </div>
                 </div>
 
-                <div class="tab-content" id="tab-risk">
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-value" id="stat-streak">0</div>
-                            <div class="stat-label">Current Streak</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value positive" id="stat-best-streak">0</div>
-                            <div class="stat-label">Best Streak</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value negative" id="stat-worst-streak">0</div>
-                            <div class="stat-label">Worst Streak</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value" id="stat-profit-factor">--</div>
-                            <div class="stat-label">Profit Factor</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value negative" id="stat-max-dd">0.0%</div>
-                            <div class="stat-label">Max Drawdown</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value" id="stat-kelly">--</div>
-                            <div class="stat-label">Kelly %</div>
-                        </div>
+                <div class="tab-content" id="tab-history">
+                    <div class="history-header">
+                        <span>TRADE HISTORY</span>
+                        <span class="history-count" id="history-count">0 trades</span>
                     </div>
-                    
-                    <div style="margin-top:16px;">
-                        <div class="panel-title" style="margin-bottom:8px;">EQUITY CURVE</div>
-                        <div style="background:var(--bg-card); border-radius:4px; padding:8px;">
-                            <canvas id="equity-chart" style="width:100%; height:120px;"></canvas>
-                        </div>
+                    <div class="history-list" id="history-list">
+                        <div class="history-empty">No trades yet</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Trade Log Panel -->
+            <!-- Right Panel - Trade Log -->
             <div class="panel">
                 <div class="panel-header">
                     <span class="panel-icon">◆</span>
-                    <span class="panel-title">TRADE LOG</span>
-                    <span id="trade-count" style="margin-left:auto; font-size:10px; color:var(--accent);">0</span>
+                    <span class="panel-title">LIVE FEED</span>
+                    <span id="trade-count" class="trade-badge">0</span>
                 </div>
                 <div class="panel-body">
+                    <!-- Active Trade Display -->
+                    <div class="active-trade" id="active-trade" style="display:none;">
+                        <div class="active-trade-header">
+                            <span class="active-trade-label">ACTIVE POSITION</span>
+                            <span class="active-trade-direction" id="active-direction">UP</span>
+                        </div>
+                        <div class="active-trade-body">
+                            <div class="active-trade-row">
+                                <span>Entry:</span>
+                                <span id="active-entry">$--</span>
+                            </div>
+                            <div class="active-trade-row">
+                                <span>Current:</span>
+                                <span id="active-current">$--</span>
+                            </div>
+                            <div class="active-trade-row">
+                                <span>P&L:</span>
+                                <span id="active-pnl" class="positive">+$0.00</span>
+                            </div>
+                        </div>
+                        <div class="active-trade-progress">
+                            <div class="progress-bar" id="trade-progress"></div>
+                        </div>
+                    </div>
+
+                    <!-- Log List -->
                     <div class="log-list" id="trade-log">
                         <div class="log-empty">
-                            No trades yet<br>
-                            <small>Start the bot to begin</small>
+                            Waiting for signals...<br>
+                            <small>Press START to begin</small>
                         </div>
                     </div>
                 </div>
@@ -218,7 +285,11 @@
                 <span class="footer-label">Model:</span>
                 <span id="model-status">Not loaded</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.3.0</span></div>
+            <div class="footer-item">
+                <span class="footer-label">Strategy:</span>
+                <span id="strategy-status">Multi-Indicator</span>
+            </div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.5.1</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
     </div>
@@ -243,7 +314,7 @@
                 <div class="settings-panel active" id="panel-binance">
                     <div class="settings-section">
                         <h3>API Configuration</h3>
-                        <p class="settings-hint">Enter your Binance API credentials. Use Testnet for testing.</p>
+                        <p class="settings-hint">Enter your Binance API credentials.</p>
                         
                         <div class="form-group">
                             <label for="api-key">API Key</label>
@@ -256,12 +327,12 @@
                         <div class="form-group">
                             <label class="checkbox-label">
                                 <input type="checkbox" id="use-testnet" checked>
-                                Use Testnet (recommended for testing)
+                                Use Testnet
                             </label>
                         </div>
                         
                         <div class="form-actions">
-                            <button class="btn btn-primary" id="btn-test-api">Test Connection</button>
+                            <button class="btn btn-primary" id="btn-test-api">Test</button>
                             <button class="btn" id="btn-save-binance">Save</button>
                         </div>
                         
@@ -272,33 +343,6 @@
                 <!-- Trading Panel -->
                 <div class="settings-panel" id="panel-trading">
                     <div class="settings-section">
-                        <h3>Trading Style</h3>
-                        <p class="settings-hint">Choose how the bot handles positions</p>
-                        
-                        <div class="form-group">
-                            <label for="trading-style">Strategy</label>
-                            <select id="trading-style">
-                                <option value="hold">HOLD - Buy and wait for result</option>
-                                <option value="active">ACTIVE - Buy and sell based on conditions</option>
-                            </select>
-                        </div>
-                        
-                        <div id="active-settings" style="display:none; margin-top:12px; padding:12px; background:var(--bg-card); border-radius:4px;">
-                            <h3 style="margin-bottom:8px;">Active Trading Settings</h3>
-                            <div class="form-group">
-                                <label for="take-profit">Take Profit (%)</label>
-                                <input type="number" id="take-profit" value="30" min="5" max="100">
-                                <small style="color:var(--text-muted);">Sell if share price gains this %</small>
-                            </div>
-                            <div class="form-group">
-                                <label for="stop-loss">Stop Loss (%)</label>
-                                <input type="number" id="stop-loss" value="40" min="10" max="80">
-                                <small style="color:var(--text-muted);">Sell if share price drops this %</small>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="settings-section" style="margin-top:16px;">
                         <h3>Trading Parameters</h3>
                         
                         <div class="form-group">
@@ -306,20 +350,16 @@
                             <input type="number" id="bet-amount" value="1.00" min="0.1" step="0.1">
                         </div>
                         <div class="form-group">
-                            <label for="confidence-threshold">Confidence Threshold (%)</label>
-                            <input type="number" id="confidence-threshold" value="62" min="50" max="99">
+                            <label for="confidence-threshold">Min Confidence (%)</label>
+                            <input type="number" id="confidence-threshold" value="55" min="50" max="99">
                         </div>
                         <div class="form-group">
                             <label for="daily-loss-limit">Daily Loss Limit ($)</label>
                             <input type="number" id="daily-loss-limit" value="20" min="1">
                         </div>
-                        <div class="form-group">
-                            <label for="max-consec-loss">Max Consecutive Losses</label>
-                            <input type="number" id="max-consec-loss" value="5" min="1" max="20">
-                        </div>
                         
                         <div class="form-actions">
-                            <button class="btn btn-primary" id="btn-save-trading">Save Settings</button>
+                            <button class="btn btn-primary" id="btn-save-trading">Save</button>
                         </div>
                     </div>
                 </div>
@@ -335,26 +375,17 @@
                                 <div class="sim-stat-value" id="sim-balance">$100.00</div>
                             </div>
                             <div class="sim-stat">
-                                <div class="sim-stat-label">Total P&L</div>
+                                <div class="sim-stat-label">P&L</div>
                                 <div class="sim-stat-value" id="sim-pnl">$0.00</div>
                             </div>
                             <div class="sim-stat">
-                                <div class="sim-stat-label">Total Trades</div>
+                                <div class="sim-stat-label">Trades</div>
                                 <div class="sim-stat-value" id="sim-trades">0</div>
                             </div>
-                            <div class="sim-stat">
-                                <div class="sim-stat-label">Win Rate</div>
-                                <div class="sim-stat-value" id="sim-winrate">0.0%</div>
-                            </div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="sim-initial">Initial Capital ($)</label>
-                            <input type="number" id="sim-initial" value="100" min="10">
                         </div>
                         
                         <div class="form-actions">
-                            <button class="btn btn-danger" id="btn-reset-sim">Reset Simulation</button>
+                            <button class="btn btn-danger" id="btn-reset-sim">Reset</button>
                         </div>
                     </div>
                 </div>
@@ -362,23 +393,23 @@
                 <!-- Updates Panel -->
                 <div class="settings-panel" id="panel-updates">
                     <div class="settings-section">
-                        <h3>Auto Updates</h3>
+                        <h3>Updates</h3>
                         
                         <div class="update-info">
                             <div class="update-version">
-                                <span class="update-label">Current Version</span>
-                                <span class="update-value" id="current-version">v1.3.0</span>
+                                <span>Current:</span>
+                                <span id="current-version">v1.5.1</span>
                             </div>
                             <div class="update-version">
-                                <span class="update-label">Latest Version</span>
-                                <span class="update-value" id="latest-version">--</span>
+                                <span>Latest:</span>
+                                <span id="latest-version">--</span>
                             </div>
-                            <div class="update-status" id="update-status">Click 'Check' to look for updates</div>
+                            <div class="update-status" id="update-status"></div>
                         </div>
                         
                         <div class="form-actions">
-                            <button class="btn" id="btn-check-update">Check for Updates</button>
-                            <button class="btn btn-primary" id="btn-install-update" disabled>Install Update</button>
+                            <button class="btn" id="btn-check-update">Check</button>
+                            <button class="btn btn-primary" id="btn-install-update" disabled>Install</button>
                         </div>
                     </div>
                 </div>
@@ -394,15 +425,15 @@
                 <span class="modal-title" style="color:var(--down);">⚠ WARNING</span>
             </div>
             <div class="modal-body" style="padding:16px; text-align:center;">
-                <p style="color:var(--down); margin-bottom:12px; font-size:11px;">
-                    You are about to switch to <strong>REAL TRADING MODE</strong>
+                <p style="color:var(--down); margin-bottom:12px;">
+                    Switching to <strong>REAL TRADING MODE</strong>
                 </p>
                 <p style="color:var(--text-muted); font-size:10px; margin-bottom:16px;">
-                    Real money will be at risk. Make sure your Binance API is correctly configured.
+                    Real money will be at risk.
                 </p>
                 <div class="form-actions" style="justify-content:center;">
                     <button class="btn" id="btn-cancel-real">Cancel</button>
-                    <button class="btn btn-danger" id="btn-confirm-real">I Understand</button>
+                    <button class="btn btn-danger" id="btn-confirm-real">Confirm</button>
                 </div>
             </div>
         </div>
