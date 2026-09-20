@@ -225,18 +225,19 @@ class DataStream:
     
     @property
     def base_ws_url(self) -> str:
-        """URL base para WebSocket - usando SPOT (no Futures)."""
+        """URL base para WebSocket - usando endpoint global."""
         if self.config.use_testnet:
             return "wss://testnet.binance.vision/ws"
-        # SPOT WebSocket para Binance Prediction (usa precio spot, no futures)
-        return "wss://stream.binance.com:9443/ws"
+        # Usar data-stream que funciona globalmente (sin restricciones geo)
+        return "wss://data-stream.binance.vision/ws"
     
     @property
     def base_api_url(self) -> str:
-        """URL base para API REST."""
+        """URL base para API REST - usando endpoint global."""
         if self.config.use_testnet:
             return "https://testnet.binance.vision/api/v3"
-        return "https://api.binance.com/api/v3"
+        # Usar data-api que funciona globalmente (sin restricciones geo)
+        return "https://data-api.binance.vision/api/v3"
     
     def on_candle(self, callback: Callable[[str, Candle], None]) -> None:
         """Registra callback para nuevas velas."""
