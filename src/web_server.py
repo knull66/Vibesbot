@@ -88,10 +88,17 @@ class DashboardBot:
         self._cumulative_pnl = 0.0
         self._wins = 0
         self._losses = 0
+        self._time_offset = 0.0  # Offset de sincronización con Binance
     
     async def initialize(self) -> bool:
         """Inicializa los componentes del bot."""
         try:
+            # Sincronizar tiempo con Binance
+            from .utils.helpers import sync_binance_time
+            logger.info("Synchronizing time with Binance...")
+            self._time_offset = await sync_binance_time()
+            logger.info(f"Time offset: {self._time_offset:.3f}s")
+            
             logger.info("Initializing data stream...")
             self.data_stream = DataStream(self.config.data_stream)
             await self.data_stream.start()
@@ -205,7 +212,7 @@ class DashboardBot:
                     await asyncio.sleep(1)
                     continue
                 
-                round_times = calculate_round_times(5)
+                round_times = calculate_round_times(5, self._time_offset)
                 remaining = round_times["seconds_remaining"]
                 current_round = round_times.get("round_number", 0)
                 
@@ -252,8 +259,8 @@ class DashboardBot:
         """Envía actualizaciones periódicas al dashboard."""
         import random
         
-        # Calcular tiempo de ronda
-        round_times = calculate_round_times(5)
+        # Calcular tiempo de ronda (sincronizado con Binance)
+        round_times = calculate_round_times(5, self._time_offset)
         remaining = int(round_times["seconds_remaining"])
         
         # Obtener precio

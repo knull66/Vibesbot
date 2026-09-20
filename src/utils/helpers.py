@@ -104,13 +104,18 @@ def calculate_round_times(interval_minutes: int = 5, time_offset: float = 0) -> 
     round_start = now - current_position
     round_end = round_start + interval_seconds
     
+    # Número de ronda (basado en el inicio del día UTC)
+    day_start = int(now) - (int(now) % 86400)
+    round_number = int((now - day_start) // interval_seconds)
+    
     return {
         "current_timestamp": now,
         "round_start": round_start,
         "round_end": round_end,
         "seconds_elapsed": current_position,
         "seconds_remaining": interval_seconds - current_position,
-        "progress_percent": (current_position / interval_seconds) * 100
+        "progress_percent": (current_position / interval_seconds) * 100,
+        "round_number": round_number
     }
 
 
