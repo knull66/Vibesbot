@@ -28,6 +28,7 @@ from .risk_manager import RiskManager, RiskStatus
 from .utils.logger import setup_logger, get_logger
 from .utils.helpers import calculate_time_to_next_round, calculate_round_times
 from .auth import COOKIE_NAME, SESSION_DAYS, get_auth
+from .companion import get_companion, is_loopback
 
 
 logger = get_logger("web_server")
@@ -856,15 +857,27 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     manager = ConnectionManager()
     bot = DashboardBot(config, manager)
     auth = get_auth()
+    companion = get_companion()
     public_exact = {
         "/login",
+        "/companion",
         "/api/auth/status",
         "/api/auth/login",
         "/api/auth/register",
         "/api/auth/logout",
+        "/api/companion/status",
+        "/api/companion/pair",
     }
 
-    def _set_session_cookie(request: Request, response, token: str):
+    def _client_host(request: Request) -> str:
+        if request.client:
+            return request.client.host or ""
+        return ""
+
+    def _is_local(request: Request) -> bool:
+        return is_loopback(_client_host(request))
+
+    def _set_session_cookie(request: Request, response, token: str, days: int = SESSION_DAYS):
         forwarded = request.headers.get("x-forwarded-proto", request.url.scheme)
         response.set_cookie(
             COOKIE_NAME,
@@ -872,7 +885,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
             httponly=True,
             samesite="lax",
             secure=str(forwarded).split(",")[0].strip() == "https",
-            max_age=SESSION_DAYS * 24 * 3600,
+            max_age=days * 24 * 3600,
             path="/",
         )
 
@@ -882,17 +895,49 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     def _user_from_request(request: Request):
         return auth.user_from_cookies(request.cookies)
 
+    def _is_companion(request: Request) -> bool:
+        session = auth.session_from_cookies(request.cookies)
+        if session and session.companion:
+            return True
+        return not _is_local(request)
+
+    def _native_owner(request: Request):
+        user = getattr(request.state, "user", None)
+        if not user or not user.is_owner or getattr(request.state, "is_companion", False):
+            return None
+        return user
+
     @app.middleware("http")
     async def require_login(request: Request, call_next):
         path = request.url.path
         if path.startswith("/static") or path in public_exact:
+            if path in ("/api/auth/login", "/api/auth/register") and not _is_local(request):
+                return JSONResponse(
+                    {"success": False, "error": "Accounts can only be created on the Mac app"},
+                    status_code=403,
+                )
             return await call_next(request)
+
+        local = _is_local(request)
         user = _user_from_request(request)
-        if not user:
+        session = auth.session_from_cookies(request.cookies)
+
+        if not local:
+            if not companion.enabled:
+                if path.startswith("/api/"):
+                    return JSONResponse({"error": "companion_disabled"}, status_code=403)
+                return RedirectResponse("/companion", status_code=302)
+            if not user or not session or not session.companion:
+                if path.startswith("/api/"):
+                    return JSONResponse({"error": "unauthorized"}, status_code=401)
+                return RedirectResponse("/companion", status_code=302)
+        elif not user:
             if path.startswith("/api/") or path.startswith("/ws"):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
             return RedirectResponse("/login", status_code=302)
+
         request.state.user = user
+        request.state.is_companion = bool(session and session.companion)
         return await call_next(request)
     
     @app.on_event("startup")
@@ -905,9 +950,66 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
 
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request):
+        if not _is_local(request):
+            return RedirectResponse("/companion", status_code=302)
         if _user_from_request(request):
             return RedirectResponse("/", status_code=302)
         return templates.TemplateResponse(request, "login.html")
+
+    @app.get("/companion", response_class=HTMLResponse)
+    async def companion_page(request: Request):
+        if _is_local(request):
+            return RedirectResponse("/login" if not _user_from_request(request) else "/", status_code=302)
+        session = auth.session_from_cookies(request.cookies)
+        if session and session.companion and auth.user_from_token(session.token):
+            return RedirectResponse("/", status_code=302)
+        return templates.TemplateResponse(request, "companion.html")
+
+    @app.get("/api/companion/status")
+    async def companion_status(request: Request):
+        return {
+            "is_local": _is_local(request),
+            "setup_required": not auth.has_users(),
+            **companion.public_status(),
+        }
+
+    @app.get("/api/companion/info")
+    async def companion_info(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        return companion.info(port=8080)
+
+    @app.post("/api/companion/enable")
+    async def companion_enable(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        data = await request.json()
+        companion.set_enabled(bool(data.get("enabled", False)))
+        return {"success": True, **companion.info(port=8080)}
+
+    @app.post("/api/companion/pin")
+    async def companion_pin(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        companion.rotate_pin()
+        return {"success": True, **companion.info(port=8080)}
+
+    @app.post("/api/companion/pair")
+    async def companion_pair(request: Request):
+        if _is_local(request):
+            return JSONResponse({"success": False, "error": "Pairing is only for the phone"}, status_code=400)
+        if not auth.has_users():
+            return JSONResponse({"success": False, "error": "Set up Vibesbot on your Mac first"}, status_code=400)
+        data = await request.json()
+        ok, error = companion.verify_pin(data.get("pin", ""))
+        if not ok:
+            return JSONResponse({"success": False, "error": error}, status_code=401)
+        token, user, login_error = auth.login_companion()
+        if login_error or not token or not user:
+            return JSONResponse({"success": False, "error": login_error or "Pairing failed"}, status_code=400)
+        response = JSONResponse({"success": True, "user": user.public_dict(), "companion": True})
+        _set_session_cookie(request, response, token, days=1)
+        return response
 
     @app.get("/logout")
     async def logout_page(request: Request):
@@ -917,15 +1019,22 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         return response
 
     @app.get("/api/auth/status")
-    async def auth_status():
-        return auth.status()
+    async def auth_status(request: Request):
+        return {**auth.status(), "is_local": _is_local(request)}
 
     @app.get("/api/auth/me")
     async def auth_me(request: Request):
         user = _user_from_request(request)
         if not user:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return {"success": True, "user": user.public_dict(), **auth.status()}
+        session = auth.session_from_cookies(request.cookies)
+        return {
+            "success": True,
+            "user": user.public_dict(),
+            "companion": bool(session and session.companion),
+            "is_local": _is_local(request),
+            **auth.status(),
+        }
 
     @app.post("/api/auth/register")
     async def auth_register(request: Request):
@@ -963,16 +1072,16 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
 
     @app.get("/api/auth/users")
     async def auth_users(request: Request):
-        user = getattr(request.state, "user", None)
-        if not user or not user.is_owner:
+        user = _native_owner(request)
+        if not user:
             return JSONResponse({"error": "forbidden"}, status_code=403)
         return {"users": auth.list_users(), "invites": auth.invites, **auth.status()}
 
     @app.post("/api/auth/invite")
     async def auth_invite(request: Request):
-        user = getattr(request.state, "user", None)
+        user = _native_owner(request)
         if not user:
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return JSONResponse({"error": "forbidden"}, status_code=403)
         code, error = auth.create_invite(user)
         if error:
             return JSONResponse({"success": False, "error": error}, status_code=403)
@@ -980,9 +1089,9 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
 
     @app.post("/api/auth/registration")
     async def auth_registration(request: Request):
-        user = getattr(request.state, "user", None)
+        user = _native_owner(request)
         if not user:
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return JSONResponse({"error": "forbidden"}, status_code=403)
         data = await request.json()
         error = auth.set_open_registration(user, bool(data.get("enabled", False)))
         if error:
@@ -992,8 +1101,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.post("/api/auth/password")
     async def auth_password(request: Request):
         user = getattr(request.state, "user", None)
-        if not user:
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if not user or getattr(request.state, "is_companion", False):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
         data = await request.json()
         error = auth.change_password(user, data.get("current", ""), data.get("new_password", ""))
         if error:
@@ -1002,9 +1111,9 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
 
     @app.post("/api/auth/users/delete")
     async def auth_delete_user(request: Request):
-        user = getattr(request.state, "user", None)
+        user = _native_owner(request)
         if not user:
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return JSONResponse({"error": "forbidden"}, status_code=403)
         data = await request.json()
         error = auth.delete_user(user, data.get("user_id", ""))
         if error:
@@ -1019,11 +1128,16 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     async def websocket_endpoint(websocket: WebSocket):
         await websocket.accept()
         user = auth.user_from_cookies(websocket.cookies)
+        ws_auth = auth.session_from_cookies(websocket.cookies)
+        is_companion = bool(ws_auth and ws_auth.companion)
         if not user:
             try:
                 await websocket.send_text(json.dumps({"type": "error", "message": "unauthorized"}))
             except Exception:
                 pass
+            await websocket.close(code=4401)
+            return
+        if is_companion and not companion.enabled:
             await websocket.close(code=4401)
             return
 
@@ -1061,10 +1175,10 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                         bot.predictor.is_ready if bot.predictor else False
                     ))
                 elif action == "set_mode":
-                    if not user.is_owner and not data.get("simulation", True):
+                    if is_companion or (not user.is_owner and not data.get("simulation", True)):
                         await manager.send_to(websocket, {
                             "type": "log",
-                            "message": "REAL mode is owner-only",
+                            "message": "REAL mode is only available on the Mac app",
                             "level": "loss",
                         })
                         continue
@@ -1098,9 +1212,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.post("/api/settings/binance")
     async def update_binance_credentials(request: Request):
         """Actualiza las credenciales de Binance."""
-        user = getattr(request.state, "user", None)
-        if not user or not user.is_owner:
-            return JSONResponse({"error": "Only the owner can save API keys"}, status_code=403)
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can save API keys"}, status_code=403)
         data = await request.json()
         sm = get_settings_manager()
         sm.update_binance_credentials(
@@ -1113,9 +1226,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.post("/api/settings/binance/test")
     async def test_binance_connection(request: Request):
         """Prueba la conexión con Binance."""
-        user = getattr(request.state, "user", None)
-        if not user or not user.is_owner:
-            return JSONResponse({"error": "Only the owner can test API keys"}, status_code=403)
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can test API keys"}, status_code=403)
         data = await request.json()
         sm = get_settings_manager()
         
@@ -1181,9 +1293,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.post("/api/updates/install")
     async def install_update(request: Request):
         """Instala la actualización disponible."""
-        user = getattr(request.state, "user", None)
-        if not user or not user.is_owner:
-            return JSONResponse({"error": "Only the owner can install updates"}, status_code=403)
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can install updates"}, status_code=403)
         updater = get_updater()
         success, message = await updater.update()
         return {"success": success, "message": message}

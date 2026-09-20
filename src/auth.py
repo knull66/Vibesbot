@@ -59,6 +59,7 @@ class Session:
     user_id: str
     expires: str
     created_at: str = ""
+    companion: bool = False
 
 
 class AuthManager:
@@ -97,6 +98,7 @@ class AuthManager:
                     user_id=raw["user_id"],
                     expires=raw["expires"],
                     created_at=raw.get("created_at", ""),
+                    companion=bool(raw.get("companion", False)),
                 )
             self.invites = list(data.get("invites", []))
             self.allow_open_registration = bool(data.get("allow_open_registration", False))
@@ -121,6 +123,7 @@ class AuthManager:
                     "user_id": s.user_id,
                     "expires": s.expires,
                     "created_at": s.created_at,
+                    "companion": s.companion,
                 }
                 for token, s in self.sessions.items()
             },
@@ -245,27 +248,26 @@ class AuthManager:
         logger.info(f"User created: {user.username} owner={user.is_owner}")
         return user, ""
 
-    def login(self, username: str, password: str) -> tuple[Optional[str], Optional[User], str]:
-        user = self.get_user_by_username(username)
-        if not user or not self.verify_password(user, password):
-            return None, None, "Invalid username or password"
+    def owner(self) -> Optional[User]:
+        for user in self.users.values():
+            if user.is_owner:
+                return user
+        return next(iter(self.users.values()), None)
+
+    def create_session(self, user: User, companion: bool = False, days: int = SESSION_DAYS) -> str:
         token = secrets.token_urlsafe(32)
-        expires = _now() + timedelta(days=SESSION_DAYS)
+        expires = _now() + timedelta(days=days)
         self.sessions[token] = Session(
             token=token,
             user_id=user.id,
             expires=_iso(expires),
             created_at=_iso(_now()),
+            companion=companion,
         )
         self._save()
-        return token, user, ""
+        return token
 
-    def logout(self, token: Optional[str]) -> None:
-        if token and token in self.sessions:
-            self.sessions.pop(token, None)
-            self._save()
-
-    def user_from_token(self, token: Optional[str]) -> Optional[User]:
+    def session_from_token(self, token: Optional[str]) -> Optional[Session]:
         if not token:
             return None
         session = self.sessions.get(token)
@@ -278,10 +280,38 @@ class AuthManager:
                 return None
         except Exception:
             return None
+        return session
+
+    def login(self, username: str, password: str) -> tuple[Optional[str], Optional[User], str]:
+        user = self.get_user_by_username(username)
+        if not user or not self.verify_password(user, password):
+            return None, None, "Invalid username or password"
+        token = self.create_session(user, companion=False)
+        return token, user, ""
+
+    def login_companion(self) -> tuple[Optional[str], Optional[User], str]:
+        user = self.owner()
+        if not user:
+            return None, None, "Set up Vibesbot on your Mac first"
+        token = self.create_session(user, companion=True, days=1)
+        return token, user, ""
+
+    def logout(self, token: Optional[str]) -> None:
+        if token and token in self.sessions:
+            self.sessions.pop(token, None)
+            self._save()
+
+    def user_from_token(self, token: Optional[str]) -> Optional[User]:
+        session = self.session_from_token(token)
+        if not session:
+            return None
         return self.users.get(session.user_id)
 
     def user_from_cookies(self, cookies: dict) -> Optional[User]:
         return self.user_from_token(cookies.get(COOKIE_NAME))
+
+    def session_from_cookies(self, cookies: dict) -> Optional[Session]:
+        return self.session_from_token(cookies.get(COOKIE_NAME))
 
     def create_invite(self, owner: User) -> tuple[Optional[str], str]:
         if not owner.is_owner:

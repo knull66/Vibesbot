@@ -179,6 +179,15 @@ class VibesBot {
         document.getElementById('btn-logout')?.addEventListener('click', () => this.logout());
         document.getElementById('btn-change-password')?.addEventListener('click', () => this.changePassword());
         document.getElementById('btn-create-invite')?.addEventListener('click', () => this.createInvite());
+        document.getElementById('btn-refresh-pin')?.addEventListener('click', () => this.refreshCompanionPin());
+        document.getElementById('companion-enabled')?.addEventListener('change', async (e) => {
+            await fetch('/api/companion/enable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: e.target.checked })
+            });
+            this.loadCompanionInfo();
+        });
         document.getElementById('open-registration')?.addEventListener('change', async (e) => {
             await fetch('/api/auth/registration', {
                 method: 'POST',
@@ -197,15 +206,23 @@ class VibesBot {
             }
             const data = await response.json();
             this.user = data.user;
+            this.isCompanion = !!data.companion;
             const nameEl = document.getElementById('user-name');
             if (nameEl) nameEl.textContent = data.user?.username || '--';
             const roleEl = document.getElementById('account-role');
-            if (roleEl) {
-                roleEl.textContent = data.user?.is_owner ? 'Owner account' : 'Signed in as ' + data.user?.username;
-            }
-            if (data.user?.is_owner) {
+            const tagEl = document.getElementById('brand-tag');
+            if (this.isCompanion) {
+                document.body.classList.add('companion-mode');
+                if (roleEl) roleEl.textContent = 'Companion of the Mac app';
+                if (tagEl) tagEl.textContent = 'COMPANION';
+                document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
+                document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
+                const ownerTools = document.getElementById('owner-account-tools');
+                if (ownerTools) ownerTools.style.display = 'none';
+            } else if (data.user?.is_owner) {
                 document.getElementById('owner-account-tools').style.display = 'block';
                 this.loadOwnerTools();
+                this.loadCompanionInfo();
             } else {
                 document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
                 document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
@@ -274,6 +291,30 @@ class VibesBot {
         } catch (e) {
             console.error('Owner tools failed', e);
         }
+    }
+    
+    async loadCompanionInfo() {
+        try {
+            const response = await fetch('/api/companion/info');
+            if (!response.ok) return;
+            const data = await response.json();
+            const enabled = document.getElementById('companion-enabled');
+            const details = document.getElementById('companion-details');
+            const pin = document.getElementById('companion-pin');
+            const urls = document.getElementById('companion-urls');
+            if (enabled) enabled.checked = !!data.enabled;
+            if (details) details.style.display = data.enabled ? 'block' : 'none';
+            if (pin) pin.textContent = data.pin || '------';
+            if (urls) {
+                urls.textContent = (data.urls || []).join('  ') || 'No LAN URL yet';
+            }
+        } catch (e) {}
+    }
+    
+    async refreshCompanionPin() {
+        await fetch('/api/companion/pin', { method: 'POST' });
+        this.loadCompanionInfo();
+        this.addLog('Companion pairing code refreshed', 'info');
     }
     
     async createInvite() {

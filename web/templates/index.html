@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.10.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.11.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
@@ -38,7 +38,7 @@
                     <div class="eye"></div>
                 </div>
                 <span class="brand-name">VIBESBOT</span>
-                <span class="brand-tag">PREDICTION RADAR</span>
+                <span class="brand-tag" id="brand-tag">PREDICTION RADAR</span>
             </div>
 
             <div class="status-bar">
@@ -301,7 +301,7 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Multi-Indicator</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.10.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.11.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -525,7 +525,7 @@
                             <div style="font-size:9px; margin-top:10px;">
                                 <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
                                     <span>Version:</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.10.0</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.11.0</span>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
                                     <span>Latest:</span>
@@ -573,6 +573,25 @@
                         </div>
                         <h3 style="margin-top:16px;">USERS</h3>
                         <div id="users-list" class="users-list"></div>
+                        <h3 style="margin-top:20px;">COMPANION</h3>
+                        <p class="settings-hint">Phone is a remote for this Mac. Same Wi-Fi only. The bot does not run in the cloud.</p>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="companion-enabled">
+                                Enable phone companion
+                            </label>
+                        </div>
+                        <div id="companion-details" style="display:none;">
+                            <div class="sim-stat" style="margin-bottom:12px;">
+                                <div class="sim-stat-label">PAIRING CODE</div>
+                                <div class="sim-stat-value" id="companion-pin">------</div>
+                            </div>
+                            <div class="settings-hint" id="companion-urls">No LAN URL</div>
+                            <div class="form-actions">
+                                <button class="btn" id="btn-refresh-pin">NEW CODE</button>
+                            </div>
+                        </div>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -604,6 +623,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.10.0"></script>
+    <script src="/static/app.js?v=1.11.0"></script>
 </body>
 </html>
