@@ -1210,4 +1210,68 @@ class VibesBot {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     window.vibesbot = new VibesBot();
+    
+    // Register Service Worker for PWA
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/static/sw.js')
+            .then(registration => {
+                console.log('[PWA] Service Worker registered:', registration.scope);
+                
+                // Check for updates periodically
+                setInterval(() => {
+                    registration.update();
+                }, 60000);
+            })
+            .catch(error => {
+                console.error('[PWA] Service Worker registration failed:', error);
+            });
+    }
+    
+    // Handle PWA install prompt
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        
+        // Show install button if not already installed
+        showInstallPrompt();
+    });
+    
+    function showInstallPrompt() {
+        const installBtn = document.getElementById('pwa-install-btn');
+        if (installBtn) {
+            installBtn.style.display = 'block';
+            installBtn.addEventListener('click', async () => {
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    const { outcome } = await deferredPrompt.userChoice;
+                    console.log('[PWA] Install prompt result:', outcome);
+                    deferredPrompt = null;
+                    installBtn.style.display = 'none';
+                }
+            });
+        }
+    }
+    
+    // Handle standalone mode detection
+    if (window.matchMedia('(display-mode: standalone)').matches || 
+        window.navigator.standalone === true) {
+        document.body.classList.add('pwa-standalone');
+        console.log('[PWA] Running in standalone mode');
+    }
+    
+    // Handle online/offline status
+    function updateOnlineStatus() {
+        const isOnline = navigator.onLine;
+        document.body.classList.toggle('offline', !isOnline);
+        
+        if (!isOnline) {
+            const statusEl = document.getElementById('status-dot');
+            if (statusEl) statusEl.classList.add('offline');
+        }
+    }
+    
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
 });

@@ -1469,3 +1469,419 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--accent-dim);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   PWA & MOBILE RESPONSIVE
+   ═══════════════════════════════════════════════════════════ */
+
+/* PWA Standalone Mode */
+.pwa-standalone {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+}
+
+.pwa-standalone .header {
+    padding-top: calc(12px + env(safe-area-inset-top));
+}
+
+.pwa-standalone .footer {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
+/* Offline Mode */
+.offline .status-dot {
+    background: var(--warning) !important;
+    animation: offlinePulse 1s infinite;
+}
+
+@keyframes offlinePulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.offline::after {
+    content: 'OFFLINE';
+    position: fixed;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--warning);
+    color: var(--bg-dark);
+    font-size: 7px;
+    padding: 4px 12px;
+    z-index: 9999;
+    font-family: var(--font-pixel);
+    letter-spacing: 2px;
+}
+
+/* PWA Install Button */
+#pwa-install-btn {
+    display: none;
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    z-index: 999;
+    background: linear-gradient(180deg, var(--accent), #00CCCC);
+    color: var(--bg-dark);
+    border: none;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-family: var(--font-pixel);
+    font-size: 8px;
+    cursor: pointer;
+    box-shadow: 0 4px 20px var(--accent-glow);
+    animation: installBounce 2s infinite;
+}
+
+@keyframes installBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+}
+
+/* Tablet (768px - 1024px) */
+@media (max-width: 1024px) {
+    .main {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .main .panel:last-child {
+        grid-column: span 2;
+    }
+    
+    .header {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+    
+    .status-bar {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Mobile (< 768px) */
+@media (max-width: 768px) {
+    body {
+        font-size: 9px;
+        overflow: auto;
+    }
+    
+    .app {
+        min-height: 100vh;
+        height: auto;
+    }
+    
+    /* Header Mobile */
+    .header {
+        flex-direction: column;
+        padding: 12px 14px;
+        gap: 10px;
+    }
+    
+    .brand {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .brand-name {
+        font-size: 10px;
+        letter-spacing: 2px;
+    }
+    
+    .brand-tag {
+        display: none;
+    }
+    
+    .status-bar {
+        width: 100%;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px;
+        background: var(--bg-dark);
+        border-radius: 6px;
+    }
+    
+    .status-item {
+        flex-direction: column;
+        gap: 4px;
+        text-align: center;
+    }
+    
+    .status-value.price {
+        font-size: 11px;
+    }
+    
+    .status-value.timer {
+        font-size: 14px;
+    }
+    
+    .controls {
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .mode-switch {
+        margin-right: 0;
+        padding-right: 0;
+        border-right: none;
+        margin-bottom: 8px;
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .btn {
+        font-size: 7px;
+        padding: 10px 12px;
+    }
+    
+    .btn-settings {
+        width: 36px;
+        padding: 8px;
+    }
+    
+    /* Main Grid Mobile */
+    .main {
+        grid-template-columns: 1fr;
+        gap: 10px;
+        padding: 10px;
+        overflow: visible;
+    }
+    
+    .panel {
+        min-height: auto;
+    }
+    
+    .panel-body {
+        padding: 12px;
+    }
+    
+    /* Signal Display Mobile */
+    .signal-direction {
+        padding: 16px 28px;
+    }
+    
+    .signal-arrow {
+        font-size: 28px;
+    }
+    
+    .signal-text {
+        font-size: 10px;
+    }
+    
+    .prob-row {
+        gap: 8px;
+    }
+    
+    .prob-item {
+        padding: 10px;
+    }
+    
+    .prob-value {
+        font-size: 12px;
+    }
+    
+    /* Price Section Mobile */
+    .price-target-section {
+        padding: 12px;
+    }
+    
+    .price-value {
+        font-size: 11px;
+    }
+    
+    /* Stats Mobile */
+    .main-stats {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .main-stat {
+        padding: 14px;
+    }
+    
+    .main-stat-value {
+        font-size: 14px;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+    
+    .stat-card {
+        padding: 12px 8px;
+    }
+    
+    .stat-value {
+        font-size: 11px;
+    }
+    
+    .stat-label {
+        font-size: 5px;
+    }
+    
+    /* Tabs Mobile */
+    .tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .tab {
+        padding: 12px 10px;
+        font-size: 6px;
+        white-space: nowrap;
+    }
+    
+    /* Chart Mobile */
+    .chart-container {
+        min-height: 180px;
+    }
+    
+    /* History Mobile */
+    .history-item {
+        padding: 10px 12px;
+        gap: 10px;
+    }
+    
+    .history-direction {
+        font-size: 6px;
+        padding: 4px 8px;
+    }
+    
+    .history-details {
+        font-size: 7px;
+    }
+    
+    .history-result {
+        font-size: 9px;
+    }
+    
+    /* Log Mobile */
+    .log-item {
+        padding: 8px 10px;
+    }
+    
+    .log-message {
+        font-size: 7px;
+    }
+    
+    /* Footer Mobile */
+    .footer {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 10px 14px;
+        justify-content: center;
+    }
+    
+    .footer-item {
+        font-size: 7px;
+    }
+    
+    .footer-brand {
+        width: 100%;
+        text-align: center;
+        order: -1;
+    }
+    
+    /* Modal Mobile */
+    .modal-content {
+        max-width: 95%;
+        max-height: 90vh;
+        margin: 10px;
+    }
+    
+    .modal-header {
+        padding: 14px 16px;
+    }
+    
+    .modal-title {
+        font-size: 9px;
+    }
+    
+    .settings-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .settings-tab {
+        font-size: 5px;
+        padding: 12px 8px;
+        white-space: nowrap;
+    }
+    
+    .settings-panel {
+        padding: 14px;
+    }
+    
+    .settings-section h3 {
+        font-size: 7px;
+    }
+    
+    .form-group input,
+    .form-group select {
+        padding: 10px 12px;
+        font-size: 9px;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+    
+    .form-actions .btn {
+        width: 100%;
+    }
+    
+    .sim-stats {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Small Mobile (< 375px) */
+@media (max-width: 375px) {
+    .brand-name {
+        font-size: 9px;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .controls .btn span {
+        display: none;
+    }
+}
+
+/* Landscape Mobile */
+@media (max-height: 500px) and (orientation: landscape) {
+    .header {
+        padding: 8px 14px;
+    }
+    
+    .brand-icon {
+        width: 28px;
+        height: 28px;
+    }
+    
+    .main {
+        grid-template-columns: 1fr 1fr 1fr;
+        padding: 8px;
+        gap: 8px;
+    }
+    
+    .panel-header {
+        padding: 8px 12px;
+    }
+    
+    .panel-body {
+        padding: 10px;
+    }
+    
+    .footer {
+        padding: 6px 14px;
+    }
+}
