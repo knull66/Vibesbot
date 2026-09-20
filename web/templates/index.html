@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.16.1">
+    <link rel="stylesheet" href="/static/styles.css?v=1.17.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -174,7 +174,8 @@
                     <div class="main-stats">
                         <div class="main-stat capital">
                             <div class="main-stat-value" id="stat-capital">$100.00</div>
-                            <div class="main-stat-label">CAPITAL</div>
+                            <div class="main-stat-label" id="stat-capital-source">SIMULATION</div>
+                            <div class="main-stat-label" id="stat-capital-wallets"></div>
                         </div>
                         <div class="main-stat pnl">
                             <div class="main-stat-value positive" id="stat-pnl">+$0.00</div>
@@ -311,7 +312,7 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Multi-Indicator</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.16.1</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.17.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -536,7 +537,7 @@
                             <div class="update-info" style="margin-top:10px;">
                                 <div class="update-version">
                                     <span>Version</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.16.1</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.17.0</span>
                                 </div>
                                 <div class="update-version">
                                     <span>Latest</span>
@@ -659,6 +660,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.16.1"></script>
+    <script src="/static/app.js?v=1.17.0"></script>
 </body>
 </html>

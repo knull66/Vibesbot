@@ -42,6 +42,30 @@ def describe_binance_error(status: int, payload: dict, is_testnet: bool) -> str:
     return msg
 
 
+def pick_live_wallet(wallets: Dict[str, float]) -> tuple:
+    """Prefer Prediction, then Funding, then Spot."""
+    if not wallets:
+        return "Spot", 0.0
+    preferred = (
+        "prediction",
+        "binance prediction",
+        "predict",
+        "funding",
+        "spot",
+        "main",
+    )
+    lowered = {name.lower(): (name, float(amount)) for name, amount in wallets.items()}
+    for name, amount in wallets.items():
+        lowered_name = name.lower()
+        if "predict" in lowered_name or "event contract" in lowered_name:
+            return name, float(amount)
+    for key in preferred:
+        if key in lowered:
+            return lowered[key]
+    name = max(wallets, key=lambda item: float(wallets[item]))
+    return name, float(wallets[name])
+
+
 class TradingMode(Enum):
     """Modos de trading disponibles."""
     SIMULATION = "simulation"  # Paper trading con dinero virtual
@@ -312,6 +336,102 @@ class BinanceConnector:
         
         return None
 
+    def _signed_query(self, extra: Optional[Dict[str, Any]] = None) -> str:
+        import hmac
+        import time
+
+        params = dict(extra or {})
+        params["timestamp"] = int(time.time() * 1000)
+        params.setdefault("recvWindow", 5000)
+        query = "&".join(f"{key}={params[key]}" for key in params)
+        signature = hmac.new(
+            self.credentials.api_secret.encode("utf-8"),
+            query.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return f"{query}&signature={signature}"
+
+    async def _signed_request(self, method: str, path: str, extra: Optional[Dict[str, Any]] = None) -> tuple:
+        if not self.credentials.is_configured:
+            return 400, {"msg": "API Key and Secret are required"}
+        query = self._signed_query(extra)
+        url = f"{self.base_url}{path}?{query}"
+        headers = {"X-MBX-APIKEY": self.credentials.api_key}
+        async with aiohttp.ClientSession() as session:
+            request = session.get if method.upper() == "GET" else session.post
+            async with request(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                try:
+                    payload = await response.json()
+                except Exception:
+                    payload = {"msg": (await response.text())[:180]}
+                return response.status, payload
+
+    async def _signed_get(self, path: str, extra: Optional[Dict[str, Any]] = None) -> tuple:
+        return await self._signed_request("GET", path, extra)
+
+    async def _signed_post(self, path: str, extra: Optional[Dict[str, Any]] = None) -> tuple:
+        return await self._signed_request("POST", path, extra)
+
+    def _merge_usdt_wallet(self, wallets: Dict[str, float], name: str, payload: Any) -> None:
+        amount = 0.0
+        rows = payload if isinstance(payload, list) else []
+        if isinstance(payload, dict):
+            rows = payload.get("balances") or payload.get("assets") or [payload]
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            asset = str(row.get("asset") or row.get("coin") or "").upper()
+            if asset and asset != "USDT":
+                continue
+            try:
+                amount += float(row.get("free") or 0) + float(row.get("locked") or 0) + float(row.get("freeze") or 0)
+            except (TypeError, ValueError):
+                continue
+        if name not in wallets or amount > 0:
+            wallets[name] = amount
+
+    async def fetch_live_balances(self) -> Dict[str, Any]:
+        """Spot USDT plus any wallet balances Binance exposes (Funding, Prediction)."""
+        wallets: Dict[str, float] = {}
+        errors: List[str] = []
+
+        status, data = await self._signed_get("/api/v3/account")
+        if status == 200 and isinstance(data, dict):
+            self._merge_usdt_wallet(wallets, "Spot", data)
+        else:
+            errors.append(describe_binance_error(status, data if isinstance(data, dict) else {}, self.credentials.is_testnet))
+
+        if not self.credentials.is_testnet:
+            status, data = await self._signed_get("/sapi/v1/asset/wallet/balance", {"quoteAsset": "USDT"})
+            if status == 200 and isinstance(data, list):
+                for row in data:
+                    if not isinstance(row, dict):
+                        continue
+                    name = str(row.get("walletName") or row.get("wallet") or row.get("name") or "").strip()
+                    if not name:
+                        continue
+                    try:
+                        wallets[name] = float(row.get("balance") or 0)
+                    except (TypeError, ValueError):
+                        continue
+            elif status != 200:
+                errors.append(describe_binance_error(status, data if isinstance(data, dict) else {}, False))
+
+            status, data = await self._signed_post("/sapi/v1/asset/get-funding-asset", {"asset": "USDT"})
+            if status == 200:
+                self._merge_usdt_wallet(wallets, "Funding", data)
+            elif status != 200:
+                errors.append(describe_binance_error(status, data if isinstance(data, dict) else {}, False))
+
+        wallet, amount = pick_live_wallet(wallets)
+        return {
+            "success": bool(wallets),
+            "wallets": wallets,
+            "display_wallet": wallet,
+            "display_balance": amount,
+            "error": errors[0] if errors and not wallets else "",
+        }
+
 
 class SettingsManager:
     """
@@ -346,7 +466,7 @@ class SettingsManager:
                 self.settings.binance = BinanceCredentials(
                     api_key=b.get("api_key", ""),
                     api_secret=b.get("api_secret_encrypted", ""),  # Guardamos encriptado
-                    is_testnet=b.get("is_testnet", True)
+                    is_testnet=b.get("is_testnet", False)
                 )
             
             # Trading
@@ -452,6 +572,10 @@ class SettingsManager:
         """Prueba la conexión con Binance."""
         connector = self.get_binance_connector()
         return await connector.test_connection()
+
+    async def fetch_live_balances(self) -> Dict[str, Any]:
+        connector = self.get_binance_connector()
+        return await connector.fetch_live_balances()
     
     def record_simulation_trade(self, direction: str, amount: float, result: str, pnl: float, price: float):
         """Registra un trade en la cuenta de simulación."""

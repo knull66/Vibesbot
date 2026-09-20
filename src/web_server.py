@@ -9,6 +9,7 @@ Proporciona:
 import asyncio
 import json
 import os
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -110,6 +111,11 @@ class ClientSession:
     max_equity: float = 100.0
     max_drawdown: float = 0.0
     initial_capital: float = 100.0
+    live_balance: Optional[float] = None
+    live_wallet: str = ""
+    live_wallets: Dict[str, float] = field(default_factory=dict)
+    live_error: str = ""
+    live_fetched_at: float = 0.0
     
     def reset(self, capital: float = 100.0):
         self.wins = 0
@@ -142,6 +148,28 @@ class ClientSession:
             p = self.wins / total
             kelly_pct = max(0, min(100, ((p * 0.95 - (1 - p)) / 0.95) * 100))
         profit_factor = (self.wins * 0.95) / max(0.01, self.losses * 1.0)
+        if not self.simulation:
+            return {
+                "type": "stats",
+                "capital": self.live_balance if self.live_balance is not None else 0.0,
+                "pnl": 0.0,
+                "trades": 0,
+                "winrate": 0.0,
+                "wins": 0,
+                "losses": 0,
+                "kelly": 0.0,
+                "streak": 0,
+                "best_streak": 0,
+                "worst_streak": 0,
+                "max_drawdown": 0.0,
+                "profit_factor": 0.0,
+                "equity_history": [self.live_balance or 0.0],
+                "live": True,
+                "simulation": False,
+                "wallet": self.live_wallet,
+                "wallets": self.live_wallets,
+                "live_error": self.live_error,
+            }
         return {
             "type": "stats",
             "capital": self.initial_capital + self.cumulative_pnl,
@@ -157,6 +185,9 @@ class ClientSession:
             "max_drawdown": self.max_drawdown,
             "profit_factor": profit_factor,
             "equity_history": self.equity_history[-50:],
+            "live": False,
+            "simulation": True,
+            "wallet": "Simulation",
         }
 
 
@@ -254,6 +285,16 @@ class DashboardBot:
         self.manager.bind_session(websocket, session.session_id)
         logger.info(f"Client bound to session {session.session_id[:8]}")
         return session
+
+    async def refresh_live_balances(self, session: ClientSession) -> None:
+        from .user_settings import get_settings_manager
+
+        result = await get_settings_manager().fetch_live_balances()
+        session.live_wallets = result.get("wallets") or {}
+        session.live_wallet = result.get("display_wallet") or "Spot"
+        session.live_balance = float(result.get("display_balance") or 0)
+        session.live_error = result.get("error") or ""
+        session.live_fetched_at = time.time()
     
     async def _data_loop(self):
         """Loop que siempre envía datos de mercado, incluso sin trading."""
@@ -262,7 +303,13 @@ class DashboardBot:
         while True:
             try:
                 await self._send_market()
+                now = time.time()
                 for session in list(self.sessions.values()):
+                    if not session.simulation and now - session.live_fetched_at > 20:
+                        try:
+                            await self.refresh_live_balances(session)
+                        except Exception as exc:
+                            logger.error(f"Live balance refresh failed: {exc}")
                     await self.manager.send_to_session(session.session_id, session.stats_payload())
                 await asyncio.sleep(1)
                 
@@ -492,6 +539,13 @@ class DashboardBot:
         from datetime import datetime
         
         if session is None:
+            return
+        if not session.simulation:
+            await self.manager.send_to_session(session.session_id, {
+                "type": "log",
+                "message": "REAL shows live Binance balances. Prediction bets are not placed yet.",
+                "level": "info",
+            })
             return
         
         try:
@@ -744,6 +798,7 @@ class DashboardBot:
             session.max_drawdown = data.get("max_drawdown", 0.0)
             session.max_equity = data.get("max_equity", 100.0)
             session.initial_capital = data.get("initial_capital", 100.0)
+            session.simulation = data.get("simulation", True)
         except Exception as e:
             logger.error(f"Error loading session {session.session_id[:8]}: {e}")
     
@@ -762,6 +817,7 @@ class DashboardBot:
                     "max_drawdown": session.max_drawdown,
                     "max_equity": session.max_equity,
                     "initial_capital": session.initial_capital,
+                    "simulation": session.simulation,
                     "last_updated": datetime.now().isoformat(),
                 }, f)
         except Exception as e:
@@ -1170,6 +1226,11 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         manager.active_connections.add(websocket)
         session = bot.attach_client(websocket, f"user:{user.id}")
         model_ready = bot.predictor.is_ready if bot.predictor else False
+        if not session.simulation:
+            try:
+                await bot.refresh_live_balances(session)
+            except Exception as exc:
+                logger.error(f"Live balance refresh on connect failed: {exc}")
         await manager.send_to(websocket, session.status_payload(model_ready))
         await manager.send_to(websocket, session.stats_payload())
         await manager.send_to(websocket, {
@@ -1207,9 +1268,39 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                             "message": "REAL mode is only available on the Mac app",
                             "level": "loss",
                         })
+                        await manager.send_to(websocket, session.status_payload(model_ready))
+                        await manager.send_to(websocket, session.stats_payload())
                         continue
                     session.simulation = data.get("simulation", True)
                     logger.info(f"[{user.username}] Mode: {'SIM' if session.simulation else 'REAL'}")
+                    if session.simulation:
+                        await manager.send_to(websocket, {
+                            "type": "log",
+                            "message": "Simulation account",
+                            "level": "info",
+                        })
+                    else:
+                        await bot.refresh_live_balances(session)
+                        if session.live_error:
+                            await manager.send_to(websocket, {
+                                "type": "log",
+                                "message": session.live_error,
+                                "level": "loss",
+                            })
+                        else:
+                            wallets = ", ".join(
+                                f"{name} ${amount:.2f}"
+                                for name, amount in session.live_wallets.items()
+                            )
+                            await manager.send_to(websocket, {
+                                "type": "log",
+                                "message": f"Live {session.live_wallet} ${session.live_balance:.2f}"
+                                + (f" ({wallets})" if wallets else ""),
+                                "level": "info",
+                            })
+                    bot._save_session(session)
+                    await manager.send_to(websocket, session.status_payload(model_ready))
+                    await manager.send_to(websocket, session.stats_payload())
                     
         except WebSocketDisconnect:
             manager.disconnect(websocket)
@@ -1263,6 +1354,13 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         )
         result = await sm.test_binance_connection()
         return result
+
+    @app.get("/api/binance/balances")
+    async def binance_balances(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can read balances"}, status_code=403)
+        sm = get_settings_manager()
+        return await sm.fetch_live_balances()
     
     @app.post("/api/simulation/reset")
     async def reset_simulation(request: Request):

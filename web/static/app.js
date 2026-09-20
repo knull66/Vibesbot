@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.16.1';
+const APP_VERSION = '1.17.0';
 
 class VibesBot {
     constructor() {
@@ -649,8 +649,35 @@ class VibesBot {
     }
     
     updateStats(data) {
-        // Main stats
-        if (this.statCapital) this.statCapital.textContent = '$' + (data.capital || 100).toFixed(2);
+        if (data.simulation === false) {
+            this.applyModeUi(false);
+        } else if (data.simulation === true && data.live !== true) {
+            this.applyModeUi(true);
+        }
+        const capital = Number(data.capital ?? 0);
+        if (this.statCapital) this.statCapital.textContent = '$' + capital.toFixed(2);
+        const sourceEl = document.getElementById('stat-capital-source');
+        if (sourceEl) {
+            if (data.live) {
+                const wallet = (data.wallet || 'BINANCE').toUpperCase();
+                sourceEl.textContent = data.live_error
+                    ? (wallet + ' · LIVE · ERROR')
+                    : (wallet + ' · LIVE');
+            } else {
+                sourceEl.textContent = 'SIMULATION';
+            }
+        }
+        const walletsEl = document.getElementById('stat-capital-wallets');
+        if (!data.live && walletsEl) {
+            walletsEl.textContent = '';
+        }
+        if (data.live && data.wallets && typeof data.wallets === 'object') {
+            const parts = Object.entries(data.wallets)
+                .map(([name, amount]) => `${name} $${Number(amount || 0).toFixed(2)}`);
+            if (parts.length && walletsEl) {
+                walletsEl.textContent = parts.join(' · ');
+            }
+        }
         
         if (this.statPnl) {
             const pnl = data.pnl || 0;
@@ -673,7 +700,7 @@ class VibesBot {
         const profilePnl = document.getElementById('profile-pnl');
         const profileTrades = document.getElementById('profile-trades');
         const profileWinrate = document.getElementById('profile-winrate');
-        if (profileCapital) profileCapital.textContent = '$' + (data.capital || 100).toFixed(2);
+        if (profileCapital) profileCapital.textContent = '$' + Number(data.capital ?? 0).toFixed(2);
         if (profilePnl) {
             const pnl = data.pnl || 0;
             profilePnl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
@@ -1042,6 +1069,9 @@ class VibesBot {
     updateBotStatus(data) {
         this.isRunning = data.running || false;
         this.isPaused = data.paused || false;
+        if (typeof data.simulation === 'boolean') {
+            this.applyModeUi(data.simulation);
+        }
         this.updateControlButtons();
     }
     
@@ -1058,16 +1088,50 @@ class VibesBot {
         this.setMode(false);
     }
     
-    setMode(simulation) {
+    applyModeUi(simulation) {
         this.isSimulation = simulation;
-        this.send({ action: 'set_mode', simulation: simulation });
-        
         if (this.modeToggle) {
             this.modeToggle.classList.toggle('real', !simulation);
         }
         if (this.modeLabel) {
             this.modeLabel.textContent = simulation ? 'SIM' : 'REAL';
             this.modeLabel.className = 'mode-indicator ' + (simulation ? 'sim' : 'real');
+        }
+    }
+
+    async setMode(simulation) {
+        this.applyModeUi(simulation);
+        const sourceEl = document.getElementById('stat-capital-source');
+        if (!simulation && sourceEl) {
+            sourceEl.textContent = 'LOADING LIVE…';
+        }
+        this.send({ action: 'set_mode', simulation: simulation });
+        if (simulation) {
+            return;
+        }
+        try {
+            const response = await fetch('/api/binance/balances', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data && (data.display_balance != null || data.wallets)) {
+                this.updateStats({
+                    type: 'stats',
+                    capital: data.display_balance ?? 0,
+                    pnl: 0,
+                    trades: 0,
+                    winrate: 0,
+                    wins: 0,
+                    losses: 0,
+                    live: true,
+                    simulation: false,
+                    wallet: data.display_wallet || 'BINANCE',
+                    wallets: data.wallets || {},
+                    live_error: data.error || '',
+                });
+            } else if (data && data.error) {
+                this.addLog(data.error, 'loss');
+            }
+        } catch (error) {
+            this.addLog('Could not read live Binance balances', 'loss');
         }
     }
     
