@@ -17,7 +17,7 @@ import uvicorn
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
@@ -27,6 +27,7 @@ from .predictor import Predictor, Signal, ModelType
 from .risk_manager import RiskManager, RiskStatus
 from .utils.logger import setup_logger, get_logger
 from .utils.helpers import calculate_time_to_next_round, calculate_round_times
+from .auth import COOKIE_NAME, SESSION_DAYS, get_auth
 
 
 logger = get_logger("web_server")
@@ -854,6 +855,45 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     
     manager = ConnectionManager()
     bot = DashboardBot(config, manager)
+    auth = get_auth()
+    public_exact = {
+        "/login",
+        "/api/auth/status",
+        "/api/auth/login",
+        "/api/auth/register",
+        "/api/auth/logout",
+    }
+
+    def _set_session_cookie(request: Request, response, token: str):
+        forwarded = request.headers.get("x-forwarded-proto", request.url.scheme)
+        response.set_cookie(
+            COOKIE_NAME,
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=str(forwarded).split(",")[0].strip() == "https",
+            max_age=SESSION_DAYS * 24 * 3600,
+            path="/",
+        )
+
+    def _clear_session_cookie(response):
+        response.delete_cookie(COOKIE_NAME, path="/")
+
+    def _user_from_request(request: Request):
+        return auth.user_from_cookies(request.cookies)
+
+    @app.middleware("http")
+    async def require_login(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/static") or path in public_exact:
+            return await call_next(request)
+        user = _user_from_request(request)
+        if not user:
+            if path.startswith("/api/") or path.startswith("/ws"):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return RedirectResponse("/login", status_code=302)
+        request.state.user = user
+        return await call_next(request)
     
     @app.on_event("startup")
     async def startup():
@@ -862,6 +902,114 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.on_event("shutdown")
     async def shutdown():
         await bot.cleanup()
+
+    @app.get("/login", response_class=HTMLResponse)
+    async def login_page(request: Request):
+        if _user_from_request(request):
+            return RedirectResponse("/", status_code=302)
+        return templates.TemplateResponse(request, "login.html")
+
+    @app.get("/logout")
+    async def logout_page(request: Request):
+        auth.logout(request.cookies.get(COOKIE_NAME))
+        response = RedirectResponse("/login", status_code=302)
+        _clear_session_cookie(response)
+        return response
+
+    @app.get("/api/auth/status")
+    async def auth_status():
+        return auth.status()
+
+    @app.get("/api/auth/me")
+    async def auth_me(request: Request):
+        user = _user_from_request(request)
+        if not user:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return {"success": True, "user": user.public_dict(), **auth.status()}
+
+    @app.post("/api/auth/register")
+    async def auth_register(request: Request):
+        data = await request.json()
+        user, error = auth.register(
+            data.get("username", ""),
+            data.get("password", ""),
+            data.get("invite_code", ""),
+        )
+        if error or user is None:
+            return JSONResponse({"success": False, "error": error}, status_code=400)
+        token, _, login_error = auth.login(user.username, data.get("password", ""))
+        if login_error or not token:
+            return JSONResponse({"success": False, "error": login_error or "Login failed"}, status_code=400)
+        response = JSONResponse({"success": True, "user": user.public_dict()})
+        _set_session_cookie(request, response, token)
+        return response
+
+    @app.post("/api/auth/login")
+    async def auth_login(request: Request):
+        data = await request.json()
+        token, user, error = auth.login(data.get("username", ""), data.get("password", ""))
+        if error or not token or not user:
+            return JSONResponse({"success": False, "error": error}, status_code=401)
+        response = JSONResponse({"success": True, "user": user.public_dict()})
+        _set_session_cookie(request, response, token)
+        return response
+
+    @app.post("/api/auth/logout")
+    async def auth_logout(request: Request):
+        auth.logout(request.cookies.get(COOKIE_NAME))
+        response = JSONResponse({"success": True})
+        _clear_session_cookie(response)
+        return response
+
+    @app.get("/api/auth/users")
+    async def auth_users(request: Request):
+        user = getattr(request.state, "user", None)
+        if not user or not user.is_owner:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        return {"users": auth.list_users(), "invites": auth.invites, **auth.status()}
+
+    @app.post("/api/auth/invite")
+    async def auth_invite(request: Request):
+        user = getattr(request.state, "user", None)
+        if not user:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        code, error = auth.create_invite(user)
+        if error:
+            return JSONResponse({"success": False, "error": error}, status_code=403)
+        return {"success": True, "code": code, "invites": auth.invites}
+
+    @app.post("/api/auth/registration")
+    async def auth_registration(request: Request):
+        user = getattr(request.state, "user", None)
+        if not user:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        data = await request.json()
+        error = auth.set_open_registration(user, bool(data.get("enabled", False)))
+        if error:
+            return JSONResponse({"success": False, "error": error}, status_code=403)
+        return {"success": True, **auth.status()}
+
+    @app.post("/api/auth/password")
+    async def auth_password(request: Request):
+        user = getattr(request.state, "user", None)
+        if not user:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        data = await request.json()
+        error = auth.change_password(user, data.get("current", ""), data.get("new_password", ""))
+        if error:
+            return JSONResponse({"success": False, "error": error}, status_code=400)
+        return {"success": True}
+
+    @app.post("/api/auth/users/delete")
+    async def auth_delete_user(request: Request):
+        user = getattr(request.state, "user", None)
+        if not user:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        data = await request.json()
+        error = auth.delete_user(user, data.get("user_id", ""))
+        if error:
+            return JSONResponse({"success": False, "error": error}, status_code=400)
+        return {"success": True, "users": auth.list_users()}
     
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
@@ -869,8 +1017,26 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
-        await manager.connect(websocket)
-        session: Optional[ClientSession] = None
+        await websocket.accept()
+        user = auth.user_from_cookies(websocket.cookies)
+        if not user:
+            try:
+                await websocket.send_text(json.dumps({"type": "error", "message": "unauthorized"}))
+            except Exception:
+                pass
+            await websocket.close(code=4401)
+            return
+
+        manager.active_connections.add(websocket)
+        session = bot.attach_client(websocket, f"user:{user.id}")
+        model_ready = bot.predictor.is_ready if bot.predictor else False
+        await manager.send_to(websocket, session.status_payload(model_ready))
+        await manager.send_to(websocket, session.stats_payload())
+        await manager.send_to(websocket, {
+            "type": "log",
+            "message": f"Signed in as {user.username}",
+            "level": "info",
+        })
         
         try:
             while True:
@@ -878,16 +1044,10 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                 action = data.get("action") or data.get("command")
                 
                 if action in ("hello", "identify"):
-                    session = bot.attach_client(websocket, data.get("session_id", ""))
-                    model_ready = bot.predictor.is_ready if bot.predictor else False
+                    session = bot.attach_client(websocket, f"user:{user.id}")
                     await manager.send_to(websocket, session.status_payload(model_ready))
                     await manager.send_to(websocket, session.stats_payload())
                     continue
-                
-                if session is None:
-                    session = bot.attach_client(websocket, str(uuid.uuid4()))
-                    model_ready = bot.predictor.is_ready if bot.predictor else False
-                    await manager.send_to(websocket, session.status_payload(model_ready))
                 
                 if action == "start":
                     await bot.start_session(session)
@@ -901,8 +1061,15 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                         bot.predictor.is_ready if bot.predictor else False
                     ))
                 elif action == "set_mode":
+                    if not user.is_owner and not data.get("simulation", True):
+                        await manager.send_to(websocket, {
+                            "type": "log",
+                            "message": "REAL mode is owner-only",
+                            "level": "loss",
+                        })
+                        continue
                     session.simulation = data.get("simulation", True)
-                    logger.info(f"[{session.session_id[:8]}] Mode: {'SIM' if session.simulation else 'REAL'}")
+                    logger.info(f"[{user.username}] Mode: {'SIM' if session.simulation else 'REAL'}")
                     
         except WebSocketDisconnect:
             manager.disconnect(websocket)
@@ -931,6 +1098,9 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.post("/api/settings/binance")
     async def update_binance_credentials(request: Request):
         """Actualiza las credenciales de Binance."""
+        user = getattr(request.state, "user", None)
+        if not user or not user.is_owner:
+            return JSONResponse({"error": "Only the owner can save API keys"}, status_code=403)
         data = await request.json()
         sm = get_settings_manager()
         sm.update_binance_credentials(
@@ -943,6 +1113,9 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.post("/api/settings/binance/test")
     async def test_binance_connection(request: Request):
         """Prueba la conexión con Binance."""
+        user = getattr(request.state, "user", None)
+        if not user or not user.is_owner:
+            return JSONResponse({"error": "Only the owner can test API keys"}, status_code=403)
         data = await request.json()
         sm = get_settings_manager()
         
@@ -958,37 +1131,18 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     
     @app.post("/api/simulation/reset")
     async def reset_simulation(request: Request):
-        """Reinicia la cuenta de simulación de una sesión (o todas si no hay id)."""
-        session_id = None
-        try:
-            data = await request.json()
-            session_id = data.get("session_id")
-        except Exception:
-            session_id = None
+        """Reinicia la cuenta de simulación del usuario autenticado."""
+        user = getattr(request.state, "user", None)
+        session_id = f"user:{user.id}" if user else None
         
-        if session_id and session_id in bot.sessions:
-            bot.sessions[session_id].reset(100.0)
-            bot._save_session(bot.sessions[session_id])
-        else:
-            for session in bot.sessions.values():
-                session.reset(100.0)
-                bot._save_session(session)
+        if session_id:
+            session = bot.get_session(session_id)
+            session.reset(100.0)
+            bot._save_session(session)
+            await bot.manager.send_to_session(session_id, session.stats_payload())
         
         sm = get_settings_manager()
         sm.reset_simulation(100.0)
-        
-        # Compatibilidad con contadores globales
-        bot._wins = 0
-        bot._losses = 0
-        bot._cumulative_pnl = 0.0
-        bot._trades = []
-        bot._equity_history = [100.0]
-        bot._streak = 0
-        bot._best_streak = 0
-        bot._worst_streak = 0
-        bot._max_equity = 100.0
-        bot._max_drawdown = 0.0
-        bot._save_data()
         
         return {"success": True, "simulation": sm.settings.simulation.to_dict()}
     
@@ -1025,8 +1179,11 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         }
     
     @app.post("/api/updates/install")
-    async def install_update():
+    async def install_update(request: Request):
         """Instala la actualización disponible."""
+        user = getattr(request.state, "user", None)
+        if not user or not user.is_owner:
+            return JSONResponse({"error": "Only the owner can install updates"}, status_code=403)
         updater = get_updater()
         success, message = await updater.update()
         return {"success": success, "message": message}

@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.9.1">
+    <link rel="stylesheet" href="/static/styles.css?v=1.10.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
@@ -66,6 +66,10 @@
                 <button class="btn btn-pause" id="btn-pause" disabled>⏸ PAUSE</button>
                 <button class="btn btn-stop" id="btn-stop" disabled>⏹ STOP</button>
                 <button class="btn btn-settings" id="btn-settings" title="Settings">⚙</button>
+                <div class="user-chip" id="user-chip">
+                    <span id="user-name">--</span>
+                    <button class="btn btn-logout" id="btn-logout" title="Logout">OUT</button>
+                </div>
             </div>
         </header>
 
@@ -297,7 +301,7 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Multi-Indicator</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.9.1</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.10.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -324,6 +328,7 @@
                     <button class="settings-tab" data-panel="strategy">STRATEGY</button>
                     <button class="settings-tab" data-panel="backtest">BACKTEST</button>
                     <button class="settings-tab" data-panel="export">EXPORT</button>
+                    <button class="settings-tab" data-panel="account">ACCOUNT</button>
                 </div>
 
                 <!-- Binance Panel -->
@@ -520,7 +525,7 @@
                             <div style="font-size:9px; margin-top:10px;">
                                 <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
                                     <span>Version:</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.9.1</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.10.0</span>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
                                     <span>Latest:</span>
@@ -533,6 +538,41 @@
                             </div>
                             <div class="update-status" id="update-status" style="margin-top:8px;"></div>
                         </div>
+                    </div>
+                </div>
+
+                <div class="settings-panel" id="panel-account">
+                    <div class="settings-section">
+                        <h3>ACCOUNT</h3>
+                        <p class="settings-hint" id="account-role">Signed in</p>
+                        <div class="form-group">
+                            <label for="current-password">CURRENT PASSWORD</label>
+                            <input type="password" id="current-password">
+                        </div>
+                        <div class="form-group">
+                            <label for="new-password">NEW PASSWORD</label>
+                            <input type="password" id="new-password" minlength="8">
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" id="btn-change-password">CHANGE PASSWORD</button>
+                        </div>
+                        <div class="update-status" id="password-status"></div>
+                    </div>
+                    <div class="settings-section" id="owner-account-tools" style="display:none; margin-top:18px;">
+                        <h3>INVITES</h3>
+                        <p class="settings-hint">Share a code so someone else can create an account. Registration stays closed by default.</p>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" id="btn-create-invite">NEW INVITE</button>
+                        </div>
+                        <div id="invite-list" class="invite-list"></div>
+                        <div class="form-group" style="margin-top:16px;">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="open-registration">
+                                Open registration (not recommended)
+                            </label>
+                        </div>
+                        <h3 style="margin-top:16px;">USERS</h3>
+                        <div id="users-list" class="users-list"></div>
                     </div>
                 </div>
             </div>
@@ -564,6 +604,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.9.1"></script>
+    <script src="/static/app.js?v=1.10.0"></script>
 </body>
 </html>

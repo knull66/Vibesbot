@@ -18,6 +18,7 @@ class VibesBot {
         this.audioCtx = null;
         this.entryPrice = null;
         this.sessionId = this.getSessionId();
+        this.user = null;
         
         this.init();
     }
@@ -170,6 +171,120 @@ class VibesBot {
         // Load strategies on init
         this.loadStrategies();
         this.bindMobileNav();
+        this.bindAccount();
+        this.loadAccount();
+    }
+    
+    bindAccount() {
+        document.getElementById('btn-logout')?.addEventListener('click', () => this.logout());
+        document.getElementById('btn-change-password')?.addEventListener('click', () => this.changePassword());
+        document.getElementById('btn-create-invite')?.addEventListener('click', () => this.createInvite());
+        document.getElementById('open-registration')?.addEventListener('change', async (e) => {
+            await fetch('/api/auth/registration', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: e.target.checked })
+            });
+        });
+    }
+    
+    async loadAccount() {
+        try {
+            const response = await fetch('/api/auth/me');
+            if (response.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            const data = await response.json();
+            this.user = data.user;
+            const nameEl = document.getElementById('user-name');
+            if (nameEl) nameEl.textContent = data.user?.username || '--';
+            const roleEl = document.getElementById('account-role');
+            if (roleEl) {
+                roleEl.textContent = data.user?.is_owner ? 'Owner account' : 'Signed in as ' + data.user?.username;
+            }
+            if (data.user?.is_owner) {
+                document.getElementById('owner-account-tools').style.display = 'block';
+                this.loadOwnerTools();
+            } else {
+                document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
+                document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
+            }
+        } catch (e) {
+            console.error('Auth check failed', e);
+        }
+    }
+    
+    async logout() {
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+        } catch (e) {}
+        window.location.href = '/login';
+    }
+    
+    async changePassword() {
+        const status = document.getElementById('password-status');
+        const current = document.getElementById('current-password')?.value || '';
+        const next = document.getElementById('new-password')?.value || '';
+        try {
+            const response = await fetch('/api/auth/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ current, new_password: next })
+            });
+            const data = await response.json();
+            if (status) status.textContent = data.success ? 'Password updated' : (data.error || 'Failed');
+        } catch (e) {
+            if (status) status.textContent = 'Error';
+        }
+    }
+    
+    async loadOwnerTools() {
+        try {
+            const response = await fetch('/api/auth/users');
+            if (!response.ok) return;
+            const data = await response.json();
+            const inviteList = document.getElementById('invite-list');
+            const usersList = document.getElementById('users-list');
+            const openReg = document.getElementById('open-registration');
+            if (openReg) openReg.checked = !!data.allow_open_registration;
+            if (inviteList) {
+                inviteList.innerHTML = (data.invites || []).map(code =>
+                    `<div class="invite-item"><span>${code}</span></div>`
+                ).join('') || '<div class="settings-hint">No unused invites</div>';
+            }
+            if (usersList) {
+                usersList.innerHTML = (data.users || []).map(user => `
+                    <div class="user-row">
+                        <span>${user.username}${user.is_owner ? ' (owner)' : ''}</span>
+                        ${user.is_owner ? '' : `<button class="btn btn-danger btn-delete-user" data-id="${user.id}">DEL</button>`}
+                    </div>
+                `).join('');
+                usersList.querySelectorAll('.btn-delete-user').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        await fetch('/api/auth/users/delete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user_id: btn.dataset.id })
+                        });
+                        this.loadOwnerTools();
+                    });
+                });
+            }
+        } catch (e) {
+            console.error('Owner tools failed', e);
+        }
+    }
+    
+    async createInvite() {
+        const response = await fetch('/api/auth/invite', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            this.addLog('Invite created: ' + data.code, 'info');
+            this.loadOwnerTools();
+        } else {
+            this.addLog(data.error || 'Could not create invite', 'loss');
+        }
     }
     
     getSessionId() {
@@ -245,9 +360,13 @@ class VibesBot {
             }
         };
         
-        this.ws.onclose = () => {
+        this.ws.onclose = (event) => {
             console.log('Disconnected');
             this.statusDot?.classList.remove('connected');
+            if (event.code === 4401) {
+                window.location.href = '/login';
+                return;
+            }
             this.reconnect();
         };
         
@@ -289,6 +408,11 @@ class VibesBot {
                 break;
             case 'log':
                 this.addLog(data.message, data.level || 'info');
+                break;
+            case 'error':
+                if ((data.message || '').toLowerCase().includes('unauthorized')) {
+                    window.location.href = '/login';
+                }
                 break;
             case 'status':
                 this.updateBotStatus(data);

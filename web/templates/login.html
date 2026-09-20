@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VIBESBOT LOGIN</title>
+    <meta name="theme-color" content="#00FFFF">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <link rel="stylesheet" href="/static/styles.css?v=1.10.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body class="login-page">
+    <div class="login-shell">
+        <div class="login-brand">
+            <div class="brand-icon">
+                <div class="eye"></div>
+                <div class="eye"></div>
+            </div>
+            <div class="brand-name">VIBESBOT</div>
+            <div class="login-tag" id="login-tag">SECURE ACCESS</div>
+        </div>
+
+        <div class="login-card">
+            <div class="login-tabs" id="login-tabs">
+                <button class="login-tab active" data-mode="login">LOGIN</button>
+                <button class="login-tab" data-mode="register" id="tab-register">REGISTER</button>
+            </div>
+
+            <form id="auth-form" autocomplete="on">
+                <div class="form-group">
+                    <label for="username">USERNAME</label>
+                    <input type="text" id="username" name="username" maxlength="24" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">PASSWORD</label>
+                    <input type="password" id="password" name="password" minlength="8" required>
+                </div>
+                <div class="form-group" id="invite-group" style="display:none;">
+                    <label for="invite">INVITE CODE</label>
+                    <input type="text" id="invite" name="invite" placeholder="VIBE-XXXX-XXXX">
+                </div>
+                <button class="btn btn-primary" type="submit" id="auth-submit" style="width:100%;">ENTER</button>
+                <div class="login-error" id="auth-error"></div>
+                <p class="settings-hint" id="auth-hint"></p>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    (function () {
+        const form = document.getElementById('auth-form');
+        const errorEl = document.getElementById('auth-error');
+        const hintEl = document.getElementById('auth-hint');
+        const tagEl = document.getElementById('login-tag');
+        const inviteGroup = document.getElementById('invite-group');
+        const registerTab = document.getElementById('tab-register');
+        const submitBtn = document.getElementById('auth-submit');
+        let mode = 'login';
+        let status = { setup_required: false, registration_open: false, invite_required: true };
+
+        function setMode(next) {
+            mode = next;
+            document.querySelectorAll('.login-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.mode === mode);
+            });
+            inviteGroup.style.display = (mode === 'register' && status.invite_required && !status.setup_required) ? 'block' : 'none';
+            submitBtn.textContent = status.setup_required ? 'CREATE OWNER' : (mode === 'register' ? 'CREATE ACCOUNT' : 'ENTER');
+            errorEl.textContent = '';
+        }
+
+        document.querySelectorAll('.login-tab').forEach(tab => {
+            tab.addEventListener('click', () => setMode(tab.dataset.mode));
+        });
+
+        fetch('/api/auth/status').then(r => r.json()).then(data => {
+            status = data;
+            if (data.setup_required) {
+                tagEl.textContent = 'CREATE OWNER ACCOUNT';
+                hintEl.textContent = 'First account becomes the owner. Registration will be invite-only after this.';
+                registerTab.style.display = 'none';
+                setMode('register');
+            } else if (!data.registration_open) {
+                registerTab.style.display = 'none';
+                hintEl.textContent = 'Private access. Ask the owner for an invite.';
+                setMode('login');
+            } else {
+                hintEl.textContent = data.invite_required ? 'Register with an invite code from the owner.' : 'Create an account or log in.';
+                setMode('login');
+            }
+        }).catch(() => {
+            hintEl.textContent = 'Could not reach auth server.';
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorEl.textContent = '';
+            submitBtn.disabled = true;
+            const payload = {
+                username: document.getElementById('username').value.trim(),
+                password: document.getElementById('password').value,
+                invite_code: document.getElementById('invite').value.trim()
+            };
+            const url = mode === 'register' ? '/api/auth/register' : '/api/auth/login';
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    errorEl.textContent = data.error || 'Access denied';
+                    submitBtn.disabled = false;
+                    return;
+                }
+                window.location.href = '/';
+            } catch (err) {
+                errorEl.textContent = 'Connection error';
+                submitBtn.disabled = false;
+            }
+        });
+    })();
+    </script>
+</body>
+</html>
