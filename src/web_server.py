@@ -312,9 +312,29 @@ class DashboardBot:
                 "prob_down": prob_down * 100
             })
             
+            # Obtener razón de la predicción
+            reason = ""
+            if self.data_stream:
+                df = self.data_stream.get_candles_df("1m")
+                if len(df) > 14:
+                    try:
+                        import ta
+                        close = df["close"].astype(float)
+                        rsi = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
+                        macd = ta.trend.MACD(close).macd_diff().iloc[-1]
+                        
+                        if rsi < 35:
+                            reason = f"RSI={rsi:.0f} (oversold)"
+                        elif rsi > 65:
+                            reason = f"RSI={rsi:.0f} (overbought)"
+                        else:
+                            reason = f"RSI={rsi:.0f}, MACD={macd:.1f}"
+                    except:
+                        reason = "technical analysis"
+            
             await self.manager.broadcast({
                 "type": "log",
-                "message": f"Prediction: {signal} ({confidence*100:.1f}% confidence)",
+                "message": f"📊 Prediction: {signal} ({confidence*100:.1f}%) - {reason}",
                 "level": "info"
             })
             
@@ -407,9 +427,29 @@ class DashboardBot:
             
             # Enviar log detallado
             emoji = "✓" if is_win else "✗"
+            price_diff = abs(new_price - entry_price)
+            
+            explanation = ""
+            if signal == "UP":
+                if price_moved_up:
+                    explanation = "Price went UP as predicted"
+                else:
+                    explanation = "Price went DOWN (wrong)"
+            else:  # DOWN
+                if not price_moved_up:
+                    explanation = "Price went DOWN as predicted"
+                else:
+                    explanation = "Price went UP (wrong)"
+            
             await self.manager.broadcast({
                 "type": "log",
-                "message": f"{emoji} {signal} @ ${entry_price:,.0f} {price_direction} ${new_price:,.0f} = {result} (${pnl:+.2f})",
+                "message": f"{emoji} Bet {signal} @ ${entry_price:,.0f} → ${new_price:,.0f} ({price_direction}${price_diff:.2f}) = {result}",
+                "level": "success" if is_win else "error"
+            })
+            
+            await self.manager.broadcast({
+                "type": "log",
+                "message": f"   {explanation}. P&L: ${pnl:+.2f}",
                 "level": "success" if is_win else "error"
             })
             
