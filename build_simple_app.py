@@ -20,10 +20,18 @@ import plistlib
 from pathlib import Path
 
 APP_NAME = "Vibesbot"
-VERSION = "1.3.0"
 BUNDLE_ID = "com.vibesbot.trading"
 
 PROJECT_DIR = Path(__file__).parent.resolve()
+
+# Leer versión del archivo VERSION
+VERSION_FILE = PROJECT_DIR / "VERSION"
+if VERSION_FILE.exists():
+    VERSION = VERSION_FILE.read_text().strip()
+else:
+    VERSION = "1.0.0"
+
+print(f"📦 Building version: {VERSION}")
 DIST_DIR = PROJECT_DIR / "dist"
 APP_DIR = DIST_DIR / f"{APP_NAME}.app"
 CONTENTS_DIR = APP_DIR / "Contents"
@@ -93,7 +101,7 @@ exec python3 "$VIBESBOT_DIR/app_launcher.py" 2>> "$LOG_FILE"
     return launcher
 
 
-def create_python_launcher():
+def create_python_launcher(version: str):
     """Crea el script Python que lanza la ventana"""
     
     python_launcher = '''#!/usr/bin/env python3
@@ -293,7 +301,7 @@ body::before {
     </div>
     <div class="title">VIBESBOT</div>
     <div class="subtitle">TRADING RADAR</div>
-    <div class="version">v1.3.0</div>
+    <div class="version">v__VERSION__</div>
     <div class="loader"><div class="loader-bar"></div></div>
     <div class="status">CONNECTING...</div>
 </div>
@@ -346,6 +354,8 @@ if __name__ == "__main__":
     time.sleep(0.3)
     main()
 '''
+    # Insertar la versión
+    python_launcher = python_launcher.replace('__VERSION__', version)
     return python_launcher
 
 
@@ -453,7 +463,7 @@ def build_app():
     
     # Copiar archivos necesarios
     dirs_to_copy = ['src', 'web', 'models', 'assets']
-    files_to_copy = ['config.example.json']
+    files_to_copy = ['config.example.json', 'VERSION']
     
     vibesbot_dir.mkdir()
     
@@ -470,7 +480,7 @@ def build_app():
     # Python launcher
     launcher_py = vibesbot_dir / "app_launcher.py"
     with open(launcher_py, 'w') as f:
-        f.write(create_python_launcher())
+        f.write(create_python_launcher(VERSION))
     os.chmod(launcher_py, 0o755)
     
     print("  ✓ Proyecto copiado")
