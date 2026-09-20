@@ -17,6 +17,7 @@ class VibesBot {
         this.soundEnabled = true;
         this.audioCtx = null;
         this.entryPrice = null;
+        this.sessionId = this.getSessionId();
         
         this.init();
     }
@@ -168,6 +169,53 @@ class VibesBot {
         
         // Load strategies on init
         this.loadStrategies();
+        this.bindMobileNav();
+    }
+    
+    getSessionId() {
+        const key = 'vibesbot_session_id';
+        let id = localStorage.getItem(key);
+        if (!id) {
+            id = (crypto.randomUUID && crypto.randomUUID()) ||
+                ('sess-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+            localStorage.setItem(key, id);
+        }
+        return id;
+    }
+    
+    bindMobileNav() {
+        document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const view = btn.dataset.view;
+                this.setMobileView(view);
+            });
+        });
+        
+        const mq = window.matchMedia('(max-width: 1099px)');
+        const apply = () => {
+            if (mq.matches) {
+                this.setMobileView(document.body.dataset.view || 'signal');
+            } else {
+                document.body.dataset.view = '';
+            }
+        };
+        mq.addEventListener?.('change', apply);
+        apply();
+    }
+    
+    setMobileView(view) {
+        document.body.dataset.view = view;
+        document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.view === view);
+        });
+        
+        if (view === 'chart' || view === 'stats' || view === 'history') {
+            const tabName = view === 'chart' ? 'chart' : (view === 'history' ? 'history' : 'stats');
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.tab[data-tab="${tabName}"]`)?.classList.add('active');
+            document.getElementById('tab-' + tabName)?.classList.add('active');
+        }
     }
     
     // ═══════════════════════════════════════════════════════════
@@ -184,7 +232,8 @@ class VibesBot {
             console.log('Connected to server');
             this.statusDot?.classList.add('connected');
             this.reconnectAttempts = 0;
-            this.addLog('🔗 Connected to server', 'info');
+            this.send({ action: 'hello', session_id: this.sessionId });
+            this.addLog('Connected to server', 'info');
         };
         
         this.ws.onmessage = (event) => {
@@ -887,7 +936,11 @@ class VibesBot {
     
     async resetSimulation() {
         try {
-            await fetch('/api/simulation/reset', { method: 'POST' });
+            await fetch('/api/simulation/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: this.sessionId })
+            });
             this.addLog('✓ Simulation reset', 'info');
         } catch (e) {
             this.addLog('✗ Error resetting', 'loss');

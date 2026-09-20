@@ -52,7 +52,7 @@ user_data/
 config.json
 .env
 
-# Trading data (user specific)
+data/
 trading_data.json
 user_settings.json
 

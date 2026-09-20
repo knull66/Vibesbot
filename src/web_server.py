@@ -8,9 +8,11 @@ Proporciona:
 """
 import asyncio
 import json
+import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Set
+from typing import Dict, List, Optional, Set
 import uvicorn
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -31,36 +33,128 @@ logger = get_logger("web_server")
 
 
 class ConnectionManager:
-    """Gestiona conexiones WebSocket activas."""
+    """Gestiona conexiones WebSocket activas, con envío global o por sesión."""
     
     def __init__(self):
         self.active_connections: Set[WebSocket] = set()
+        self.session_sockets: Dict[str, Set[WebSocket]] = {}
+        self.socket_session: Dict[WebSocket, str] = {}
     
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.add(websocket)
         logger.info(f"Client connected. Total: {len(self.active_connections)}")
     
+    def bind_session(self, websocket: WebSocket, session_id: str):
+        old = self.socket_session.get(websocket)
+        if old and old in self.session_sockets:
+            self.session_sockets[old].discard(websocket)
+        self.socket_session[websocket] = session_id
+        self.session_sockets.setdefault(session_id, set()).add(websocket)
+    
     def disconnect(self, websocket: WebSocket):
         self.active_connections.discard(websocket)
+        session_id = self.socket_session.pop(websocket, None)
+        if session_id and session_id in self.session_sockets:
+            self.session_sockets[session_id].discard(websocket)
         logger.info(f"Client disconnected. Total: {len(self.active_connections)}")
     
+    async def send_to(self, websocket: WebSocket, message: dict):
+        try:
+            await websocket.send_text(json.dumps(message))
+        except Exception:
+            self.disconnect(websocket)
+    
+    async def send_to_session(self, session_id: str, message: dict):
+        sockets = list(self.session_sockets.get(session_id, set()))
+        for connection in sockets:
+            await self.send_to(connection, message)
+    
     async def broadcast(self, message: dict):
-        """Envía mensaje a todos los clientes conectados."""
+        """Envía mensaje a todos los clientes (datos de mercado)."""
         if not self.active_connections:
             return
         
         data = json.dumps(message)
         disconnected = set()
         
-        for connection in self.active_connections:
+        for connection in list(self.active_connections):
             try:
                 await connection.send_text(data)
             except Exception:
                 disconnected.add(connection)
         
         for conn in disconnected:
-            self.active_connections.discard(conn)
+            self.disconnect(conn)
+
+
+@dataclass
+class ClientSession:
+    """Estado de trading independiente por dispositivo/navegador."""
+    
+    session_id: str
+    running: bool = False
+    paused: bool = False
+    simulation: bool = True
+    wins: int = 0
+    losses: int = 0
+    cumulative_pnl: float = 0.0
+    trades: List[dict] = field(default_factory=list)
+    equity_history: List[float] = field(default_factory=lambda: [100.0])
+    streak: int = 0
+    best_streak: int = 0
+    worst_streak: int = 0
+    max_equity: float = 100.0
+    max_drawdown: float = 0.0
+    initial_capital: float = 100.0
+    
+    def reset(self, capital: float = 100.0):
+        self.wins = 0
+        self.losses = 0
+        self.cumulative_pnl = 0.0
+        self.trades = []
+        self.equity_history = [capital]
+        self.streak = 0
+        self.best_streak = 0
+        self.worst_streak = 0
+        self.max_equity = capital
+        self.max_drawdown = 0.0
+        self.initial_capital = capital
+    
+    def status_payload(self, model_loaded: bool = False) -> dict:
+        return {
+            "type": "status",
+            "running": self.running,
+            "paused": self.paused,
+            "model_loaded": model_loaded,
+            "session_id": self.session_id,
+            "simulation": self.simulation,
+        }
+    
+    def stats_payload(self) -> dict:
+        total = self.wins + self.losses
+        winrate = (self.wins / max(1, total)) * 100
+        kelly_pct = 0.0
+        if total >= 5:
+            p = self.wins / total
+            kelly_pct = max(0, min(100, ((p * 0.95 - (1 - p)) / 0.95) * 100))
+        profit_factor = (self.wins * 0.95) / max(0.01, self.losses * 1.0)
+        return {
+            "type": "stats",
+            "capital": self.initial_capital + self.cumulative_pnl,
+            "pnl": self.cumulative_pnl,
+            "trades": total,
+            "winrate": winrate,
+            "wins": self.wins,
+            "losses": self.losses,
+            "kelly": kelly_pct,
+            "streak": self.streak,
+            "best_streak": self.best_streak,
+            "worst_streak": self.worst_streak,
+            "max_drawdown": self.max_drawdown,
+            "profit_factor": profit_factor,
+            "equity_history": self.equity_history[-50:],
+        }
 
 
 class DashboardBot:
@@ -83,6 +177,9 @@ class DashboardBot:
         self._paused = False
         self._task: Optional[asyncio.Task] = None
         self._data_task: Optional[asyncio.Task] = None
+        self._engine_task: Optional[asyncio.Task] = None
+        
+        self.sessions: Dict[str, ClientSession] = {}
         
         self._trades = []
         self._cumulative_pnl = 0.0
@@ -134,6 +231,7 @@ class DashboardBot:
             
             # Iniciar loop de datos en background (siempre activo)
             self._data_task = asyncio.create_task(self._data_loop())
+            self._engine_task = asyncio.create_task(self._session_engine())
             
             return True
             
@@ -141,17 +239,28 @@ class DashboardBot:
             logger.error(f"Initialization error: {e}")
             return False
     
+    def get_session(self, session_id: str) -> ClientSession:
+        if session_id not in self.sessions:
+            self.sessions[session_id] = ClientSession(session_id=session_id)
+            self._load_session(self.sessions[session_id])
+        return self.sessions[session_id]
+    
+    def attach_client(self, websocket: WebSocket, session_id: str) -> ClientSession:
+        session_id = (session_id or "").strip() or str(uuid.uuid4())
+        session = self.get_session(session_id)
+        self.manager.bind_session(websocket, session.session_id)
+        logger.info(f"Client bound to session {session.session_id[:8]}")
+        return session
+    
     async def _data_loop(self):
         """Loop que siempre envía datos de mercado, incluso sin trading."""
         logger.info("Data loop started - sending market updates")
         
         while True:
             try:
-                # Solo enviar si NO está corriendo el trading loop
-                # (para evitar duplicados)
-                if not self._running:
-                    await self._send_updates()
-                
+                await self._send_market()
+                for session in list(self.sessions.values()):
+                    await self.manager.send_to_session(session.session_id, session.stats_payload())
                 await asyncio.sleep(1)
                 
             except asyncio.CancelledError:
@@ -160,107 +269,101 @@ class DashboardBot:
                 logger.error(f"Error in data loop: {e}")
                 await asyncio.sleep(2)
     
-    async def start(self):
-        """Inicia el loop de trading."""
-        if self._running:
-            return
-        
-        self._running = True
-        self._paused = False
-        self._task = asyncio.create_task(self._run_loop())
-        
-        await self.manager.broadcast({
-            "type": "status",
-            "running": True,
-            "paused": False,
-            "model_loaded": self.predictor.is_ready if self.predictor else False
+    async def start_session(self, session: ClientSession):
+        """Inicia el trading solo para esta sesión."""
+        session.running = True
+        session.paused = False
+        await self.manager.send_to_session(session.session_id, session.status_payload(
+            self.predictor.is_ready if self.predictor else False
+        ))
+        await self.manager.send_to_session(session.session_id, {
+            "type": "log",
+            "message": "Bot started - waiting for next prediction window",
+            "level": "info"
         })
     
+    async def stop_session(self, session: ClientSession):
+        session.running = False
+        session.paused = False
+        await self.manager.send_to_session(session.session_id, session.status_payload(
+            self.predictor.is_ready if self.predictor else False
+        ))
+        await self.manager.send_to_session(session.session_id, {
+            "type": "log",
+            "message": "Bot stopped",
+            "level": "info"
+        })
+    
+    async def pause_session(self, session: ClientSession):
+        session.paused = not session.paused
+        await self.manager.send_to_session(session.session_id, session.status_payload(
+            self.predictor.is_ready if self.predictor else False
+        ))
+        await self.manager.send_to_session(session.session_id, {
+            "type": "log",
+            "message": "Bot paused" if session.paused else "Bot resumed",
+            "level": "info"
+        })
+    
+    async def start(self):
+        """Compatibilidad: inicia todas las sesiones no es el flujo nuevo."""
+        return
+    
     async def stop(self):
-        """Detiene el loop de trading."""
+        """Detiene todas las sesiones (shutdown)."""
         self._running = False
+        for session in self.sessions.values():
+            session.running = False
+            session.paused = False
         if self._task:
             self._task.cancel()
             try:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        
-        await self.manager.broadcast({
-            "type": "status",
-            "running": False,
-            "paused": False,
-            "model_loaded": self.predictor.is_ready if self.predictor else False
-        })
     
     def pause(self):
-        """Pausa el trading."""
-        self._paused = True
-        asyncio.create_task(self.manager.broadcast({
-            "type": "status",
-            "running": True,
-            "paused": True,
-            "model_loaded": self.predictor.is_ready if self.predictor else False
-        }))
+        return
     
     def resume(self):
-        """Reanuda el trading."""
-        self._paused = False
-        asyncio.create_task(self.manager.broadcast({
-            "type": "status",
-            "running": True,
-            "paused": False,
-            "model_loaded": self.predictor.is_ready if self.predictor else False
-        }))
+        return
     
-    async def _run_loop(self):
-        """Loop principal de trading."""
-        import random
-        logger.info("Trading loop started")
-        
+    async def _session_engine(self):
+        """Motor único: predicción de mercado + trades por sesión activa."""
+        logger.info("Session engine started")
         last_prediction_round = -1
         last_trade_round = -1
         
-        # Enviar mensaje de inicio
-        await self.manager.broadcast({
-            "type": "log",
-            "message": "Bot started - waiting for next prediction window",
-            "level": "info"
-        })
-        
-        while self._running:
+        while True:
             try:
-                await self._send_updates()
+                active = [s for s in self.sessions.values() if s.running and not s.paused]
                 
-                if self._paused:
-                    await asyncio.sleep(1)
-                    continue
-                
-                round_times = calculate_round_times(5, self._time_offset)
-                remaining = round_times["seconds_remaining"]
-                current_round = round_times.get("round_number", 0)
-                
-                # Generar predicción cuando quedan 60-90 segundos
-                if 60 <= remaining <= 90 and current_round != last_prediction_round:
-                    await self._generate_prediction()
-                    last_prediction_round = current_round
-                
-                # Ejecutar trade cuando quedan 10-20 segundos
-                if 10 <= remaining <= 20 and current_round != last_trade_round:
-                    await self._execute_trade()
-                    last_trade_round = current_round
+                if active:
+                    round_times = calculate_round_times(5, self._time_offset)
+                    remaining = round_times["seconds_remaining"]
+                    current_round = round_times.get("round_number", 0)
+                    
+                    if 60 <= remaining <= 90 and current_round != last_prediction_round:
+                        await self._generate_prediction(active)
+                        last_prediction_round = current_round
+                    
+                    if 10 <= remaining <= 20 and current_round != last_trade_round:
+                        await asyncio.gather(*[self._execute_trade(session) for session in active])
+                        self._last_prediction = None
+                        last_trade_round = current_round
                 
                 await asyncio.sleep(1)
                 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in trading loop: {e}")
+                logger.error(f"Error in session engine: {e}")
                 await asyncio.sleep(2)
-        
-        logger.info("Trading loop ended")
     
-    async def _generate_prediction(self):
+    async def _run_loop(self):
+        return
+    
+    async def _generate_prediction(self, sessions: Optional[List[ClientSession]] = None):
         """Genera predicción usando múltiples estrategias."""
         import random
         
@@ -355,7 +458,7 @@ class DashboardBot:
                 price_to_beat = self.data_stream.get_current_price() or price_to_beat
             self._price_to_beat = price_to_beat
             
-            await self.manager.broadcast({
+            await self._emit_sessions(sessions, {
                 "type": "signal",
                 "signal": signal,
                 "confidence": confidence,
@@ -364,7 +467,7 @@ class DashboardBot:
                 "price_to_beat": price_to_beat
             })
             
-            await self.manager.broadcast({
+            await self._emit_sessions(sessions, {
                 "type": "log",
                 "message": f"SIGNAL: {signal} ({confidence*100:.1f}%) | {strategy_used}",
                 "level": "prediction"
@@ -375,10 +478,18 @@ class DashboardBot:
         except Exception as e:
             logger.error(f"Error generating prediction: {e}")
     
-    async def _execute_trade(self):
+    async def _emit_sessions(self, sessions: Optional[List[ClientSession]], message: dict):
+        targets = sessions if sessions is not None else list(self.sessions.values())
+        for session in targets:
+            await self.manager.send_to_session(session.session_id, message)
+    
+    async def _execute_trade(self, session: Optional[ClientSession] = None):
         """Ejecuta un trade simulado basado en la última predicción."""
         import random
         from datetime import datetime
+        
+        if session is None:
+            return
         
         try:
             # Usar la predicción guardada
@@ -387,7 +498,7 @@ class DashboardBot:
             
             # Si no hay predicción válida, saltar
             if not signal or signal == "WAIT":
-                await self.manager.broadcast({
+                await self.manager.send_to_session(session.session_id, {
                     "type": "log", 
                     "message": "WAITING FOR SIGNAL",
                     "level": "info"
@@ -396,7 +507,7 @@ class DashboardBot:
             
             # Solo tradear si hay suficiente confianza (>50%)
             if confidence < 0.50:
-                await self.manager.broadcast({
+                await self.manager.send_to_session(session.session_id, {
                     "type": "log", 
                     "message": f"SKIP: Confidence too low ({confidence*100:.0f}%)",
                     "level": "info"
@@ -443,33 +554,43 @@ class DashboardBot:
             
             # Actualizar estadísticas básicas
             if is_win:
-                self._wins += 1
-                self._streak = max(1, self._streak + 1) if self._streak >= 0 else 1
+                session.wins += 1
+                session.streak = max(1, session.streak + 1) if session.streak >= 0 else 1
             else:
-                self._losses += 1
-                self._streak = min(-1, self._streak - 1) if self._streak <= 0 else -1
+                session.losses += 1
+                session.streak = min(-1, session.streak - 1) if session.streak <= 0 else -1
             
-            self._cumulative_pnl += pnl
+            session.cumulative_pnl += pnl
             
             # Actualizar estadísticas avanzadas
-            self._best_streak = max(self._best_streak, self._streak)
-            self._worst_streak = min(self._worst_streak, self._streak)
+            session.best_streak = max(session.best_streak, session.streak)
+            session.worst_streak = min(session.worst_streak, session.streak)
             
-            current_equity = 100.0 + self._cumulative_pnl
-            self._equity_history.append(current_equity)
-            self._max_equity = max(self._max_equity, current_equity)
+            current_equity = session.initial_capital + session.cumulative_pnl
+            session.equity_history.append(current_equity)
+            session.max_equity = max(session.max_equity, current_equity)
             
             # Calcular drawdown
-            if self._max_equity > 0:
-                current_drawdown = ((self._max_equity - current_equity) / self._max_equity) * 100
-                self._max_drawdown = max(self._max_drawdown, current_drawdown)
+            if session.max_equity > 0:
+                current_drawdown = ((session.max_equity - current_equity) / session.max_equity) * 100
+                session.max_drawdown = max(session.max_drawdown, current_drawdown)
+            
+            session.trades.append({
+                "timestamp": datetime.now().isoformat(),
+                "direction": signal,
+                "amount": amount,
+                "entry_price": entry_price,
+                "exit_price": new_price,
+                "pnl": pnl,
+                "result": result,
+            })
             
             # Calcular cambio de precio
             price_change = new_price - entry_price
             price_direction = "↑" if price_change > 0 else "↓" if price_change < 0 else "→"
             
-            # Enviar trade al frontend
-            await self.manager.broadcast({
+            # Enviar trade al frontend de ESTA sesión
+            await self.manager.send_to_session(session.session_id, {
                 "type": "trade",
                 "timestamp": datetime.now().isoformat(),
                 "direction": signal,
@@ -494,78 +615,31 @@ class DashboardBot:
             
             log_level = "win" if is_win else "loss"
             
-            await self.manager.broadcast({
+            await self.manager.send_to_session(session.session_id, {
                 "type": "log",
                 "message": f"TRADE {signal} | ${entry_price:,.2f} -> ${new_price:,.2f} | {result}",
                 "level": log_level
             })
             
-            await self.manager.broadcast({
+            await self.manager.send_to_session(session.session_id, {
                 "type": "log",
                 "message": f"{explanation} | P&L: ${pnl:+.2f}",
                 "level": log_level
             })
             
-            # Actualizar stats completas
-            total_trades = self._wins + self._losses
-            winrate = (self._wins / max(1, total_trades)) * 100
+            await self.manager.send_to_session(session.session_id, session.stats_payload())
             
-            # Kelly Criterion
-            if total_trades >= 5:
-                p = self._wins / total_trades
-                b = 0.95  # odds (95% payout)
-                kelly_pct = max(0, ((p * b - (1 - p)) / b) * 100)
-            else:
-                kelly_pct = 0
+            logger.info(f"[{session.session_id[:8]}] Trade: {signal} @ ${entry_price:.2f} -> ${new_price:.2f} = {result} (${pnl:+.2f})")
             
-            # Profit factor
-            total_wins_amount = self._wins * 0.95
-            total_losses_amount = self._losses * 1.0
-            profit_factor = total_wins_amount / max(0.01, total_losses_amount)
-            
-            await self.manager.broadcast({
-                "type": "stats",
-                "capital": 100.0 + self._cumulative_pnl,
-                "pnl": self._cumulative_pnl,
-                "trades": total_trades,
-                "winrate": winrate,
-                "wins": self._wins,
-                "losses": self._losses,
-                "streak": self._streak,
-                "best_streak": self._best_streak,
-                "worst_streak": self._worst_streak,
-                "kelly": kelly_pct,
-                "profit_factor": profit_factor,
-                "max_drawdown": self._max_drawdown,
-                "equity_history": self._equity_history[-50:]
-            })
-            
-            logger.info(f"Trade: {signal} @ ${entry_price:.2f} -> ${new_price:.2f} = {result} (${pnl:+.2f})")
-            
-            # Registrar en SimulationAccount
-            from .user_settings import get_settings_manager
-            sm = get_settings_manager()
-            sm.record_simulation_trade(
-                direction=signal,
-                amount=amount,
-                result=result,
-                pnl=pnl,
-                price=entry_price
-            )
-            
-            # Guardar datos
-            self._save_data()
-            
-            # Limpiar predicción después de usarla
-            self._last_prediction = None
+            self._save_session(session)
             
         except Exception as e:
             logger.error(f"Error executing trade: {e}")
             import traceback
             traceback.print_exc()
     
-    async def _send_updates(self):
-        """Envía actualizaciones periódicas al dashboard."""
+    async def _send_market(self):
+        """Envía datos de mercado a todos los clientes (compartido)."""
         import random
         
         # Calcular tiempo de ronda (sincronizado con Binance)
@@ -632,7 +706,7 @@ class DashboardBot:
                 except Exception as e:
                     logger.debug(f"Error calculating features: {e}")
         
-        # Enviar market data
+        # Enviar market data a TODOS (el precio es el mismo)
         await self.manager.broadcast({
             "type": "market",
             "price": price,
@@ -644,40 +718,51 @@ class DashboardBot:
                 "momentum": momentum
             }
         })
-        
-        # Calcular stats
-        total_trades = self._wins + self._losses
-        winrate = (self._wins / max(1, total_trades)) * 100
-        
-        # Calcular Kelly Criterion
-        kelly_pct = 0.0
-        if total_trades >= 5:
-            win_prob = self._wins / max(1, total_trades)
-            kelly = win_prob - ((1 - win_prob) / 0.95)
-            kelly_pct = max(0, min(100, kelly * 100))
-        
-        # Calcular profit factor
-        total_wins_amount = self._wins * 0.95
-        total_losses_amount = self._losses * 1.0
-        profit_factor = total_wins_amount / max(0.01, total_losses_amount)
-        
-        # Enviar stats completas
-        await self.manager.broadcast({
-            "type": "stats",
-            "capital": 100.0 + self._cumulative_pnl,
-            "pnl": self._cumulative_pnl,
-            "trades": total_trades,
-            "winrate": winrate,
-            "wins": self._wins,
-            "losses": self._losses,
-            "kelly": kelly_pct,
-            "streak": self._streak,
-            "best_streak": self._best_streak,
-            "worst_streak": self._worst_streak,
-            "max_drawdown": self._max_drawdown,
-            "profit_factor": profit_factor,
-            "equity_history": self._equity_history[-50:]  # Últimos 50 para gráfico
-        })
+    
+    def _sessions_dir(self) -> Path:
+        path = Path(__file__).parent.parent / "data" / "sessions"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    
+    def _load_session(self, session: ClientSession):
+        data_file = self._sessions_dir() / f"{session.session_id}.json"
+        if not data_file.exists():
+            return
+        try:
+            with open(data_file, "r") as f:
+                data = json.load(f)
+            session.wins = data.get("wins", 0)
+            session.losses = data.get("losses", 0)
+            session.cumulative_pnl = data.get("pnl", 0.0)
+            session.trades = data.get("trades", [])
+            session.equity_history = data.get("equity_history", [100.0])
+            session.best_streak = data.get("best_streak", 0)
+            session.worst_streak = data.get("worst_streak", 0)
+            session.max_drawdown = data.get("max_drawdown", 0.0)
+            session.max_equity = data.get("max_equity", 100.0)
+            session.initial_capital = data.get("initial_capital", 100.0)
+        except Exception as e:
+            logger.error(f"Error loading session {session.session_id[:8]}: {e}")
+    
+    def _save_session(self, session: ClientSession):
+        data_file = self._sessions_dir() / f"{session.session_id}.json"
+        try:
+            with open(data_file, "w") as f:
+                json.dump({
+                    "wins": session.wins,
+                    "losses": session.losses,
+                    "pnl": session.cumulative_pnl,
+                    "trades": session.trades[-100:],
+                    "equity_history": session.equity_history[-500:],
+                    "best_streak": session.best_streak,
+                    "worst_streak": session.worst_streak,
+                    "max_drawdown": session.max_drawdown,
+                    "max_equity": session.max_equity,
+                    "initial_capital": session.initial_capital,
+                    "last_updated": datetime.now().isoformat(),
+                }, f)
+        except Exception as e:
+            logger.error(f"Error saving session {session.session_id[:8]}: {e}")
     
     def _load_saved_data(self):
         """Carga datos guardados de sesiones anteriores."""
@@ -727,8 +812,14 @@ class DashboardBot:
     
     async def cleanup(self):
         """Limpia recursos."""
-        self._save_data()  # Guardar antes de cerrar
+        for session in self.sessions.values():
+            self._save_session(session)
+        self._save_data()
         await self.stop()
+        if self._engine_task:
+            self._engine_task.cancel()
+        if self._data_task:
+            self._data_task.cancel()
         if self.data_stream:
             await self.data_stream.stop()
 
@@ -779,33 +870,39 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
         await manager.connect(websocket)
-        
-        await websocket.send_json({
-            "type": "status",
-            "running": bot._running,
-            "paused": bot._paused,
-            "model_loaded": bot.predictor.is_ready if bot.predictor else False
-        })
+        session: Optional[ClientSession] = None
         
         try:
             while True:
                 data = await websocket.receive_json()
                 action = data.get("action") or data.get("command")
                 
+                if action in ("hello", "identify"):
+                    session = bot.attach_client(websocket, data.get("session_id", ""))
+                    model_ready = bot.predictor.is_ready if bot.predictor else False
+                    await manager.send_to(websocket, session.status_payload(model_ready))
+                    await manager.send_to(websocket, session.stats_payload())
+                    continue
+                
+                if session is None:
+                    session = bot.attach_client(websocket, str(uuid.uuid4()))
+                    model_ready = bot.predictor.is_ready if bot.predictor else False
+                    await manager.send_to(websocket, session.status_payload(model_ready))
+                
                 if action == "start":
-                    await bot.start()
+                    await bot.start_session(session)
                 elif action == "stop":
-                    await bot.stop()
+                    await bot.stop_session(session)
                 elif action == "pause":
-                    if bot._paused:
-                        bot.resume()
-                    else:
-                        bot.pause()
+                    await bot.pause_session(session)
                 elif action == "resume":
-                    bot.resume()
+                    session.paused = False
+                    await manager.send_to_session(session.session_id, session.status_payload(
+                        bot.predictor.is_ready if bot.predictor else False
+                    ))
                 elif action == "set_mode":
-                    simulation = data.get("simulation", True)
-                    logger.info(f"Mode changed to: {'SIMULATION' if simulation else 'REAL'}")
+                    session.simulation = data.get("simulation", True)
+                    logger.info(f"[{session.session_id[:8]}] Mode: {'SIM' if session.simulation else 'REAL'}")
                     
         except WebSocketDisconnect:
             manager.disconnect(websocket)
@@ -860,12 +957,27 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         return result
     
     @app.post("/api/simulation/reset")
-    async def reset_simulation():
-        """Reinicia la cuenta de simulación."""
+    async def reset_simulation(request: Request):
+        """Reinicia la cuenta de simulación de una sesión (o todas si no hay id)."""
+        session_id = None
+        try:
+            data = await request.json()
+            session_id = data.get("session_id")
+        except Exception:
+            session_id = None
+        
+        if session_id and session_id in bot.sessions:
+            bot.sessions[session_id].reset(100.0)
+            bot._save_session(bot.sessions[session_id])
+        else:
+            for session in bot.sessions.values():
+                session.reset(100.0)
+                bot._save_session(session)
+        
         sm = get_settings_manager()
         sm.reset_simulation(100.0)
         
-        # También reiniciar contadores del bot
+        # Compatibilidad con contadores globales
         bot._wins = 0
         bot._losses = 0
         bot._cumulative_pnl = 0.0
