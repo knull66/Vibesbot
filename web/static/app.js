@@ -108,6 +108,15 @@ class VibesBot {
         document.getElementById('btn-reset-sim')?.addEventListener('click', () => this.resetSimulation());
         document.getElementById('btn-check-update')?.addEventListener('click', () => this.checkUpdates());
         document.getElementById('btn-install-update')?.addEventListener('click', () => this.installUpdate());
+        
+        // Trading style toggle
+        const tradingStyle = document.getElementById('trading-style');
+        const activeSettings = document.getElementById('active-settings');
+        tradingStyle?.addEventListener('change', () => {
+            if (activeSettings) {
+                activeSettings.style.display = tradingStyle.value === 'active' ? 'block' : 'none';
+            }
+        });
     }
 
     bootSequence() {

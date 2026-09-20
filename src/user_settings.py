@@ -52,10 +52,17 @@ class BinanceCredentials:
         return secret[:4] + "*" * (len(secret) - 8) + secret[-4:]
 
 
+class TradingStyle(Enum):
+    """Estilos de trading disponibles."""
+    HOLD = "hold"        # Solo comprar, esperar al final
+    ACTIVE = "active"    # Comprar y vender según condiciones
+
+
 @dataclass
 class TradingSettings:
     """Configuración de trading."""
     mode: TradingMode = TradingMode.SIMULATION
+    style: TradingStyle = TradingStyle.HOLD  # HOLD o ACTIVE
     symbol: str = "BTCUSDT"
     bet_amount: float = 1.0  # USD por apuesta
     max_daily_loss: float = 50.0  # USD
@@ -63,15 +70,22 @@ class TradingSettings:
     confidence_threshold: float = 0.62  # 62% mínimo
     auto_trade: bool = False  # Si ejecuta trades automáticamente
     
+    # Configuración para modo ACTIVE
+    take_profit_pct: float = 30.0   # Vender si ganancia > 30%
+    stop_loss_pct: float = 40.0     # Vender si pérdida > 40%
+    
     def to_dict(self) -> dict:
         return {
             "mode": self.mode.value,
+            "style": self.style.value,
             "symbol": self.symbol,
             "bet_amount": self.bet_amount,
             "max_daily_loss": self.max_daily_loss,
             "max_trades_per_day": self.max_trades_per_day,
             "confidence_threshold": self.confidence_threshold,
-            "auto_trade": self.auto_trade
+            "auto_trade": self.auto_trade,
+            "take_profit_pct": self.take_profit_pct,
+            "stop_loss_pct": self.stop_loss_pct
         }
 
 
