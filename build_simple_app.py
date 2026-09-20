@@ -493,16 +493,14 @@ def build_app():
 
 
 def create_dmg():
-    """Crea el DMG con diseño profesional"""
-    print("\n📦 Creando DMG con diseño personalizado...")
+    """Crea el DMG de forma simple y confiable"""
+    print("\n📦 Creando DMG...")
     
     dmg_path = DIST_DIR / f"{APP_NAME}-{VERSION}.dmg"
-    temp_dmg = DIST_DIR / "temp.dmg"
     
+    # Eliminar DMG anterior si existe
     if dmg_path.exists():
         dmg_path.unlink()
-    if temp_dmg.exists():
-        temp_dmg.unlink()
     
     # Crear carpeta temporal para DMG
     dmg_staging = DIST_DIR / "dmg_staging"
@@ -510,89 +508,49 @@ def create_dmg():
         shutil.rmtree(dmg_staging)
     dmg_staging.mkdir()
     
+    print(f"  Preparando contenido...")
+    
     # Copiar app
     shutil.copytree(APP_DIR, dmg_staging / f"{APP_NAME}.app")
     
     # Symlink a Applications
     (dmg_staging / "Applications").symlink_to("/Applications")
     
-    # Copiar fondo si existe
-    bg_source = PROJECT_DIR / "assets" / "dmg_background.png"
-    if bg_source.exists():
-        bg_dir = dmg_staging / ".background"
-        bg_dir.mkdir()
-        shutil.copy(bg_source, bg_dir / "background.png")
+    print(f"  Creando imagen DMG...")
     
-    # Crear DMG inicial (writable)
-    subprocess.run([
+    # Crear DMG directamente (sin AppleScript problemático)
+    result = subprocess.run([
         "hdiutil", "create",
         "-volname", APP_NAME,
         "-srcfolder", str(dmg_staging),
         "-ov",
-        "-format", "UDRW",
-        str(temp_dmg)
-    ], capture_output=True)
-    
-    # Montar DMG para configurar diseño
-    mount_result = subprocess.run([
-        "hdiutil", "attach", str(temp_dmg), "-readwrite", "-noverify"
+        "-format", "UDZO",
+        str(dmg_path)
     ], capture_output=True, text=True)
     
-    if mount_result.returncode == 0:
-        mount_point = f"/Volumes/{APP_NAME}"
-        
-        # Configurar vista del DMG con AppleScript
-        applescript = f'''
-tell application "Finder"
-    tell disk "{APP_NAME}"
-        open
-        set current view of container window to icon view
-        set toolbar visible of container window to false
-        set statusbar visible of container window to false
-        set bounds of container window to {{100, 100, 640, 480}}
-        set theViewOptions to the icon view options of container window
-        set arrangement of theViewOptions to not arranged
-        set icon size of theViewOptions to 100
-        
-        -- Posicionar iconos
-        set position of item "{APP_NAME}.app" of container window to {{140, 180}}
-        set position of item "Applications" of container window to {{400, 180}}
-        
-        -- Configurar fondo si existe
-        try
-            set background picture of theViewOptions to file ".background:background.png"
-        end try
-        
-        close
-        open
-        update without registering applications
-        delay 2
-        close
-    end tell
-end tell
-'''
-        
-        subprocess.run(["osascript", "-e", applescript], capture_output=True)
-        
-        # Desmontar
-        subprocess.run(["hdiutil", "detach", mount_point, "-quiet"], capture_output=True)
+    if result.returncode != 0:
+        print(f"  ⚠️ Error creando DMG: {result.stderr}")
+        # Intentar método alternativo
+        print(f"  Intentando método alternativo...")
+        result = subprocess.run([
+            "hdiutil", "create",
+            "-volname", APP_NAME,
+            "-srcfolder", str(dmg_staging),
+            "-ov",
+            "-format", "UDBZ",
+            str(dmg_path)
+        ], capture_output=True, text=True)
     
-    # Convertir a DMG comprimido final
-    subprocess.run([
-        "hdiutil", "convert", str(temp_dmg),
-        "-format", "UDZO",
-        "-imagekey", "zlib-level=9",
-        "-o", str(dmg_path)
-    ], capture_output=True)
-    
-    # Limpiar
-    if temp_dmg.exists():
-        temp_dmg.unlink()
+    # Limpiar staging
     shutil.rmtree(dmg_staging)
     
     if dmg_path.exists():
         size_mb = dmg_path.stat().st_size / (1024 * 1024)
         print(f"  ✓ DMG creado: {dmg_path} ({size_mb:.1f} MB)")
+        return dmg_path
+    else:
+        print(f"  ❌ Error: No se pudo crear el DMG")
+        return None
         return dmg_path
     
     return None
