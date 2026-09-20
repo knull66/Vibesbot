@@ -394,6 +394,8 @@ class PredictionModel:
         
         X_clean = X.replace([np.inf, -np.inf], np.nan).fillna(0)
         
+        if not HAS_SKLEARN or StandardScaler is None:
+            raise RuntimeError("scikit-learn is required to train models")
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X_clean)
         
