@@ -164,7 +164,7 @@ def main():
             self.window.center()
             self.window.makeKeyAndOrderFront_(None)
             
-            # Loading screen - Vibes District style with cyan
+            # Loading screen - Bunny with cyan horizontal line eyes
             loading = """<!DOCTYPE html>
 <html>
 <head>
@@ -181,7 +181,6 @@ body {
     height: 100vh;
     overflow: hidden;
 }
-/* Matrix rain effect */
 body::before {
     content: '';
     position: absolute;
@@ -199,39 +198,44 @@ body::before {
     margin: 0 auto 30px;
     position: relative;
 }
-.face {
+/* Bunny face */
+.bunny {
     width: 100%;
     height: 100%;
     background: #000;
-    border-radius: 50% 50% 45% 45%;
+    border-radius: 20px;
     position: relative;
     box-shadow: 0 0 30px rgba(0, 255, 255, 0.4);
 }
-.horn {
-    position: absolute;
-    width: 18px;
-    height: 25px;
-    background: #000;
-    top: -18px;
-    border-radius: 50% 50% 0 0;
-}
-.horn.left { left: 18px; transform: rotate(-15deg); }
-.horn.right { right: 18px; transform: rotate(15deg); }
-.eye {
+/* Bunny ears */
+.ear {
     position: absolute;
     width: 22px;
-    height: 35px;
-    background: #00FFFF;
-    top: 35%;
-    border-radius: 50%;
-    box-shadow: 0 0 20px #00FFFF, 0 0 40px #00FFFF, 0 0 60px #00FFFF;
-    animation: pulse 2s ease-in-out infinite;
+    height: 45px;
+    background: #000;
+    top: -38px;
+    border-radius: 10px;
+    box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
 }
-.eye.left { left: 18px; transform: rotate(-15deg); }
-.eye.right { right: 18px; transform: rotate(15deg); }
-@keyframes pulse {
-    0%, 100% { box-shadow: 0 0 20px #00FFFF, 0 0 40px #00FFFF; }
-    50% { box-shadow: 0 0 30px #00FFFF, 0 0 60px #00FFFF, 0 0 80px #00FFFF; }
+.ear.left { left: 18px; transform: rotate(-8deg); }
+.ear.right { right: 18px; transform: rotate(8deg); }
+/* Horizontal line eyes */
+.eye {
+    position: absolute;
+    width: 26px;
+    height: 6px;
+    background: #00FFFF;
+    top: 50%;
+    transform: translateY(-50%);
+    border-radius: 3px;
+    box-shadow: 0 0 15px #00FFFF, 0 0 30px #00FFFF;
+    animation: blink 3s infinite;
+}
+.eye.left { left: 16px; }
+.eye.right { right: 16px; }
+@keyframes blink {
+    0%, 90%, 100% { opacity: 1; }
+    95% { opacity: 0.3; }
 }
 .title {
     font-size: 24px;
@@ -244,6 +248,11 @@ body::before {
     font-size: 8px;
     letter-spacing: 2px;
     margin-bottom: 30px;
+}
+.version {
+    color: #044;
+    font-size: 6px;
+    margin-bottom: 20px;
 }
 .loader {
     width: 200px;
@@ -275,15 +284,16 @@ body::before {
 <body>
 <div class="container">
     <div class="logo">
-        <div class="face">
-            <div class="horn left"></div>
-            <div class="horn right"></div>
+        <div class="bunny">
+            <div class="ear left"></div>
+            <div class="ear right"></div>
             <div class="eye left"></div>
             <div class="eye right"></div>
         </div>
     </div>
     <div class="title">VIBESBOT</div>
     <div class="subtitle">TRADING RADAR</div>
+    <div class="version">v1.2.0</div>
     <div class="loader"><div class="loader-bar"></div></div>
     <div class="status">CONNECTING...</div>
 </div>

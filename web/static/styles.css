@@ -174,7 +174,7 @@ body:not(.is-booting) .boot { opacity: 0; visibility: hidden; pointer-events: no
 }
 
 /* ═══════════════════════════════════════════════════════════
-   VIBES MASCOT LOGO - Consistent alien/creature with cyan eyes
+   BUNNY LOGO - Pixel art style with horizontal cyan eye lines
    ═══════════════════════════════════════════════════════════ */
 
 .bunny-logo {
@@ -187,95 +187,172 @@ body:not(.is-booting) .boot { opacity: 0; visibility: hidden; pointer-events: no
   width: 100%;
   height: 100%;
   background: #000;
-  border-radius: 50% 50% 45% 45%;
+  border-radius: 20px;
   position: relative;
   box-shadow: 0 0 30px var(--accent-glow);
 }
 
-/* Ears/horns */
+/* Bunny ears */
 .bunny-ear {
   position: absolute;
-  width: 20px;
-  height: 30px;
+  width: 22px;
+  height: 45px;
   background: #000;
-  top: -20px;
-  border-radius: 50% 50% 0 0;
+  top: -38px;
+  border-radius: 10px;
+  box-shadow: 0 0 15px var(--accent-glow);
 }
 
 .bunny-ear.left {
-  left: 15px;
-  transform: rotate(-15deg);
+  left: 18px;
+  transform: rotate(-8deg);
 }
 
 .bunny-ear.right {
-  right: 15px;
-  transform: rotate(15deg);
+  right: 18px;
+  transform: rotate(8deg);
 }
 
-/* Cyan glowing eyes - slanted ovals like Vibes District */
+/* Horizontal line eyes - original style */
 .bunny-eye {
   position: absolute;
   width: 28px;
-  height: 40px;
+  height: 6px;
   background: var(--accent);
-  top: 35%;
-  border-radius: 50%;
-  box-shadow: 0 0 20px var(--accent), 0 0 40px var(--accent), 0 0 60px var(--accent);
-  animation: eye-pulse 2s ease-in-out infinite;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 3px;
+  box-shadow: 0 0 15px var(--accent), 0 0 30px var(--accent), 0 0 45px var(--accent);
+  animation: eye-glow 2s ease-in-out infinite;
 }
 
 .bunny-eye.left {
   left: 18px;
-  transform: rotate(-15deg);
 }
 
 .bunny-eye.right {
   right: 18px;
-  transform: rotate(15deg);
 }
 
-@keyframes eye-pulse {
-  0%, 100% { 
+@keyframes eye-glow {
+  0%, 90%, 100% { 
     opacity: 1; 
-    box-shadow: 0 0 20px var(--accent), 0 0 40px var(--accent), 0 0 60px var(--accent);
+    box-shadow: 0 0 15px var(--accent), 0 0 30px var(--accent);
   }
-  50% { 
-    opacity: 0.8; 
-    box-shadow: 0 0 30px var(--accent), 0 0 50px var(--accent), 0 0 80px var(--accent);
+  95% { 
+    opacity: 0.4; 
+    box-shadow: 0 0 5px var(--accent);
   }
 }
 
-/* Mini mascot for header */
+/* Mini bunny for header */
 .bunny-mini {
   width: 32px;
   height: 32px;
   background: #000;
-  border-radius: 50% 50% 40% 40%;
+  border-radius: 8px;
   position: relative;
   box-shadow: 0 0 10px var(--accent-glow);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .bunny-mini .bunny-eye {
   position: relative;
   width: 8px;
-  height: 12px;
+  height: 3px;
   top: 0;
   left: 0;
   right: 0;
-  border-radius: 50%;
+  border-radius: 2px;
   transform: none;
 }
 
-.bunny-mini .bunny-eye.left {
-  transform: rotate(-10deg);
+/* ═══════════════════════════════════════════════════════════
+   MODE SWITCH - Simulation vs Real
+   ═══════════════════════════════════════════════════════════ */
+
+.mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-left: 12px;
 }
 
-.bunny-mini .bunny-eye.right {
-  transform: rotate(10deg);
+.mode-switch-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.mode-toggle {
+  position: relative;
+  width: 60px;
+  height: 26px;
+  background: var(--down);
+  border-radius: 13px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.mode-toggle.simulation {
+  background: var(--accent);
+}
+
+.mode-toggle::before {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  background: white;
+  border-radius: 50%;
+  top: 3px;
+  left: 3px;
+  transition: transform 0.3s;
+}
+
+.mode-toggle.simulation::before {
+  transform: translateX(34px);
+}
+
+.mode-toggle-text {
+  position: absolute;
+  width: 100%;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 26px;
+  color: white;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mode-indicator {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.mode-indicator.sim {
+  background: rgba(0, 255, 255, 0.2);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.mode-indicator.real {
+  background: rgba(255, 68, 102, 0.2);
+  color: var(--down);
+  border: 1px solid var(--down);
 }
 
 /* ═══════════════════════════════════════════════════════════

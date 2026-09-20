@@ -465,6 +465,12 @@ class VibesbotDashboard {
     // Simulation
     document.getElementById('btn-reset-simulation').addEventListener('click', () => this.resetSimulation());
     
+    // Mode toggle
+    const modeToggle = document.getElementById('mode-toggle');
+    if (modeToggle) {
+      modeToggle.addEventListener('click', () => this.toggleMode());
+    }
+    
     // Updates
     document.getElementById('btn-check-updates').addEventListener('click', () => this.checkForUpdates());
     document.getElementById('btn-install-update').addEventListener('click', () => this.installUpdate());
@@ -536,8 +542,12 @@ class VibesbotDashboard {
       document.getElementById('binance-testnet').checked = settings.binance?.is_testnet !== false;
       
       // Trading
-      document.getElementById('trading-mode').value = settings.trading?.mode || 'simulation';
+      const tradingMode = settings.trading?.mode || 'simulation';
+      document.getElementById('trading-mode').value = tradingMode;
       document.getElementById('trading-bet-amount').value = settings.trading?.bet_amount || 1;
+      
+      // Update mode toggle UI
+      this.updateModeUI(tradingMode);
       document.getElementById('trading-confidence').value = (settings.trading?.confidence_threshold || 0.62) * 100;
       document.getElementById('confidence-value').textContent = `${Math.round((settings.trading?.confidence_threshold || 0.62) * 100)}%`;
       document.getElementById('trading-max-loss').value = settings.trading?.max_daily_loss || 50;
@@ -756,6 +766,78 @@ class VibesbotDashboard {
   showNotification(message, type = 'info') {
     // Simple notification - could be enhanced with a toast library
     console.log(`[${type.toUpperCase()}] ${message}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // MODE TOGGLE - Simulation vs Real
+  // ═══════════════════════════════════════════════════════════
+
+  async toggleMode() {
+    const toggle = document.getElementById('mode-toggle');
+    const text = document.getElementById('mode-text');
+    const indicator = document.getElementById('mode-indicator');
+    
+    const isSimulation = toggle.classList.contains('simulation');
+    
+    if (isSimulation) {
+      // Switching to REAL - show warning
+      const confirmed = confirm(
+        '⚠️ MODO REAL\n\n' +
+        'Estás a punto de activar el modo REAL.\n' +
+        'Los trades se ejecutarán con dinero real.\n\n' +
+        '¿Estás seguro?'
+      );
+      
+      if (!confirmed) return;
+      
+      toggle.classList.remove('simulation');
+      text.textContent = 'REAL';
+      indicator.textContent = 'REAL';
+      indicator.className = 'mode-indicator real';
+      
+      await this.updateTradingMode('live');
+    } else {
+      // Switching to SIMULATION
+      toggle.classList.add('simulation');
+      text.textContent = 'SIM';
+      indicator.textContent = 'SIMULATION';
+      indicator.className = 'mode-indicator sim';
+      
+      await this.updateTradingMode('simulation');
+    }
+  }
+
+  async updateTradingMode(mode) {
+    try {
+      await fetch('/api/settings/trading', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: mode })
+      });
+      console.log(`Mode changed to: ${mode}`);
+    } catch (error) {
+      console.error('Error updating mode:', error);
+    }
+  }
+
+  updateModeUI(mode) {
+    const toggle = document.getElementById('mode-toggle');
+    const text = document.getElementById('mode-text');
+    const indicator = document.getElementById('mode-indicator');
+    
+    if (!toggle) return;
+    
+    if (mode === 'simulation') {
+      toggle.classList.add('simulation');
+      text.textContent = 'SIM';
+      indicator.textContent = 'SIMULATION';
+      indicator.className = 'mode-indicator sim';
+    } else {
+      toggle.classList.remove('simulation');
+      text.textContent = 'REAL';
+      indicator.textContent = 'REAL';
+      indicator.className = 'mode-indicator real';
+    }
   }
 }
 
