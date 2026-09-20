@@ -77,12 +77,14 @@
         fetch('/api/auth/status').then(r => r.json()).then(data => {
             status = data;
             if (data.setup_required) {
-                tagEl.textContent = 'CREATE OWNER ACCOUNT';
+                tagEl.textContent = 'Create owner account';
                 hintEl.textContent = 'First account becomes the owner. Registration will be invite-only after this.';
+                document.getElementById('login-tabs').style.display = 'none';
                 registerTab.style.display = 'none';
                 setMode('register');
             } else if (!data.registration_open) {
                 registerTab.style.display = 'none';
+                document.getElementById('login-tabs').style.display = 'none';
                 hintEl.textContent = 'Private access. Ask the owner for an invite.';
                 setMode('login');
             } else {
