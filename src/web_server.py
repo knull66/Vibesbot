@@ -31,6 +31,13 @@ from .utils.logger import setup_logger, get_logger
 from .utils.helpers import calculate_time_to_next_round, calculate_round_times
 from .auth import COOKIE_NAME, SESSION_DAYS, get_auth
 from .companion import get_companion, is_loopback
+from .wallet_prediction import (
+    PendingWalletTrade,
+    WalletPredictionClient,
+    outcome_token,
+    paper_fill,
+    settle_direction,
+)
 
 
 logger = get_logger("web_server")
@@ -116,6 +123,7 @@ class ClientSession:
     live_wallets: Dict[str, float] = field(default_factory=dict)
     live_error: str = ""
     live_fetched_at: float = 0.0
+    pending_trade: Optional[PendingWalletTrade] = None
     
     def reset(self, capital: float = 100.0):
         self.wins = 0
@@ -129,6 +137,7 @@ class ClientSession:
         self.max_equity = capital
         self.max_drawdown = 0.0
         self.initial_capital = capital
+        self.pending_trade = None
     
     def status_payload(self, model_loaded: bool = False) -> dict:
         return {
@@ -149,21 +158,22 @@ class ClientSession:
             kelly_pct = max(0, min(100, ((p * 0.95 - (1 - p)) / 0.95) * 100))
         profit_factor = (self.wins * 0.95) / max(0.01, self.losses * 1.0)
         if not self.simulation:
+            capital = self.live_balance if self.live_balance is not None else max(0.0, self.initial_capital + self.cumulative_pnl)
             return {
                 "type": "stats",
-                "capital": self.live_balance if self.live_balance is not None else 0.0,
-                "pnl": 0.0,
-                "trades": 0,
-                "winrate": 0.0,
-                "wins": 0,
-                "losses": 0,
-                "kelly": 0.0,
-                "streak": 0,
-                "best_streak": 0,
-                "worst_streak": 0,
-                "max_drawdown": 0.0,
-                "profit_factor": 0.0,
-                "equity_history": [self.live_balance or 0.0],
+                "capital": capital,
+                "pnl": self.cumulative_pnl,
+                "trades": total,
+                "winrate": winrate,
+                "wins": self.wins,
+                "losses": self.losses,
+                "kelly": kelly_pct,
+                "streak": self.streak,
+                "best_streak": self.best_streak,
+                "worst_streak": self.worst_streak,
+                "max_drawdown": self.max_drawdown,
+                "profit_factor": profit_factor,
+                "equity_history": self.equity_history[-50:] or [capital],
                 "live": True,
                 "simulation": False,
                 "wallet": self.live_wallet,
@@ -379,7 +389,7 @@ class DashboardBot:
         return
     
     async def _session_engine(self):
-        """Motor único: predicción de mercado + trades por sesión activa."""
+        """Motor único: predicción + apuesta Wallet (SIM paper / REAL API)."""
         logger.info("Session engine started")
         last_prediction_round = -1
         last_trade_round = -1
@@ -387,19 +397,20 @@ class DashboardBot:
         while True:
             try:
                 active = [s for s in self.sessions.values() if s.running and not s.paused]
+                round_times = calculate_round_times(5, self._time_offset)
+                remaining = round_times["seconds_remaining"]
+                current_round = round_times.get("round_number", 0)
+
+                if remaining >= 280:
+                    await self._settle_due(current_round)
                 
                 if active:
-                    round_times = calculate_round_times(5, self._time_offset)
-                    remaining = round_times["seconds_remaining"]
-                    current_round = round_times.get("round_number", 0)
-                    
                     if 60 <= remaining <= 90 and current_round != last_prediction_round:
                         await self._generate_prediction(active)
                         last_prediction_round = current_round
                     
-                    if 10 <= remaining <= 20 and current_round != last_trade_round:
-                        await asyncio.gather(*[self._execute_trade(session) for session in active])
-                        self._last_prediction = None
+                    if 20 <= remaining <= 45 and current_round != last_trade_round:
+                        await asyncio.gather(*[self._execute_trade(session, current_round) for session in active])
                         last_trade_round = current_round
                 
                 await asyncio.sleep(1)
@@ -533,167 +544,182 @@ class DashboardBot:
         for session in targets:
             await self.manager.send_to_session(session.session_id, message)
     
-    async def _execute_trade(self, session: Optional[ClientSession] = None):
-        """Ejecuta un trade simulado basado en la última predicción."""
-        import random
-        from datetime import datetime
-        
+    async def _execute_trade(self, session: Optional[ClientSession] = None, current_round: int = 0):
+        """Coloca una apuesta Wallet: paper en SIM, orden oficial en REAL."""
         if session is None:
             return
-        if not session.simulation:
-            await self.manager.send_to_session(session.session_id, {
-                "type": "log",
-                "message": "REAL shows live Binance balances. Prediction bets are not placed yet.",
-                "level": "info",
-            })
+        if session.pending_trade and session.pending_trade.round_number == current_round:
             return
-        
         try:
-            # Usar la predicción guardada
             signal = self._last_prediction
             confidence = self._last_prediction_confidence
-            
-            # Si no hay predicción válida, saltar
             if not signal or signal == "WAIT":
                 await self.manager.send_to_session(session.session_id, {
-                    "type": "log", 
+                    "type": "log",
                     "message": "WAITING FOR SIGNAL",
-                    "level": "info"
+                    "level": "info",
                 })
                 return
-            
-            # Solo tradear si hay suficiente confianza (>50%)
-            if confidence < 0.50:
-                await self.manager.send_to_session(session.session_id, {
-                    "type": "log", 
-                    "message": f"SKIP: Confidence too low ({confidence*100:.0f}%)",
-                    "level": "info"
-                })
-                return
-            
-            # Obtener precio actual
-            current_price = 80000.0
-            if self.data_stream:
-                current_price = self.data_stream.get_current_price() or current_price
-            
-            # Guardar precio de entrada
-            entry_price = current_price
-            
-            # Obtener amount de los settings
+
             from .user_settings import get_settings_manager
             sm = get_settings_manager()
-            amount = sm.settings.trading.bet_amount
-            
-            # Esperar 3 segundos y ver el nuevo precio para determinar resultado
-            await asyncio.sleep(3)
-            
-            new_price = current_price
+            threshold = float(sm.settings.trading.confidence_threshold or 0.62)
+            if confidence < threshold:
+                await self.manager.send_to_session(session.session_id, {
+                    "type": "log",
+                    "message": f"SKIP: Confidence {confidence*100:.0f}% < {threshold*100:.0f}%",
+                    "level": "info",
+                })
+                return
+
+            amount = max(1.0, float(sm.settings.trading.bet_amount or 1.0))
+            open_price = getattr(self, "_price_to_beat", None)
             if self.data_stream:
-                new_price = self.data_stream.get_current_price() or current_price
-            
-            # Determinar resultado basado en movimiento real del precio
-            price_diff = new_price - entry_price
-            price_moved_up = price_diff > 0
-            price_moved_down = price_diff < 0
-            price_unchanged = abs(price_diff) < 0.01
-            
-            # WIN si: predijimos UP y el precio subió, o predijimos DOWN y el precio bajó
-            if price_unchanged:
-                # Precio sin cambio significativo - usar probabilidad basada en confianza
-                is_win = random.random() < (confidence * 0.7 + 0.15)
-                actual_direction = "FLAT"
-            else:
-                actual_direction = "UP" if price_moved_up else "DOWN"
-                is_win = (signal == actual_direction)
-            
-            pnl = amount * 0.95 if is_win else -amount
-            result = "WIN" if is_win else "LOSS"
-            
-            # Actualizar estadísticas básicas
-            if is_win:
-                session.wins += 1
-                session.streak = max(1, session.streak + 1) if session.streak >= 0 else 1
-            else:
-                session.losses += 1
-                session.streak = min(-1, session.streak - 1) if session.streak <= 0 else -1
-            
-            session.cumulative_pnl += pnl
-            
-            # Actualizar estadísticas avanzadas
-            session.best_streak = max(session.best_streak, session.streak)
-            session.worst_streak = min(session.worst_streak, session.streak)
-            
-            current_equity = session.initial_capital + session.cumulative_pnl
-            session.equity_history.append(current_equity)
-            session.max_equity = max(session.max_equity, current_equity)
-            
-            # Calcular drawdown
-            if session.max_equity > 0:
-                current_drawdown = ((session.max_equity - current_equity) / session.max_equity) * 100
-                session.max_drawdown = max(session.max_drawdown, current_drawdown)
-            
-            session.trades.append({
-                "timestamp": datetime.now().isoformat(),
-                "direction": signal,
-                "amount": amount,
-                "entry_price": entry_price,
-                "exit_price": new_price,
-                "pnl": pnl,
-                "result": result,
-            })
-            
-            # Calcular cambio de precio
-            price_change = new_price - entry_price
-            price_direction = "↑" if price_change > 0 else "↓" if price_change < 0 else "→"
-            
-            # Enviar trade al frontend de ESTA sesión
-            await self.manager.send_to_session(session.session_id, {
-                "type": "trade",
-                "timestamp": datetime.now().isoformat(),
-                "direction": signal,
-                "amount": amount,
-                "entry_price": entry_price,
-                "exit_price": new_price,
-                "confidence": confidence * 100,
-                "pnl": pnl,
-                "result": result
-            })
-            
-            # Enviar log detallado
-            abs_diff = abs(new_price - entry_price)
-            
-            # Explicación clara
-            if actual_direction == "FLAT":
-                explanation = f"Price stable"
-            elif actual_direction == signal:
-                explanation = f"Price {actual_direction} [correct]"
-            else:
-                explanation = f"Price {actual_direction} [wrong]"
-            
-            log_level = "win" if is_win else "loss"
-            
+                open_price = open_price or self.data_stream.get_current_price()
+            open_price = float(open_price or 0.0)
+            share_price = 0.50
+            fill = paper_fill(amount, share_price)
+            live = False
+            order_id = ""
+            market_title = "BTC 5m Wallet (paper)"
+
+            if not session.simulation:
+                creds = sm.settings.binance
+                if not creds.is_configured:
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": "REAL needs a live Binance API key",
+                        "level": "loss",
+                    })
+                    return
+                client = WalletPredictionClient(creds.api_key, creds.api_secret)
+                topic = await client.find_btc_5m_market()
+                if not topic:
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": "No open BTC 5m Wallet market. Check Wallet → Prediction in Binance.",
+                        "level": "loss",
+                    })
+                    return
+                token = outcome_token(topic, signal)
+                if token:
+                    share_price = float(token.get("price") or 0.5)
+                    fill = paper_fill(amount, share_price, int(topic.get("feeRateBps") or 200))
+                placed = await client.quote_and_buy(topic, signal, amount, share_price)
+                if not placed.get("success"):
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": f"REAL order failed: {placed.get('error') or 'unknown'}",
+                        "level": "loss",
+                    })
+                    return
+                live = True
+                order_id = str(placed.get("order_id") or "")
+                share_price = float(placed.get("share_price") or share_price)
+                fill = paper_fill(amount, share_price, int(topic.get("feeRateBps") or 200))
+                market_title = str(placed.get("title") or topic.get("title") or "Wallet BTC 5m")
+                await self.refresh_live_balances(session)
+                await self.manager.send_to_session(session.session_id, {
+                    "type": "log",
+                    "message": f"REAL {signal} ${amount:.2f} sent to Wallet ({placed.get('account_type')}) order {order_id or 'submitted'}",
+                    "level": "info",
+                })
+
+            session.pending_trade = PendingWalletTrade(
+                session_id=session.session_id,
+                round_number=current_round,
+                signal=signal,
+                stake=amount,
+                open_price=open_price,
+                share_price=fill["share_price"],
+                shares=fill["shares"],
+                fee=fill["fee"],
+                cost=fill["cost"],
+                live=live,
+                order_id=order_id,
+                market_title=market_title,
+            )
+            mode = "REAL" if live else "SIM"
             await self.manager.send_to_session(session.session_id, {
                 "type": "log",
-                "message": f"TRADE {signal} | ${entry_price:,.2f} -> ${new_price:,.2f} | {result}",
-                "level": log_level
+                "message": f"{mode} {signal} ${amount:.2f} @ {fill['share_price']:.2f} | fee ${fill['fee']:.3f} | settles at round close",
+                "level": "info",
             })
-            
-            await self.manager.send_to_session(session.session_id, {
-                "type": "log",
-                "message": f"{explanation} | P&L: ${pnl:+.2f}",
-                "level": log_level
-            })
-            
-            await self.manager.send_to_session(session.session_id, session.stats_payload())
-            
-            logger.info(f"[{session.session_id[:8]}] Trade: {signal} @ ${entry_price:.2f} -> ${new_price:.2f} = {result} (${pnl:+.2f})")
-            
-            self._save_session(session)
-            
         except Exception as e:
             logger.error(f"Error executing trade: {e}")
             import traceback
             traceback.print_exc()
+
+    async def _settle_due(self, current_round: int) -> None:
+        close_price = 0.0
+        if self.data_stream:
+            close_price = float(self.data_stream.get_current_price() or 0.0)
+        for session in list(self.sessions.values()):
+            pending = session.pending_trade
+            if not pending or pending.round_number >= current_round:
+                continue
+            await self._settle_trade(session, pending, close_price)
+
+    async def _settle_trade(self, session: ClientSession, pending: PendingWalletTrade, close_price: float) -> None:
+        from datetime import datetime
+
+        actual = settle_direction(pending.open_price, close_price)
+        is_win = actual == pending.signal
+        pnl = pending.shares - pending.cost if is_win else -pending.cost
+        result = "WIN" if is_win else "LOSS"
+        if is_win:
+            session.wins += 1
+            session.streak = max(1, session.streak + 1) if session.streak >= 0 else 1
+        else:
+            session.losses += 1
+            session.streak = min(-1, session.streak - 1) if session.streak <= 0 else -1
+        session.cumulative_pnl += pnl
+        session.best_streak = max(session.best_streak, session.streak)
+        session.worst_streak = min(session.worst_streak, session.streak)
+        current_equity = (session.live_balance if (not session.simulation and session.live_balance is not None)
+                          else session.initial_capital + session.cumulative_pnl)
+        session.equity_history.append(current_equity)
+        session.max_equity = max(session.max_equity, current_equity)
+        if session.max_equity > 0:
+            drawdown = ((session.max_equity - current_equity) / session.max_equity) * 100
+            session.max_drawdown = max(session.max_drawdown, drawdown)
+        session.trades.append({
+            "timestamp": datetime.now().isoformat(),
+            "direction": pending.signal,
+            "amount": pending.stake,
+            "entry_price": pending.open_price,
+            "exit_price": close_price,
+            "pnl": pnl,
+            "result": result,
+            "live": pending.live,
+            "fee": pending.fee,
+        })
+        session.pending_trade = None
+        if not session.simulation:
+            try:
+                await self.refresh_live_balances(session)
+            except Exception:
+                pass
+        await self.manager.send_to_session(session.session_id, {
+            "type": "trade",
+            "timestamp": datetime.now().isoformat(),
+            "direction": pending.signal,
+            "amount": pending.stake,
+            "entry_price": pending.open_price,
+            "exit_price": close_price,
+            "confidence": self._last_prediction_confidence * 100,
+            "pnl": pnl,
+            "result": result,
+        })
+        explanation = "Price flat" if actual == "FLAT" else f"Price {actual} [{'correct' if is_win else 'wrong'}]"
+        await self.manager.send_to_session(session.session_id, {
+            "type": "log",
+            "message": f"{'REAL' if pending.live else 'SIM'} {pending.signal} | ${pending.open_price:,.2f} -> ${close_price:,.2f} | {result} | {explanation} | P&L ${pnl:+.2f}",
+            "level": "win" if is_win else "loss",
+        })
+        await self.manager.send_to_session(session.session_id, session.stats_payload())
+        self._save_session(session)
+        logger.info(f"[{session.session_id[:8]}] Settled {pending.signal} {result} ${pnl:+.2f}")
     
     async def _send_market(self):
         """Envía datos de mercado a todos los clientes (compartido)."""
@@ -1295,7 +1321,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                             await manager.send_to(websocket, {
                                 "type": "log",
                                 "message": f"Live {session.live_wallet} ${session.live_balance:.2f}"
-                                + (f" ({wallets})" if wallets else ""),
+                                + (f" ({wallets})" if wallets else "")
+                                + ". Start places Wallet BTC 5m orders.",
                                 "level": "info",
                             })
                     bot._save_session(session)

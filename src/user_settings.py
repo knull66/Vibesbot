@@ -423,6 +423,20 @@ class BinanceConnector:
             elif status != 200:
                 errors.append(describe_binance_error(status, data if isinstance(data, dict) else {}, False))
 
+            try:
+                from .wallet_prediction import WalletPredictionClient
+                client = WalletPredictionClient(self.credentials.api_key, self.credentials.api_secret)
+                for row in await client.payment_options():
+                    name = str(row.get("accountType") or "").strip()
+                    if not name:
+                        continue
+                    try:
+                        wallets[f"Wallet {name}"] = float(row.get("availableBalanceDisplay") or 0)
+                    except (TypeError, ValueError):
+                        continue
+            except Exception as exc:
+                logger.warning(f"Wallet payment options failed: {exc}")
+
         wallet, amount = pick_live_wallet(wallets)
         return {
             "success": bool(wallets),

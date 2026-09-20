@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.17.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.18.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -312,7 +312,7 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Multi-Indicator</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.17.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.18.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -380,8 +380,9 @@
                         
                         <div class="form-group">
                             <label for="bet-amount">BET AMOUNT ($)</label>
-                            <input type="number" id="bet-amount" value="1.00" min="0.1" step="0.1">
+                            <input type="number" id="bet-amount" value="1.00" min="1" step="0.1">
                         </div>
+                        <p class="settings-hint">SIM papers Wallet fees. REAL spends this from Funding/Spot on BTC 5m. Minimum 1 USDT.</p>
                         <div class="form-group">
                             <label for="confidence-threshold">MIN CONFIDENCE (%)</label>
                             <input type="number" id="confidence-threshold" value="55" min="50" max="99">
@@ -537,7 +538,7 @@
                             <div class="update-info" style="margin-top:10px;">
                                 <div class="update-version">
                                     <span>Version</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.17.0</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.18.0</span>
                                 </div>
                                 <div class="update-version">
                                     <span>Latest</span>
@@ -644,10 +645,10 @@
             </div>
             <div class="modal-body" style="padding:16px; text-align:center;">
                 <p style="color:var(--down); margin-bottom:12px;">
-                    Switching to <strong>REAL TRADING MODE</strong>
+                    Switching to <strong>WALLET REAL</strong>
                 </p>
                 <p style="color:var(--text-muted); font-size:10px; margin-bottom:16px;">
-                    Real money will be at risk.
+                    Start will buy BTC 5m outcomes on Binance Wallet Prediction. Funds come from Funding or Spot. Minimum $1.
                 </p>
                 <div class="form-actions" style="justify-content:center;">
                     <button class="btn" id="btn-cancel-real">Cancel</button>
@@ -660,6 +661,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.17.0"></script>
+    <script src="/static/app.js?v=1.18.0"></script>
 </body>
 </html>

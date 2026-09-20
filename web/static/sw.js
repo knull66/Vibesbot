@@ -3,7 +3,7 @@
  * Enables PWA functionality: caching, offline support
  */
 
-const CACHE_NAME = 'vibesbot-v1.17.0';
+const CACHE_NAME = 'vibesbot-v1.18.0';
 const STATIC_ASSETS = [
     '/',
     '/static/styles.css',
