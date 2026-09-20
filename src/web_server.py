@@ -825,13 +825,20 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.get("/api/updates/check")
     async def check_for_updates():
         """Verifica si hay actualizaciones disponibles."""
-        updater = get_updater()
+        from .updater import get_updater, Updater
+        
+        # Forzar nueva instancia para evitar cache
+        updater = Updater()
         info = await updater.check_for_updates()
+        
+        logger.info(f"Update check: current={info.current_version}, latest={info.latest_version}, available={info.available}")
+        
         return {
             "available": info.available,
             "current_version": info.current_version,
             "latest_version": info.latest_version,
-            "release_notes": info.release_notes
+            "release_notes": info.release_notes,
+            "download_url": info.download_url
         }
     
     @app.post("/api/updates/install")
