@@ -258,7 +258,7 @@ class VibesBot {
             });
         }
         
-        if (data.round_timer && this.timerEl) {
+        if (data.round_timer !== undefined && this.timerEl) {
             const mins = Math.floor(data.round_timer / 60);
             const secs = data.round_timer % 60;
             this.timerEl.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -270,6 +270,73 @@ class VibesBot {
             if (this.featureObi) this.featureObi.textContent = data.features.obi?.toFixed(4) || '--';
             if (this.featureVol) this.featureVol.textContent = data.features.volatility?.toFixed(5) || '--';
         }
+        
+        // Update chart
+        if (data.chart_data && data.chart_data.length > 0) {
+            this.updateChart(data.chart_data);
+        }
+    }
+    
+    updateChart(chartData) {
+        const canvas = document.getElementById('price-chart');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const rect = canvas.parentElement.getBoundingClientRect();
+        canvas.width = rect.width - 24;
+        canvas.height = 180;
+        
+        const prices = chartData.map(d => d.price);
+        const minPrice = Math.min(...prices);
+        const maxPrice = Math.max(...prices);
+        const priceRange = maxPrice - minPrice || 1;
+        
+        // Clear
+        ctx.fillStyle = '#161b22';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Grid
+        ctx.strokeStyle = '#21262d';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 5; i++) {
+            const y = (canvas.height / 5) * i;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(canvas.width, y);
+            ctx.stroke();
+        }
+        
+        // Price line
+        ctx.strokeStyle = '#00FFFF';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        for (let i = 0; i < prices.length; i++) {
+            const x = (i / (prices.length - 1)) * canvas.width;
+            const y = canvas.height - ((prices[i] - minPrice) / priceRange) * (canvas.height - 20) - 10;
+            
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        
+        // Glow effect
+        ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        for (let i = 0; i < prices.length; i++) {
+            const x = (i / (prices.length - 1)) * canvas.width;
+            const y = canvas.height - ((prices[i] - minPrice) / priceRange) * (canvas.height - 20) - 10;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        
+        // Current price label
+        const lastPrice = prices[prices.length - 1];
+        ctx.fillStyle = '#00FFFF';
+        ctx.font = '10px JetBrains Mono';
+        ctx.fillText(`$${lastPrice.toLocaleString()}`, 5, 15);
     }
 
     updatePrediction(data) {
@@ -313,6 +380,13 @@ class VibesBot {
         if (this.statLosses) this.statLosses.textContent = data.losses || 0;
         if (this.statStreak) this.statStreak.textContent = data.streak || 0;
         if (this.statDrawdown) this.statDrawdown.textContent = (data.max_drawdown || 0).toFixed(1) + '%';
+        
+        // Kelly %
+        const kellyEl = document.getElementById('stat-kelly');
+        if (kellyEl) {
+            const kelly = data.kelly || 0;
+            kellyEl.textContent = kelly > 0 ? kelly.toFixed(1) + '%' : '--';
+        }
     }
 
     updateStatus(data) {

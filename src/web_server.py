@@ -494,20 +494,27 @@ class DashboardBot:
         
         if not price:
             if not hasattr(self, '_sim_price'):
-                self._sim_price = 63500.0
-            self._sim_price += random.uniform(-50, 50)
+                self._sim_price = 80000.0
+            self._sim_price += random.uniform(-20, 20)
             price = self._sim_price
         
+        # Guardar historial de precios para el chart
+        if not hasattr(self, '_price_history'):
+            self._price_history = []
+        self._price_history.append({"time": datetime.now().isoformat(), "price": price})
+        if len(self._price_history) > 300:  # Mantener últimos 5 minutos
+            self._price_history = self._price_history[-300:]
+        
         # Obtener features
-        rsi = None
-        macd = None
+        rsi = 50.0
+        macd = 0.0
         obi = 0.0
         volatility = 0.002
         
         if self.data_stream:
-            volatility = self.data_stream.get_volatility("1m", 20) or random.uniform(0.001, 0.005)
+            volatility = self.data_stream.get_volatility("1m", 20) or 0.002
             trade_flow = self.data_stream.calculate_trade_flow(60)
-            obi = trade_flow.get("flow_imbalance", 0) or random.uniform(-0.3, 0.3)
+            obi = trade_flow.get("flow_imbalance", 0) or 0.0
             
             df_1m = self.data_stream.get_candles_df("1m")
             if len(df_1m) > 20:
@@ -523,12 +530,7 @@ class DashboardBot:
                 except:
                     pass
         
-        if rsi is None:
-            rsi = random.uniform(30, 70)
-        if macd is None:
-            macd = random.uniform(-100, 100)
-        
-        # Enviar todo en un solo mensaje market_data
+        # Enviar market_data con historial para chart
         await self.manager.broadcast({
             "type": "market_data",
             "price": price,
@@ -538,39 +540,34 @@ class DashboardBot:
                 "macd": macd,
                 "obi": obi,
                 "volatility": volatility
-            }
+            },
+            "chart_data": self._price_history[-60:]  # Últimos 60 puntos para el chart
         })
         
-        if self.risk_manager:
-            stats = self.risk_manager.get_statistics()
-            
-            await self.manager.broadcast({
-                "type": "stats",
-                "capital": self.config.trading.initial_capital + self._cumulative_pnl,
-                "daily_pnl": self._cumulative_pnl,
-                "trades": self._wins + self._losses,
-                "win_rate": self._wins / max(1, self._wins + self._losses),
-                "wins": self._wins,
-                "losses": self._losses,
-                "streak": stats.get("consecutive_losses", 0) * -1 if stats.get("consecutive_losses", 0) > 0 else 0,
-                "drawdown": 0
-            })
-            
-            await self.manager.broadcast({
-                "type": "risk",
-                "status": "OK" if self.risk_manager.is_trading_allowed else "DANGER",
-                "message": "",
-                "daily_loss": abs(self._cumulative_pnl) if self._cumulative_pnl < 0 else 0,
-                "daily_loss_pct": abs(self._cumulative_pnl) / self.config.risk.max_daily_loss if self._cumulative_pnl < 0 else 0,
-                "max_daily_loss": self.config.risk.max_daily_loss,
-                "trades_today": self._wins + self._losses,
-                "max_trades": self.config.risk.max_trades_per_day,
-                "consecutive_losses": stats.get("consecutive_losses", 0),
-                "circuit_breaker": self.config.risk.circuit_breaker_consecutive_losses
-            })
-    
-            import traceback
-            traceback.print_exc()
+        # Calcular stats
+        total_trades = self._wins + self._losses
+        winrate = (self._wins / max(1, total_trades)) * 100
+        
+        # Calcular Kelly Criterion
+        kelly_pct = 0.0
+        if total_trades >= 5:
+            win_prob = self._wins / max(1, total_trades)
+            kelly = win_prob - ((1 - win_prob) / 0.95)
+            kelly_pct = max(0, min(100, kelly * 100))
+        
+        # Enviar stats
+        await self.manager.broadcast({
+            "type": "stats",
+            "capital": 100.0 + self._cumulative_pnl,
+            "pnl": self._cumulative_pnl,
+            "trades": total_trades,
+            "winrate": winrate,
+            "wins": self._wins,
+            "losses": self._losses,
+            "kelly": kelly_pct,
+            "streak": 0,
+            "max_drawdown": 0
+        })
     
     async def cleanup(self):
         """Limpia recursos."""
