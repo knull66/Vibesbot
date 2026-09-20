@@ -197,6 +197,47 @@ class VibesBot {
             case 'status':
                 this.updateStatus(data);
                 break;
+            case 'log':
+                this.addLog(data);
+                break;
+        }
+    }
+    
+    addLog(data) {
+        // Add log entry to trade log area
+        if (!this.tradeLog) return;
+        
+        const logEntry = document.createElement('div');
+        logEntry.className = 'log-item';
+        logEntry.style.borderLeftColor = data.level === 'error' ? 'var(--down)' : 
+                                         data.level === 'success' ? 'var(--up)' : 
+                                         data.level === 'warn' ? 'var(--warn)' : 'var(--accent)';
+        
+        const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+        logEntry.innerHTML = `
+            <div class="log-header">
+                <span class="log-time">${time}</span>
+            </div>
+            <div class="log-body">
+                <span class="log-details">${data.message}</span>
+            </div>
+        `;
+        
+        // Remove "No trades yet" message if present
+        const emptyMsg = this.tradeLog.querySelector('.log-empty');
+        if (emptyMsg) emptyMsg.remove();
+        
+        // Add at the top
+        this.tradeLog.insertBefore(logEntry, this.tradeLog.firstChild);
+        
+        // Keep only last 50 entries
+        while (this.tradeLog.children.length > 50) {
+            this.tradeLog.removeChild(this.tradeLog.lastChild);
+        }
+        
+        // Update count
+        if (this.tradeCount) {
+            this.tradeCount.textContent = this.tradeLog.children.length;
         }
     }
 
