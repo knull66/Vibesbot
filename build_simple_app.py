@@ -614,7 +614,8 @@ def main():
     
     dmg_path = create_dmg()
     
-    print(f"""
+    if dmg_path:
+        print(f"""
 ════════════════════════════════════════════════════════════
 
    ✅ ¡BUILD COMPLETADO!
@@ -627,6 +628,20 @@ def main():
    
    Para distribuir:
      Sube {dmg_path.name} a tu sitio web
+
+════════════════════════════════════════════════════════════
+""")
+    else:
+        print(f"""
+════════════════════════════════════════════════════════════
+
+   ⚠️  BUILD PARCIAL
+   
+   📱 App: {APP_DIR}
+   ❌ DMG: No se pudo crear (hdiutil no disponible en Linux)
+   
+   Para probar ahora:
+     open "{APP_DIR}"
 
 ════════════════════════════════════════════════════════════
 """)
