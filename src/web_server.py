@@ -349,18 +349,25 @@ class DashboardBot:
             self._last_prediction = signal
             self._last_prediction_confidence = confidence
             
+            # Obtener precio actual como "Price to Beat"
+            price_to_beat = 80000.0
+            if self.data_stream:
+                price_to_beat = self.data_stream.get_current_price() or price_to_beat
+            self._price_to_beat = price_to_beat
+            
             await self.manager.broadcast({
-                "type": "prediction",
+                "type": "signal",
                 "signal": signal,
-                "confidence": confidence * 100,
-                "prob_up": prob_up * 100,
-                "prob_down": prob_down * 100
+                "confidence": confidence,
+                "prob_up": prob_up,
+                "prob_down": prob_down,
+                "price_to_beat": price_to_beat
             })
             
             await self.manager.broadcast({
                 "type": "log",
-                "message": f"📊 Prediction: {signal} ({confidence*100:.1f}%) - {strategy_used}",
-                "level": "info"
+                "message": f"SIGNAL: {signal} ({confidence*100:.1f}%) | {strategy_used}",
+                "level": "prediction"
             })
             
             logger.info(f"Prediction: {signal} @ {confidence:.1%}")
@@ -472,28 +479,27 @@ class DashboardBot:
             })
             
             # Enviar log detallado
-            emoji = "✓" if is_win else "✗"
             abs_diff = abs(new_price - entry_price)
             
             # Explicación clara
             if actual_direction == "FLAT":
-                explanation = f"Price unchanged (~${abs_diff:.2f})"
+                explanation = f"Price stable"
             elif actual_direction == signal:
-                explanation = f"Price went {actual_direction} ✓"
+                explanation = f"Price {actual_direction} [correct]"
             else:
-                explanation = f"Price went {actual_direction} (predicted {signal})"
+                explanation = f"Price {actual_direction} [wrong]"
             
             log_level = "win" if is_win else "loss"
             
             await self.manager.broadcast({
                 "type": "log",
-                "message": f"{emoji} BET {signal} | Entry: ${entry_price:,.2f} → Exit: ${new_price:,.2f}",
+                "message": f"TRADE {signal} | ${entry_price:,.2f} -> ${new_price:,.2f} | {result}",
                 "level": log_level
             })
             
             await self.manager.broadcast({
                 "type": "log",
-                "message": f"   {explanation} | {result} | P&L: ${pnl:+.2f}",
+                "message": f"{explanation} | P&L: ${pnl:+.2f}",
                 "level": log_level
             })
             

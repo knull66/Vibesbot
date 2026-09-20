@@ -42,8 +42,8 @@ class VibesBot {
         this.probUp = document.getElementById('prob-up');
         this.probDown = document.getElementById('prob-down');
         
-        // Price target
-        this.entryPriceEl = document.getElementById('entry-price');
+        // Price to Beat
+        this.priceToBeatEl = document.getElementById('price-to-beat');
         this.livePriceEl = document.getElementById('live-price');
         this.priceDiff = document.getElementById('price-diff');
         
@@ -281,12 +281,11 @@ class VibesBot {
     }
     
     updatePriceDiff(currentPrice) {
-        if (!this.entryPrice || !this.priceDiff) return;
+        if (!this.priceToBeat || !this.priceDiff) return;
         
-        const diff = currentPrice - this.entryPrice;
-        const pct = (diff / this.entryPrice) * 100;
+        const diff = currentPrice - this.priceToBeat;
         
-        this.priceDiff.innerHTML = `<span>${diff >= 0 ? '+' : ''}$${diff.toFixed(2)}</span>`;
+        this.priceDiff.textContent = (diff >= 0 ? '+' : '') + '$' + diff.toFixed(2);
         this.priceDiff.className = 'price-diff ' + (diff >= 0 ? 'positive' : 'negative');
     }
     
@@ -355,11 +354,11 @@ class VibesBot {
         if (this.probUp) this.probUp.textContent = ((data.prob_up || 0.5) * 100).toFixed(1) + '%';
         if (this.probDown) this.probDown.textContent = ((data.prob_down || 0.5) * 100).toFixed(1) + '%';
         
-        // Entry price for new prediction
-        if (data.entry_price) {
-            this.entryPrice = parseFloat(data.entry_price);
-            if (this.entryPriceEl) {
-                this.entryPriceEl.textContent = '$' + this.entryPrice.toLocaleString('en-US', {
+        // Price to Beat for this round
+        if (data.price_to_beat) {
+            this.priceToBeat = parseFloat(data.price_to_beat);
+            if (this.priceToBeatEl) {
+                this.priceToBeatEl.textContent = '$' + this.priceToBeat.toLocaleString('en-US', {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2
                 });
@@ -435,11 +434,11 @@ class VibesBot {
             this.playSound('loss');
         }
         
-        // Clear entry price after trade closes
-        this.entryPrice = null;
-        if (this.entryPriceEl) this.entryPriceEl.textContent = '$--';
+        // Clear price to beat after trade closes
+        this.priceToBeat = null;
+        if (this.priceToBeatEl) this.priceToBeatEl.textContent = '$--';
         if (this.priceDiff) {
-            this.priceDiff.innerHTML = '<span>--</span>';
+            this.priceDiff.textContent = '--';
             this.priceDiff.className = 'price-diff';
         }
     }
@@ -641,20 +640,20 @@ class VibesBot {
         ctx.arc(canvas.width - 5, lastY, 4, 0, Math.PI * 2);
         ctx.fill();
         
-        // Entry price line if active
-        if (this.entryPrice && this.entryPrice >= min && this.entryPrice <= max) {
-            const entryY = canvas.height - ((this.entryPrice - min) / range) * canvas.height;
+        // Price to Beat line if active
+        if (this.priceToBeat && this.priceToBeat >= min && this.priceToBeat <= max) {
+            const targetY = canvas.height - ((this.priceToBeat - min) / range) * canvas.height;
             ctx.strokeStyle = '#FFB800';
             ctx.setLineDash([4, 4]);
             ctx.beginPath();
-            ctx.moveTo(0, entryY);
-            ctx.lineTo(canvas.width, entryY);
+            ctx.moveTo(0, targetY);
+            ctx.lineTo(canvas.width, targetY);
             ctx.stroke();
             ctx.setLineDash([]);
             
             ctx.fillStyle = '#FFB800';
             ctx.font = '9px JetBrains Mono';
-            ctx.fillText('ENTRY $' + this.entryPrice.toFixed(2), canvas.width - 100, entryY - 5);
+            ctx.fillText('TARGET $' + this.priceToBeat.toFixed(2), canvas.width - 110, targetY - 5);
         }
     }
     
