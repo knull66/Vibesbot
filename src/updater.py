@@ -83,52 +83,66 @@ class Updater:
         Returns:
             UpdateInfo con información de la actualización
         """
+        logger.info(f"Checking for updates... Current version: {self.current_version}")
+        
         try:
             async with aiohttp.ClientSession() as session:
-                # Intentar obtener releases
+                # Intentar obtener releases (funciona para repos públicos)
+                logger.info(f"Fetching releases from {GITHUB_API}/releases/latest")
                 async with session.get(
                     f"{GITHUB_API}/releases/latest",
                     headers={"Accept": "application/vnd.github.v3+json"},
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
+                    logger.info(f"Release API response: {response.status}")
+                    
                     if response.status == 200:
                         data = await response.json()
                         latest_version = data.get("tag_name", "").lstrip("v")
+                        logger.info(f"Latest version from releases: {latest_version}")
+                        
+                        is_newer = self._is_newer_version(latest_version)
+                        logger.info(f"Is newer: {is_newer} ({self.current_version} vs {latest_version})")
                         
                         return UpdateInfo(
-                            available=self._is_newer_version(latest_version),
+                            available=is_newer,
                             current_version=self.current_version,
                             latest_version=latest_version,
                             download_url=data.get("zipball_url"),
                             release_notes=data.get("body"),
                             published_at=data.get("published_at")
                         )
+                    elif response.status == 404:
+                        logger.warning("Repo is private or no releases found")
                 
-                # Si no hay releases, verificar commits
-                async with session.get(
-                    f"{GITHUB_API}/commits/main",
-                    headers={"Accept": "application/vnd.github.v3+json"},
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
+                # Método alternativo: verificar archivo VERSION en raw.githubusercontent
+                logger.info("Trying raw.githubusercontent method...")
+                raw_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/VERSION"
+                async with session.get(raw_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    logger.info(f"Raw VERSION response: {response.status}")
+                    
                     if response.status == 200:
-                        data = await response.json()
-                        commit_sha = data.get("sha", "")[:7]
-                        commit_date = data.get("commit", {}).get("committer", {}).get("date", "")
+                        latest_version = (await response.text()).strip()
+                        logger.info(f"Latest version from VERSION file: {latest_version}")
                         
-                        # Comparar con el último commit conocido
-                        latest_version = f"dev-{commit_sha}"
+                        is_newer = self._is_newer_version(latest_version)
+                        logger.info(f"Is newer: {is_newer}")
                         
                         return UpdateInfo(
-                            available=self.current_version != latest_version,
+                            available=is_newer,
                             current_version=self.current_version,
                             latest_version=latest_version,
                             download_url=f"https://github.com/{GITHUB_REPO}/archive/refs/heads/main.zip",
-                            release_notes=f"Commit: {commit_sha}\n{data.get('commit', {}).get('message', '')}",
-                            published_at=commit_date
+                            release_notes=f"Actualización a versión {latest_version}",
+                            published_at=None
                         )
+                    else:
+                        logger.warning(f"Could not fetch VERSION file: {response.status}")
         
         except Exception as e:
             logger.error(f"Error checking for updates: {e}")
+            import traceback
+            traceback.print_exc()
         
         return UpdateInfo(
             available=False,
