@@ -411,7 +411,10 @@ class DashboardBot:
             # Guardar precio de entrada
             entry_price = current_price
             
-            amount = 1.0  # $1 por trade
+            # Obtener amount de los settings
+            from .user_settings import get_settings_manager
+            sm = get_settings_manager()
+            amount = sm.settings.trading.bet_amount
             
             # Esperar 3 segundos y ver el nuevo precio para determinar resultado
             await asyncio.sleep(3)
@@ -538,6 +541,17 @@ class DashboardBot:
             })
             
             logger.info(f"Trade: {signal} @ ${entry_price:.2f} -> ${new_price:.2f} = {result} (${pnl:+.2f})")
+            
+            # Registrar en SimulationAccount
+            from .user_settings import get_settings_manager
+            sm = get_settings_manager()
+            sm.record_simulation_trade(
+                direction=signal,
+                amount=amount,
+                result=result,
+                pnl=pnl,
+                price=entry_price
+            )
             
             # Guardar datos
             self._save_data()
@@ -850,6 +864,20 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         """Reinicia la cuenta de simulación."""
         sm = get_settings_manager()
         sm.reset_simulation(100.0)
+        
+        # También reiniciar contadores del bot
+        bot._wins = 0
+        bot._losses = 0
+        bot._cumulative_pnl = 0.0
+        bot._trades = []
+        bot._equity_history = [100.0]
+        bot._streak = 0
+        bot._best_streak = 0
+        bot._worst_streak = 0
+        bot._max_equity = 100.0
+        bot._max_drawdown = 0.0
+        bot._save_data()
+        
         return {"success": True, "simulation": sm.settings.simulation.to_dict()}
     
     @app.get("/api/simulation/history")
