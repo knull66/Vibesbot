@@ -160,28 +160,35 @@
                 <div class="tab-content" id="tab-risk">
                     <div class="stats-grid">
                         <div class="stat-card">
-                            <div class="stat-value" id="risk-daily-loss">$0.00</div>
-                            <div class="stat-label">Daily Loss</div>
+                            <div class="stat-value" id="stat-streak">0</div>
+                            <div class="stat-label">Current Streak</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value" id="risk-limit">$20.00</div>
-                            <div class="stat-label">Loss Limit</div>
+                            <div class="stat-value positive" id="stat-best-streak">0</div>
+                            <div class="stat-label">Best Streak</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value" id="risk-consec">0</div>
-                            <div class="stat-label">Consec Loss</div>
+                            <div class="stat-value negative" id="stat-worst-streak">0</div>
+                            <div class="stat-label">Worst Streak</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value" id="risk-circuit">OK</div>
-                            <div class="stat-label">Circuit</div>
+                            <div class="stat-value" id="stat-profit-factor">--</div>
+                            <div class="stat-label">Profit Factor</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value" id="risk-volatility">--</div>
-                            <div class="stat-label">Volatility</div>
+                            <div class="stat-value negative" id="stat-max-dd">0.0%</div>
+                            <div class="stat-label">Max Drawdown</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value" id="risk-filter">PASS</div>
-                            <div class="stat-label">Vol Filter</div>
+                            <div class="stat-value" id="stat-kelly">--</div>
+                            <div class="stat-label">Kelly %</div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top:16px;">
+                        <div class="panel-title" style="margin-bottom:8px;">EQUITY CURVE</div>
+                        <div style="background:var(--bg-card); border-radius:4px; padding:8px;">
+                            <canvas id="equity-chart" style="width:100%; height:120px;"></canvas>
                         </div>
                     </div>
                 </div>

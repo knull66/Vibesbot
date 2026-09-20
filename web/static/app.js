@@ -11,8 +11,50 @@ class VibesBot {
         this.trades = [];
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 10;
+        this.soundEnabled = true;
+        
+        // Audio context for notifications
+        this.audioCtx = null;
         
         this.init();
+    }
+    
+    playSound(type) {
+        if (!this.soundEnabled) return;
+        
+        try {
+            if (!this.audioCtx) {
+                this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            
+            const oscillator = this.audioCtx.createOscillator();
+            const gainNode = this.audioCtx.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(this.audioCtx.destination);
+            
+            if (type === 'win') {
+                // Happy ascending tone
+                oscillator.frequency.setValueAtTime(523, this.audioCtx.currentTime); // C5
+                oscillator.frequency.setValueAtTime(659, this.audioCtx.currentTime + 0.1); // E5
+                oscillator.frequency.setValueAtTime(784, this.audioCtx.currentTime + 0.2); // G5
+            } else if (type === 'loss') {
+                // Sad descending tone
+                oscillator.frequency.setValueAtTime(392, this.audioCtx.currentTime); // G4
+                oscillator.frequency.setValueAtTime(330, this.audioCtx.currentTime + 0.15); // E4
+            } else if (type === 'prediction') {
+                // Short beep
+                oscillator.frequency.setValueAtTime(880, this.audioCtx.currentTime); // A5
+            }
+            
+            gainNode.gain.setValueAtTime(0.1, this.audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.3);
+            
+            oscillator.start(this.audioCtx.currentTime);
+            oscillator.stop(this.audioCtx.currentTime + 0.3);
+        } catch (e) {
+            // Audio not supported
+        }
     }
 
     init() {
@@ -378,8 +420,33 @@ class VibesBot {
         if (this.statWinrate) this.statWinrate.textContent = (data.winrate || 0).toFixed(1) + '%';
         if (this.statWins) this.statWins.textContent = data.wins || 0;
         if (this.statLosses) this.statLosses.textContent = data.losses || 0;
-        if (this.statStreak) this.statStreak.textContent = data.streak || 0;
-        if (this.statDrawdown) this.statDrawdown.textContent = (data.max_drawdown || 0).toFixed(1) + '%';
+        
+        // Streak
+        const streakEl = document.getElementById('stat-streak');
+        if (streakEl) {
+            const streak = data.streak || 0;
+            streakEl.textContent = streak > 0 ? `+${streak}` : streak;
+            streakEl.className = 'stat-value ' + (streak >= 0 ? 'positive' : 'negative');
+        }
+        
+        // Best/Worst streak
+        const bestStreakEl = document.getElementById('stat-best-streak');
+        if (bestStreakEl) bestStreakEl.textContent = '+' + (data.best_streak || 0);
+        
+        const worstStreakEl = document.getElementById('stat-worst-streak');
+        if (worstStreakEl) worstStreakEl.textContent = data.worst_streak || 0;
+        
+        // Profit Factor
+        const pfEl = document.getElementById('stat-profit-factor');
+        if (pfEl) {
+            const pf = data.profit_factor || 0;
+            pfEl.textContent = pf > 0 ? pf.toFixed(2) : '--';
+            pfEl.className = 'stat-value ' + (pf >= 1 ? 'positive' : 'negative');
+        }
+        
+        // Max Drawdown
+        const ddEl = document.getElementById('stat-max-dd');
+        if (ddEl) ddEl.textContent = (data.max_drawdown || 0).toFixed(1) + '%';
         
         // Kelly %
         const kellyEl = document.getElementById('stat-kelly');
@@ -387,6 +454,67 @@ class VibesBot {
             const kelly = data.kelly || 0;
             kellyEl.textContent = kelly > 0 ? kelly.toFixed(1) + '%' : '--';
         }
+        
+        // Equity chart
+        if (data.equity_history && data.equity_history.length > 1) {
+            this.updateEquityChart(data.equity_history);
+        }
+    }
+    
+    updateEquityChart(equityData) {
+        const canvas = document.getElementById('equity-chart');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const rect = canvas.parentElement.getBoundingClientRect();
+        canvas.width = rect.width - 16;
+        canvas.height = 120;
+        
+        const minVal = Math.min(...equityData) * 0.98;
+        const maxVal = Math.max(...equityData) * 1.02;
+        const range = maxVal - minVal || 1;
+        
+        // Clear
+        ctx.fillStyle = '#0d1117';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Reference line at $100
+        const y100 = canvas.height - ((100 - minVal) / range) * canvas.height;
+        ctx.strokeStyle = '#21262d';
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, y100);
+        ctx.lineTo(canvas.width, y100);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Equity line
+        const lastVal = equityData[equityData.length - 1];
+        const color = lastVal >= 100 ? '#00FFFF' : '#ff3366';
+        
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        for (let i = 0; i < equityData.length; i++) {
+            const x = (i / (equityData.length - 1)) * canvas.width;
+            const y = canvas.height - ((equityData[i] - minVal) / range) * canvas.height;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        
+        // Fill under curve
+        ctx.lineTo(canvas.width, canvas.height);
+        ctx.lineTo(0, canvas.height);
+        ctx.closePath();
+        ctx.fillStyle = lastVal >= 100 ? 'rgba(0, 255, 255, 0.1)' : 'rgba(255, 51, 102, 0.1)';
+        ctx.fill();
+        
+        // Current value label
+        ctx.fillStyle = color;
+        ctx.font = 'bold 11px JetBrains Mono';
+        ctx.fillText(`$${lastVal.toFixed(2)}`, 5, 15);
     }
 
     updateStatus(data) {
@@ -404,6 +532,13 @@ class VibesBot {
         this.trades.unshift(data);
         if (this.trades.length > 50) this.trades.pop();
         this.renderTrades();
+        
+        // Play sound notification
+        if (data.result === 'WIN') {
+            this.playSound('win');
+        } else if (data.result === 'LOSS') {
+            this.playSound('loss');
+        }
     }
 
     renderTrades() {

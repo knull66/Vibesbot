@@ -88,11 +88,22 @@ class DashboardBot:
         self._cumulative_pnl = 0.0
         self._wins = 0
         self._losses = 0
-        self._time_offset = 0.0  # Offset de sincronización con Binance
+        self._time_offset = 0.0
         
-        # Última predicción generada (para usar en el trade)
+        # Última predicción
         self._last_prediction = None
         self._last_prediction_confidence = 0.5
+        
+        # Estadísticas avanzadas
+        self._equity_history = [100.0]  # Historial de capital
+        self._streak = 0  # Racha actual (positivo = wins, negativo = losses)
+        self._best_streak = 0
+        self._worst_streak = 0
+        self._max_equity = 100.0
+        self._max_drawdown = 0.0
+        
+        # Cargar datos guardados
+        self._load_saved_data()
     
     async def initialize(self) -> bool:
         """Inicializa los componentes del bot."""
@@ -250,7 +261,7 @@ class DashboardBot:
         logger.info("Trading loop ended")
     
     async def _generate_prediction(self):
-        """Genera y envía una predicción (con modelo o simulada)."""
+        """Genera predicción usando múltiples estrategias."""
         import random
         
         try:
@@ -258,47 +269,81 @@ class DashboardBot:
             confidence = 0.5
             prob_up = 0.5
             prob_down = 0.5
+            strategy_used = "none"
             
-            # Intentar usar el modelo real
+            # Intentar usar el modelo ML real
             if self.predictor and self.predictor.is_ready:
                 prediction = await self.predictor.predict(self.data_stream)
                 signal = prediction.signal.value
                 confidence = prediction.confidence
                 prob_up = prediction.probability_up
                 prob_down = prediction.probability_down
-            else:
-                # Simulación basada en indicadores
-                if self.data_stream:
-                    df = self.data_stream.get_candles_df("1m")
-                    if len(df) > 14:
-                        try:
-                            import ta
-                            close = df["close"].astype(float)
-                            rsi = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
-                            
-                            # RSI < 30 = oversold (probable UP), RSI > 70 = overbought (probable DOWN)
-                            if rsi < 35:
-                                signal = "UP"
-                                confidence = 0.55 + random.uniform(0, 0.15)
-                                prob_up = confidence
-                                prob_down = 1 - confidence
-                            elif rsi > 65:
-                                signal = "DOWN"
-                                confidence = 0.55 + random.uniform(0, 0.15)
-                                prob_down = confidence
-                                prob_up = 1 - confidence
-                            else:
-                                # Random con ligero sesgo
-                                if random.random() > 0.5:
-                                    signal = "UP"
-                                    confidence = 0.52 + random.uniform(0, 0.12)
-                                else:
-                                    signal = "DOWN"
-                                    confidence = 0.52 + random.uniform(0, 0.12)
-                                prob_up = confidence if signal == "UP" else 1 - confidence
-                                prob_down = 1 - prob_up
-                        except:
-                            pass
+                strategy_used = "ML Model"
+            elif self.data_stream:
+                df = self.data_stream.get_candles_df("1m")
+                if len(df) > 26:
+                    try:
+                        import ta
+                        close = df["close"].astype(float)
+                        high = df["high"].astype(float)
+                        low = df["low"].astype(float)
+                        
+                        # === ESTRATEGIA 1: RSI ===
+                        rsi = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
+                        rsi_signal = 0  # -1 DOWN, 0 neutral, 1 UP
+                        if rsi < 30:
+                            rsi_signal = 1  # Oversold = UP
+                        elif rsi > 70:
+                            rsi_signal = -1  # Overbought = DOWN
+                        
+                        # === ESTRATEGIA 2: MACD ===
+                        macd = ta.trend.MACD(close)
+                        macd_line = macd.macd().iloc[-1]
+                        macd_signal_line = macd.macd_signal().iloc[-1]
+                        macd_signal = 1 if macd_line > macd_signal_line else -1
+                        
+                        # === ESTRATEGIA 3: Bollinger Bands ===
+                        bb = ta.volatility.BollingerBands(close, window=20)
+                        bb_high = bb.bollinger_hband().iloc[-1]
+                        bb_low = bb.bollinger_lband().iloc[-1]
+                        current_price = close.iloc[-1]
+                        bb_signal = 0
+                        if current_price < bb_low:
+                            bb_signal = 1  # Below lower band = UP
+                        elif current_price > bb_high:
+                            bb_signal = -1  # Above upper band = DOWN
+                        
+                        # === ESTRATEGIA 4: Momentum ===
+                        momentum = close.iloc[-1] - close.iloc[-5]
+                        mom_signal = 1 if momentum > 0 else -1
+                        
+                        # === COMBINAR SEÑALES ===
+                        # Pesos: RSI=2, MACD=2, BB=1, Momentum=1
+                        total_signal = (rsi_signal * 2) + (macd_signal * 2) + (bb_signal * 1) + (mom_signal * 1)
+                        
+                        # Determinar señal final
+                        if total_signal >= 3:
+                            signal = "UP"
+                            confidence = 0.55 + min(0.15, abs(total_signal) * 0.02)
+                            strategy_used = "Multi-strategy (RSI+MACD+BB)"
+                        elif total_signal <= -3:
+                            signal = "DOWN"
+                            confidence = 0.55 + min(0.15, abs(total_signal) * 0.02)
+                            strategy_used = "Multi-strategy (RSI+MACD+BB)"
+                        elif rsi_signal != 0:
+                            signal = "UP" if rsi_signal > 0 else "DOWN"
+                            confidence = 0.52 + random.uniform(0, 0.10)
+                            strategy_used = f"RSI={rsi:.0f}"
+                        else:
+                            signal = "UP" if total_signal > 0 else "DOWN"
+                            confidence = 0.50 + random.uniform(0, 0.08)
+                            strategy_used = "Weak signal"
+                        
+                        prob_up = confidence if signal == "UP" else 1 - confidence
+                        prob_down = 1 - prob_up
+                        
+                    except Exception as e:
+                        logger.error(f"Strategy error: {e}")
             
             # Guardar predicción para el trade
             self._last_prediction = signal
@@ -312,29 +357,9 @@ class DashboardBot:
                 "prob_down": prob_down * 100
             })
             
-            # Obtener razón de la predicción
-            reason = ""
-            if self.data_stream:
-                df = self.data_stream.get_candles_df("1m")
-                if len(df) > 14:
-                    try:
-                        import ta
-                        close = df["close"].astype(float)
-                        rsi = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
-                        macd = ta.trend.MACD(close).macd_diff().iloc[-1]
-                        
-                        if rsi < 35:
-                            reason = f"RSI={rsi:.0f} (oversold)"
-                        elif rsi > 65:
-                            reason = f"RSI={rsi:.0f} (overbought)"
-                        else:
-                            reason = f"RSI={rsi:.0f}, MACD={macd:.1f}"
-                    except:
-                        reason = "technical analysis"
-            
             await self.manager.broadcast({
                 "type": "log",
-                "message": f"📊 Prediction: {signal} ({confidence*100:.1f}%) - {reason}",
+                "message": f"📊 Prediction: {signal} ({confidence*100:.1f}%) - {strategy_used}",
                 "level": "info"
             })
             
@@ -401,12 +426,28 @@ class DashboardBot:
             pnl = amount * 0.95 if is_win else -amount
             result = "WIN" if is_win else "LOSS"
             
-            # Actualizar estadísticas
+            # Actualizar estadísticas básicas
             if is_win:
                 self._wins += 1
+                self._streak = max(1, self._streak + 1) if self._streak >= 0 else 1
             else:
                 self._losses += 1
+                self._streak = min(-1, self._streak - 1) if self._streak <= 0 else -1
+            
             self._cumulative_pnl += pnl
+            
+            # Actualizar estadísticas avanzadas
+            self._best_streak = max(self._best_streak, self._streak)
+            self._worst_streak = min(self._worst_streak, self._streak)
+            
+            current_equity = 100.0 + self._cumulative_pnl
+            self._equity_history.append(current_equity)
+            self._max_equity = max(self._max_equity, current_equity)
+            
+            # Calcular drawdown
+            if self._max_equity > 0:
+                current_drawdown = ((self._max_equity - current_equity) / self._max_equity) * 100
+                self._max_drawdown = max(self._max_drawdown, current_drawdown)
             
             # Calcular cambio de precio
             price_change = new_price - entry_price
@@ -470,6 +511,9 @@ class DashboardBot:
             })
             
             logger.info(f"Trade: {signal} @ ${entry_price:.2f} -> ${new_price:.2f} = {result} (${pnl:+.2f})")
+            
+            # Guardar datos
+            self._save_data()
             
             # Limpiar predicción después de usarla
             self._last_prediction = None
@@ -555,7 +599,12 @@ class DashboardBot:
             kelly = win_prob - ((1 - win_prob) / 0.95)
             kelly_pct = max(0, min(100, kelly * 100))
         
-        # Enviar stats
+        # Calcular profit factor
+        total_wins_amount = self._wins * 0.95
+        total_losses_amount = self._losses * 1.0
+        profit_factor = total_wins_amount / max(0.01, total_losses_amount)
+        
+        # Enviar stats completas
         await self.manager.broadcast({
             "type": "stats",
             "capital": 100.0 + self._cumulative_pnl,
@@ -565,12 +614,63 @@ class DashboardBot:
             "wins": self._wins,
             "losses": self._losses,
             "kelly": kelly_pct,
-            "streak": 0,
-            "max_drawdown": 0
+            "streak": self._streak,
+            "best_streak": self._best_streak,
+            "worst_streak": self._worst_streak,
+            "max_drawdown": self._max_drawdown,
+            "profit_factor": profit_factor,
+            "equity_history": self._equity_history[-50:]  # Últimos 50 para gráfico
         })
+    
+    def _load_saved_data(self):
+        """Carga datos guardados de sesiones anteriores."""
+        import json
+        data_file = Path(__file__).parent.parent / "trading_data.json"
+        
+        if data_file.exists():
+            try:
+                with open(data_file, 'r') as f:
+                    data = json.load(f)
+                
+                self._trades = data.get('trades', [])
+                self._cumulative_pnl = data.get('pnl', 0.0)
+                self._wins = data.get('wins', 0)
+                self._losses = data.get('losses', 0)
+                self._equity_history = data.get('equity_history', [100.0])
+                self._best_streak = data.get('best_streak', 0)
+                self._worst_streak = data.get('worst_streak', 0)
+                self._max_drawdown = data.get('max_drawdown', 0.0)
+                
+                logger.info(f"Loaded saved data: {self._wins}W/{self._losses}L, PnL: ${self._cumulative_pnl:.2f}")
+            except Exception as e:
+                logger.error(f"Error loading saved data: {e}")
+    
+    def _save_data(self):
+        """Guarda datos para persistencia."""
+        import json
+        data_file = Path(__file__).parent.parent / "trading_data.json"
+        
+        try:
+            data = {
+                'trades': self._trades[-100:],  # Últimos 100 trades
+                'pnl': self._cumulative_pnl,
+                'wins': self._wins,
+                'losses': self._losses,
+                'equity_history': self._equity_history[-500:],  # Últimos 500 puntos
+                'best_streak': self._best_streak,
+                'worst_streak': self._worst_streak,
+                'max_drawdown': self._max_drawdown,
+                'last_updated': datetime.now().isoformat()
+            }
+            
+            with open(data_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving data: {e}")
     
     async def cleanup(self):
         """Limpia recursos."""
+        self._save_data()  # Guardar antes de cerrar
         await self.stop()
         if self.data_stream:
             await self.data_stream.stop()
