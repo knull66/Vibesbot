@@ -8,6 +8,7 @@ Proporciona:
 """
 import asyncio
 import json
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -871,6 +872,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         "/api/updates/check",
         "/api/updates/install",
         "/api/version",
+        "/api/system/quit",
     }
 
     def _client_host(request: Request) -> str:
@@ -1081,6 +1083,18 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         response = JSONResponse({"success": True})
         _clear_session_cookie(response)
         return response
+
+    @app.post("/api/system/quit")
+    async def quit_app(request: Request):
+        if not _is_local(request):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+
+        async def _die():
+            await asyncio.sleep(0.15)
+            os._exit(0)
+
+        asyncio.create_task(_die())
+        return {"success": True}
 
     @app.get("/api/auth/users")
     async def auth_users(request: Request):
@@ -1309,7 +1323,10 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
             return JSONResponse({"error": "Updates can only be installed on the Mac app"}, status_code=403)
         updater = get_updater()
         success, message = await updater.update()
-        return {"success": success, "message": message}
+        if success:
+            from .runtime import relaunch_app
+            relaunch_app(delay=1.4)
+        return {"success": success, "message": message, "relaunching": bool(success)}
     
     @app.get("/api/version")
     async def get_version():

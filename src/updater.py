@@ -269,7 +269,7 @@ class Updater:
             source_dir = project_dirs[0]
             logger.info(f"Source dir: {source_dir}")
             
-            items_to_update = ['src', 'web', 'assets', 'VERSION', 'app_launcher.py']
+            items_to_update = ['src', 'web', 'assets', 'VERSION', 'app_launcher.py', 'restart_mac.command', 'update_mac.command']
             
             for item in items_to_update:
                 source = source_dir / item

@@ -24,7 +24,19 @@ def loading_html() -> str:
     path = Path(SCRIPT_DIR) / "web" / "static" / "loading.html"
     if path.exists():
         return path.read_text(encoding="utf-8").replace("{{VERSION}}", version)
-    return f"""<!DOCTYPE html><html><body style="background:#070809;color:#5CF2FF;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh">VIBESBOT v{version}</body></html>"""
+    return (
+        "<!DOCTYPE html><html><body style=\"background:#070809;color:#5CF2FF;"
+        "font-family:Outfit,-apple-system,sans-serif;display:flex;align-items:center;"
+        f"justify-content:center;height:100vh\">VIBESBOT v{version}</body></html>"
+    )
+
+
+def free_port():
+    try:
+        from src.runtime import free_listen_port
+        free_listen_port(8080)
+    except Exception:
+        os.system("lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null | xargs kill -9 2>/dev/null")
 
 
 def start_server():
@@ -41,7 +53,7 @@ def main():
     import objc
     from Foundation import NSObject, NSURL, NSURLRequest, NSMakeRect, NSTimer
     from AppKit import (
-        NSApplication, NSWindow, NSApp,
+        NSApplication, NSWindow, NSApp, NSMenu, NSMenuItem,
         NSWindowStyleMaskTitled, NSWindowStyleMaskClosable,
         NSWindowStyleMaskMiniaturizable, NSWindowStyleMaskResizable,
         NSBackingStoreBuffered, NSApplicationActivationPolicyRegular,
@@ -56,10 +68,24 @@ def main():
 
         def applicationDidFinishLaunching_(self, notification):
             self.attempts = 0
+            self.installMenu()
             self.createWindow()
             self.timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
                 0.5, self, "checkServer:", None, True
             )
+
+        def installMenu(self):
+            menubar = NSMenu.alloc().init()
+            app_item = NSMenuItem.alloc().init()
+            menubar.addItem_(app_item)
+            app_menu = NSMenu.alloc().init()
+            quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                "Quit Vibesbot", "terminate:", "q"
+            )
+            quit_item.setTarget_(NSApp)
+            app_menu.addItem_(quit_item)
+            app_item.setSubmenu_(app_menu)
+            NSApp.setMainMenu_(menubar)
 
         def createWindow(self):
             config = WKWebViewConfiguration.alloc().init()
@@ -104,7 +130,7 @@ def main():
             return True
 
         def applicationWillTerminate_(self, notification):
-            os.system("pkill -f 'uvicorn.*8080' 2>/dev/null")
+            os._exit(0)
 
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
@@ -117,6 +143,6 @@ def main():
 
 
 if __name__ == "__main__":
-    os.system("pkill -f 'uvicorn.*8080' 2>/dev/null")
-    time.sleep(0.3)
+    free_port()
+    time.sleep(0.2)
     main()

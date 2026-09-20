@@ -1,7 +1,19 @@
 #!/bin/bash
-# Double-click this file on your Mac to pull v1.15.0+ and rebuild Vibesbot.app
+# Double-click this file on your Mac to pull v1.16.0+ and rebuild Vibesbot.app
 set -e
 cd "$(dirname "$0")"
+
+echo "Stopping leftover engines on port 8080..."
+if command -v lsof >/dev/null 2>&1; then
+  PIDS=$(lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null || true)
+  if [ -n "$PIDS" ]; then
+    kill -9 $PIDS 2>/dev/null || true
+  fi
+fi
+pkill -f "app_launcher.py" 2>/dev/null || true
+pkill -f "run_dashboard.py" 2>/dev/null || true
+sleep 0.4
+
 
 echo "Updating Vibesbot from GitHub..."
 if [ ! -d .git ]; then

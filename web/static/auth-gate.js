@@ -12,10 +12,16 @@
     const inviteGroup = document.getElementById('invite-group');
     const registerTab = document.getElementById('tab-register');
     const submitBtn = document.getElementById('auth-submit');
-    const AUTH_MISSING = 'Account engine is not running. Quit with Cmd+Q and open the app again.';
+    const retryBtn = document.getElementById('btn-retry-engine');
+    const AUTH_MISSING = 'Old engine still running. Dock → Vibesbot → Quit, then open the app. Cmd+Q does not quit this build.';
     let mode = 'login';
     let status = { setup_required: false, registration_open: false, invite_required: true };
     let ready = false;
+
+    function setEngineDown(on) {
+        if (retryBtn) retryBtn.style.display = on ? 'block' : 'none';
+        if (submitBtn) submitBtn.disabled = on || !ready;
+    }
 
     function setMode(next) {
         mode = next;
@@ -28,42 +34,60 @@
         if (submitBtn) {
             submitBtn.textContent = status.setup_required ? 'Create owner' : (mode === 'register' ? 'Create account' : 'Enter');
         }
-        if (errorEl) errorEl.textContent = '';
+        if (errorEl && ready) errorEl.textContent = '';
     }
 
     document.querySelectorAll('.login-tab').forEach(tab => {
         tab.addEventListener('click', () => setMode(tab.dataset.mode));
     });
 
-    fetch('/api/auth/status', { credentials: 'same-origin' }).then(r => {
-        if (!r.ok) throw new Error('no-auth');
-        return r.json();
-    }).then(data => {
-        status = data;
-        ready = true;
-        if (submitBtn) submitBtn.disabled = false;
-        if (data.setup_required) {
-            if (tagEl) tagEl.textContent = 'Create owner';
-            if (hintEl) hintEl.textContent = 'First account becomes the owner. Registration stays invite-only after this.';
-            const tabs = document.getElementById('login-tabs');
-            if (tabs) tabs.style.display = 'none';
-            if (registerTab) registerTab.style.display = 'none';
-            setMode('register');
-        } else if (!data.registration_open) {
-            if (registerTab) registerTab.style.display = 'none';
-            const tabs = document.getElementById('login-tabs');
-            if (tabs) tabs.style.display = 'none';
-            if (hintEl) hintEl.textContent = 'Private desk. Sign in with your account.';
-            setMode('login');
-        } else {
-            if (hintEl) hintEl.textContent = data.invite_required ? 'Register with an invite code from the owner.' : 'Create an account or sign in.';
-            setMode('login');
+    function loadStatus() {
+        return fetch('/api/auth/status', { credentials: 'same-origin' }).then(r => {
+            if (!r.ok) throw new Error('no-auth');
+            return r.json();
+        }).then(data => {
+            status = data;
+            ready = true;
+            setEngineDown(false);
+            if (submitBtn) submitBtn.disabled = false;
+            if (errorEl) errorEl.textContent = '';
+            if (data.setup_required) {
+                if (tagEl) tagEl.textContent = 'Create owner';
+                if (hintEl) hintEl.textContent = 'First account becomes the owner. Registration stays invite-only after this.';
+                const tabs = document.getElementById('login-tabs');
+                if (tabs) tabs.style.display = 'none';
+                if (registerTab) registerTab.style.display = 'none';
+                setMode('register');
+            } else if (!data.registration_open) {
+                if (registerTab) registerTab.style.display = 'none';
+                const tabs = document.getElementById('login-tabs');
+                if (tabs) tabs.style.display = 'none';
+                if (hintEl) hintEl.textContent = 'Private desk. Sign in with your account.';
+                setMode('login');
+            } else {
+                if (hintEl) hintEl.textContent = data.invite_required ? 'Register with an invite code from the owner.' : 'Create an account or sign in.';
+                setMode('login');
+            }
+        }).catch(() => {
+            ready = false;
+            setEngineDown(true);
+            if (hintEl) hintEl.textContent = AUTH_MISSING;
+            if (errorEl) errorEl.textContent = AUTH_MISSING;
+        });
+    }
+
+    loadStatus();
+    window.setInterval(() => {
+        if (!ready) loadStatus();
+    }, 2000);
+    retryBtn?.addEventListener('click', () => loadStatus());
+
+    window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 'q') {
+            e.preventDefault();
+            fetch('/api/system/quit', { method: 'POST', keepalive: true }).catch(() => {});
+            window.close();
         }
-    }).catch(() => {
-        ready = false;
-        if (hintEl) hintEl.textContent = AUTH_MISSING;
-        if (submitBtn) submitBtn.disabled = true;
-        if (errorEl) errorEl.textContent = AUTH_MISSING;
     });
 
     form.addEventListener('submit', async (e) => {

@@ -89,9 +89,15 @@ APPLESCRIPT
     log "Dependencies installed"
 fi
 
-# Matar servidor anterior
-pkill -f "uvicorn.*8080" 2>/dev/null
-sleep 0.5
+# Matar lo que siga escuchando en 8080 (el motor viejo es python, no uvicorn)
+if command -v lsof >/dev/null 2>&1; then
+    PIDS=$(lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null || true)
+    if [ -n "$PIDS" ]; then
+        kill -9 $PIDS 2>/dev/null || true
+    fi
+fi
+pkill -f "app_launcher.py" 2>/dev/null || true
+sleep 0.4
 
 # Ejecutar la app
 log "Launching app..."
