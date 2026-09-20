@@ -82,6 +82,7 @@ class DashboardBot:
         self._running = False
         self._paused = False
         self._task: Optional[asyncio.Task] = None
+        self._data_task: Optional[asyncio.Task] = None
         
         self._trades = []
         self._cumulative_pnl = 0.0
@@ -109,11 +110,33 @@ class DashboardBot:
                 "model_loaded": model_loaded
             })
             
+            # Iniciar loop de datos en background (siempre activo)
+            self._data_task = asyncio.create_task(self._data_loop())
+            
             return True
             
         except Exception as e:
             logger.error(f"Initialization error: {e}")
             return False
+    
+    async def _data_loop(self):
+        """Loop que siempre envía datos de mercado, incluso sin trading."""
+        logger.info("Data loop started - sending market updates")
+        
+        while True:
+            try:
+                # Solo enviar si NO está corriendo el trading loop
+                # (para evitar duplicados)
+                if not self._running:
+                    await self._send_updates()
+                
+                await asyncio.sleep(1)
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in data loop: {e}")
+                await asyncio.sleep(2)
     
     async def start(self):
         """Inicia el loop de trading."""
@@ -172,6 +195,8 @@ class DashboardBot:
         """Loop principal de trading."""
         logger.info("Trading loop started")
         
+        last_prediction_round = -1
+        
         while self._running:
             try:
                 await self._send_updates()
@@ -182,12 +207,16 @@ class DashboardBot:
                 
                 round_times = calculate_round_times(5)
                 remaining = round_times["seconds_remaining"]
+                current_round = round_times.get("round_number", 0)
                 
-                await self.manager.broadcast({
-                    "type": "timer",
-                    "seconds": int(remaining)
-                })
+                # Generar predicción cuando quedan 30-60 segundos (antes del cierre)
+                # Solo una vez por ronda
+                if 30 <= remaining <= 60 and current_round != last_prediction_round:
+                    if self.predictor and self.predictor.is_ready:
+                        await self._generate_prediction()
+                        last_prediction_round = current_round
                 
+                # Ejecutar trade cuando quedan 10-15 segundos
                 if 10 <= remaining <= 15 and self.predictor and self.predictor.is_ready:
                     await self._execute_round()
                 
@@ -201,31 +230,55 @@ class DashboardBot:
         
         logger.info("Trading loop ended")
     
+    async def _generate_prediction(self):
+        """Genera y envía una predicción sin ejecutar trade."""
+        try:
+            prediction = await self.predictor.predict(self.data_stream)
+            
+            await self.manager.broadcast({
+                "type": "prediction",
+                "signal": prediction.signal.value,
+                "confidence": prediction.confidence * 100,
+                "prob_up": prediction.probability_up * 100,
+                "prob_down": prediction.probability_down * 100
+            })
+            
+            logger.info(f"Prediction: {prediction.signal.value} @ {prediction.confidence:.1%}")
+            
+        except Exception as e:
+            logger.error(f"Error generating prediction: {e}")
+    
     async def _send_updates(self):
         """Envía actualizaciones periódicas al dashboard."""
         import random
         
+        # Calcular tiempo de ronda
+        round_times = calculate_round_times(5)
+        remaining = int(round_times["seconds_remaining"])
+        
+        # Obtener precio
+        price = None
         if self.data_stream:
             price = self.data_stream.get_current_price()
-            
-            if not price:
-                if not hasattr(self, '_sim_price'):
-                    self._sim_price = 63500.0
-                self._sim_price += random.uniform(-50, 50)
-                price = self._sim_price
-            
-            await self.manager.broadcast({
-                "type": "price",
-                "price": price
-            })
-            
+        
+        if not price:
+            if not hasattr(self, '_sim_price'):
+                self._sim_price = 63500.0
+            self._sim_price += random.uniform(-50, 50)
+            price = self._sim_price
+        
+        # Obtener features
+        rsi = None
+        macd = None
+        obi = 0.0
+        volatility = 0.002
+        
+        if self.data_stream:
             volatility = self.data_stream.get_volatility("1m", 20) or random.uniform(0.001, 0.005)
             trade_flow = self.data_stream.calculate_trade_flow(60)
+            obi = trade_flow.get("flow_imbalance", 0) or random.uniform(-0.3, 0.3)
             
             df_1m = self.data_stream.get_candles_df("1m")
-            rsi = None
-            macd = None
-            
             if len(df_1m) > 20:
                 try:
                     import ta
@@ -238,19 +291,24 @@ class DashboardBot:
                         macd = float(macd_series.iloc[-1])
                 except:
                     pass
-            
-            if rsi is None:
-                rsi = random.uniform(30, 70)
-            if macd is None:
-                macd = random.uniform(-100, 100)
-            
-            await self.manager.broadcast({
-                "type": "features",
+        
+        if rsi is None:
+            rsi = random.uniform(30, 70)
+        if macd is None:
+            macd = random.uniform(-100, 100)
+        
+        # Enviar todo en un solo mensaje market_data
+        await self.manager.broadcast({
+            "type": "market_data",
+            "price": price,
+            "round_timer": remaining,
+            "features": {
                 "rsi": rsi,
                 "macd": macd,
-                "obi": trade_flow.get("flow_imbalance", 0) or random.uniform(-0.3, 0.3),
+                "obi": obi,
                 "volatility": volatility
-            })
+            }
+        })
         
         if self.risk_manager:
             stats = self.risk_manager.get_statistics()

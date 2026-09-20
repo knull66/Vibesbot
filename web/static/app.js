@@ -19,7 +19,6 @@ class VibesBot {
         this.cacheDom();
         this.bindEvents();
         this.startClock();
-        this.bootSequence();
         this.connectWebSocket();
         this.loadVersion();
     }
