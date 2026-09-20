@@ -1,7 +1,8 @@
 /**
  * VIBESBOT - Trading Dashboard
- * Arcade-style trading interface
  */
+
+const APP_VERSION = '1.14.0';
 
 class VibesBot {
     constructor() {
@@ -29,6 +30,13 @@ class VibesBot {
         this.connect();
         this.startClock();
         this.loadVersion();
+        this.showBootSplash();
+    }
+
+    showBootSplash() {
+        const splash = document.getElementById('boot-splash');
+        if (!splash) return;
+        window.setTimeout(() => splash.classList.add('done'), 4200);
     }
     
     cacheElements() {
@@ -177,6 +185,8 @@ class VibesBot {
     
     bindAccount() {
         document.getElementById('user-chip')?.addEventListener('click', () => this.openProfile());
+        document.getElementById('btn-logout')?.addEventListener('click', () => this.logout());
+        document.getElementById('btn-logout-settings')?.addEventListener('click', () => this.logout());
         document.getElementById('btn-change-password')?.addEventListener('click', () => this.changePassword());
         document.getElementById('btn-create-invite')?.addEventListener('click', () => this.createInvite());
         document.getElementById('btn-refresh-pin')?.addEventListener('click', () => this.refreshCompanionPin());
@@ -201,7 +211,7 @@ class VibesBot {
         try {
             const response = await fetch('/api/auth/me');
             if (response.status === 401) {
-                window.location.href = '/login';
+                window.location.replace('/static/lobby.html');
                 return;
             }
             if (!response.ok) {
@@ -239,8 +249,8 @@ class VibesBot {
     }
 
     renderProfile(data) {
-        const username = data.user?.username || 'Pilot';
-        const role = data.companion ? 'Companion' : (data.user?.is_owner ? 'Owner' : 'Pilot');
+        const username = data.user?.username || 'Guest';
+        const role = data.companion ? 'Companion' : (data.user?.is_owner ? 'Owner' : 'Account');
         const initials = this.initials(username);
         const nameEl = document.getElementById('user-name');
         const roleChip = document.getElementById('user-role-chip');
@@ -268,7 +278,8 @@ class VibesBot {
     }
 
     logout() {
-        window.location.href = '/logout';
+        fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch(() => {});
+        window.location.replace('/static/lobby.html');
     }
     
     async changePassword() {
@@ -1186,12 +1197,12 @@ class VibesBot {
         try {
             const response = await fetch('/api/updates/check');
             const data = await response.json();
-            const current = data.current_version || '';
+            const current = APP_VERSION;
             const latest = data.latest_version || '';
-            const available = !!data.available || this.isNewerVersion(latest, current);
+            const available = this.isNewerVersion(latest, current);
             
-            if (currentEl && current) currentEl.textContent = 'v' + current.replace(/^v/i, '');
-            if (latestEl) latestEl.textContent = latest ? ('v' + latest.replace(/^v/i, '')) : '--';
+            if (currentEl) currentEl.textContent = 'v' + current;
+            if (latestEl) latestEl.textContent = latest ? ('v' + String(latest).replace(/^v/i, '')) : '--';
             
             if (available) {
                 if (statusEl) statusEl.textContent = 'Update available';
@@ -1214,7 +1225,9 @@ class VibesBot {
             const data = await response.json();
             
             if (data.success) {
-                if (statusEl) statusEl.textContent = 'Updated! Restart the app.';
+                if (statusEl) statusEl.textContent = 'Updated. Loading the new interface...';
+                document.getElementById('restart-banner')?.classList.add('show');
+                window.setTimeout(() => window.location.reload(), 2600);
             } else {
                 if (statusEl) statusEl.textContent = 'Update failed: ' + data.message;
             }
@@ -1224,18 +1237,10 @@ class VibesBot {
     }
     
     async loadVersion() {
-        try {
-            const response = await fetch('/api/version');
-            const data = await response.json();
-            
-            const versionEl = document.getElementById('app-version');
-            const currentEl = document.getElementById('current-version');
-            
-            if (versionEl) versionEl.textContent = 'v' + data.version;
-            if (currentEl) currentEl.textContent = 'v' + data.version;
-        } catch (e) {
-            console.error('Error loading version');
-        }
+        const versionEl = document.getElementById('app-version');
+        const currentEl = document.getElementById('current-version');
+        if (versionEl) versionEl.textContent = 'v' + APP_VERSION;
+        if (currentEl) currentEl.textContent = 'v' + APP_VERSION;
     }
     
     // ═══════════════════════════════════════════════════════════

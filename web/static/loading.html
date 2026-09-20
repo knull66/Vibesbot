@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -15,7 +15,7 @@ body {
         radial-gradient(ellipse 80% 50% at 50% -10%, rgba(92, 242, 255, 0.16) 0%, transparent 55%),
         #070809;
     color: #5CF2FF;
-    font-family: 'Press Start 2P', monospace;
+    font-family: Outfit, -apple-system, sans-serif;
 }
 .orb {
     position: absolute;
@@ -72,18 +72,20 @@ body {
     95% { opacity: 0.2; transform: scaleY(0.15); }
 }
 .title {
-    font-size: 16px;
-    letter-spacing: 4px;
-    margin-bottom: 14px;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    margin-bottom: 10px;
 }
 .subtitle {
-    font-size: 8px;
+    font-size: 12px;
+    font-weight: 600;
     color: rgba(244,247,250,0.48);
-    letter-spacing: 3px;
+    letter-spacing: 0.16em;
     margin-bottom: 28px;
 }
 .version {
-    font-size: 8px;
+    font-size: 13px;
     color: rgba(92, 242, 255, 0.7);
     margin-bottom: 22px;
 }
@@ -108,9 +110,10 @@ body {
 }
 .status {
     margin-top: 20px;
-    font-size: 8px;
+    font-size: 12px;
+    font-weight: 600;
     color: rgba(244,247,250,0.4);
-    letter-spacing: 2px;
+    letter-spacing: 0.14em;
 }
 </style>
 </head>
@@ -122,10 +125,10 @@ body {
         <div class="eye"></div>
     </div>
     <div class="title">VIBESBOT</div>
-    <div class="subtitle">PREDICTION RADAR</div>
+    <div class="subtitle">Prediction radar</div>
     <div class="version">v{{VERSION}}</div>
     <div class="loader"><div class="loader-bar"></div></div>
-    <div class="status">BOOTING</div>
+    <div class="status">Starting</div>
 </div>
 </body>
 </html>

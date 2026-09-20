@@ -24,11 +24,29 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.13.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.14.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Press+Start+2P&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body data-view="signal">
+    <div class="boot-splash" id="boot-splash">
+        <div class="boot-orb"></div>
+        <div class="brand-icon">
+            <div class="eye"></div>
+            <div class="eye"></div>
+        </div>
+        <div class="boot-title">VIBESBOT</div>
+        <div class="boot-sub">Prediction radar</div>
+        <div class="boot-version">v1.14.0</div>
+        <div class="boot-bar"><span></span></div>
+        <div class="boot-status">Starting</div>
+    </div>
+    <div class="restart-banner" id="restart-banner">
+        <div class="restart-card">
+            <h2>Update installed</h2>
+            <p>Quit the app completely (Cmd+Q) and open it again. The new engine only loads after a full restart.</p>
+        </div>
+    </div>
     <div class="app">
         <!-- Header -->
         <header class="header">
@@ -69,11 +87,11 @@
                 <button class="user-chip" type="button" id="user-chip" title="Open profile">
                     <span class="user-avatar" id="user-avatar">VB</span>
                     <span class="user-meta">
-                        <span class="user-name" id="user-name">Pilot</span>
+                        <span class="user-name" id="user-name">Guest</span>
                         <span class="user-role" id="user-role-chip">Account</span>
                     </span>
                 </button>
-                <a class="btn btn-logout" id="btn-logout" href="/logout" title="Sign out">OUT</a>
+                <a class="btn btn-logout" id="btn-logout" href="/static/lobby.html" title="Sign out">Out</a>
             </div>
         </header>
 
@@ -305,7 +323,7 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Multi-Indicator</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.13.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.14.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -529,7 +547,7 @@
                             <div class="update-info" style="margin-top:10px;">
                                 <div class="update-version">
                                     <span>Version</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.13.0</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.14.0</span>
                                 </div>
                                 <div class="update-version">
                                     <span>Latest</span>
@@ -550,7 +568,7 @@
                         <div class="profile-hero">
                             <div class="user-avatar lg" id="profile-avatar">VB</div>
                             <div>
-                                <div class="profile-name" id="profile-name">Pilot</div>
+                                <div class="profile-name" id="profile-name">Guest</div>
                                 <p class="settings-hint" id="account-role" style="margin-bottom:0;">Signed in</p>
                             </div>
                         </div>
@@ -583,7 +601,7 @@
                         </div>
                         <div class="form-actions">
                             <button class="btn btn-primary" id="btn-change-password">CHANGE PASSWORD</button>
-                            <a class="btn btn-logout" href="/logout">SIGN OUT</a>
+                            <a class="btn btn-logout" id="btn-logout-settings" href="/static/lobby.html">Sign out</a>
                         </div>
                         <div class="update-status" id="password-status"></div>
                     </div>
@@ -652,6 +670,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.13.0"></script>
+    <script src="/static/app.js?v=1.14.0"></script>
 </body>
 </html>

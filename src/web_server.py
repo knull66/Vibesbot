@@ -868,6 +868,9 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         "/api/auth/logout",
         "/api/companion/status",
         "/api/companion/pair",
+        "/api/updates/check",
+        "/api/updates/install",
+        "/api/version",
     }
 
     def _client_host(request: Request) -> str:
@@ -961,7 +964,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     async def not_found_handler(request: Request, exc):
         accept = request.headers.get("accept", "")
         if "text/html" in accept:
-            target = "/login" if _is_local(request) else "/companion"
+            target = "/static/lobby.html" if _is_local(request) else "/companion"
             return RedirectResponse(target, status_code=302)
         return JSONResponse({"detail": "Not Found"}, status_code=404)
 
@@ -1023,7 +1026,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.get("/logout")
     async def logout_page(request: Request):
         auth.logout(request.cookies.get(COOKIE_NAME))
-        response = RedirectResponse("/login", status_code=302)
+        response = RedirectResponse("/static/lobby.html", status_code=302)
         _clear_session_cookie(response)
         return response
 
@@ -1302,8 +1305,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.post("/api/updates/install")
     async def install_update(request: Request):
         """Instala la actualización disponible."""
-        if not _native_owner(request):
-            return JSONResponse({"error": "Only the Mac owner can install updates"}, status_code=403)
+        if not _is_local(request):
+            return JSONResponse({"error": "Updates can only be installed on the Mac app"}, status_code=403)
         updater = get_updater()
         success, message = await updater.update()
         return {"success": success, "message": message}

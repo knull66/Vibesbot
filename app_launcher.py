@@ -82,6 +82,9 @@ def main():
             self.attempts += 1
             try:
                 urllib.request.urlopen("http://127.0.0.1:8080", timeout=1)
+                # Keep the native splash visible so a fast boot is still seen.
+                if self.attempts < 8:
+                    return
                 timer.invalidate()
                 self.window.setTitle_("VIBESBOT")
                 url = NSURL.URLWithString_("http://127.0.0.1:8080")
@@ -91,11 +94,11 @@ def main():
                     timer.invalidate()
                     self.window.setTitle_("VIBESBOT - Error")
                     error_html = """<!DOCTYPE html>
-<html><body style="background:#070809;color:#FF5C7A;font-family:'Press Start 2P',monospace;display:flex;justify-content:center;align-items:center;height:100vh;text-align:center">
+<html><body style="background:#070809;color:#FF5C7A;font-family:Outfit,-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;text-align:center">
 <div>
-<p style="font-size:12px;margin-bottom:16px;color:#5CF2FF">VIBESBOT</p>
-<p style="font-size:10px">Server failed</p>
-<p style="color:#666;margin-top:20px;font-size:8px">Check ~/Library/Logs/Vibesbot.log</p>
+<p style="font-size:22px;font-weight:700;letter-spacing:.18em;margin-bottom:16px;color:#5CF2FF">VIBESBOT</p>
+<p style="font-size:14px">Server failed</p>
+<p style="color:#666;margin-top:20px;font-size:12px">Check ~/Library/Logs/Vibesbot.log</p>
 </div>
 </body></html>"""
                     self.webView.loadHTMLString_baseURL_(error_html, None)

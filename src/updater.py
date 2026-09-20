@@ -87,7 +87,23 @@ class Updater:
     
     def _save_version(self, version: str):
         """Guarda la versión actual."""
-        self.version_file.write_text(version)
+        self.version_file.parent.mkdir(parents=True, exist_ok=True)
+        self.version_file.write_text(version.strip().lstrip("vV") + "\n")
+
+    def _overlay_copy(self, source: Path, dest: Path):
+        """Copia encima, sin borrar el árbol (el Python en marcha bloquea rmtree)."""
+        skip = {"__pycache__", ".DS_Store", ".pyc"}
+        if source.is_file():
+            if source.suffix == ".pyc" or source.name in skip:
+                return
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, dest)
+            return
+        dest.mkdir(parents=True, exist_ok=True)
+        for child in source.iterdir():
+            if child.name in skip:
+                continue
+            self._overlay_copy(child, dest / child.name)
     
     async def check_for_updates(self) -> UpdateInfo:
         """
@@ -253,40 +269,23 @@ class Updater:
             source_dir = project_dirs[0]
             logger.info(f"Source dir: {source_dir}")
             
-            # Archivos y directorios a actualizar
             items_to_update = ['src', 'web', 'assets', 'VERSION', 'app_launcher.py']
             
             for item in items_to_update:
                 source = source_dir / item
                 dest = self.app_path / item
-                
                 logger.info(f"Updating {item}: {source} -> {dest}")
-                
-                if source.exists():
-                    try:
-                        if dest.exists():
-                            if dest.is_dir():
-                                shutil.rmtree(dest)
-                            else:
-                                dest.unlink()
-                        
-                        if source.is_dir():
-                            shutil.copytree(source, dest)
-                        else:
-                            shutil.copy2(source, dest)
-                        
-                        logger.info(f"✓ Updated: {item}")
-                    except Exception as e:
-                        logger.error(f"Error updating {item}: {e}")
-                else:
+                if not source.exists():
                     logger.warning(f"Source not found: {source}")
+                    continue
+                try:
+                    self._overlay_copy(source, dest)
+                    logger.info(f"✓ Updated: {item}")
+                except Exception as e:
+                    logger.error(f"Error updating {item}: {e}")
             
-            # Guardar nueva versión
             self._save_version(new_version)
-            
-            # Limpiar
-            shutil.rmtree(zip_path.parent)
-            
+            shutil.rmtree(zip_path.parent, ignore_errors=True)
             logger.info(f"Update applied: {new_version}")
             return True
             
