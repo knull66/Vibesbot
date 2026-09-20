@@ -20,7 +20,7 @@ import plistlib
 from pathlib import Path
 
 APP_NAME = "Vibesbot"
-VERSION = "1.0.0"
+VERSION = "1.3.0"
 BUNDLE_ID = "com.vibesbot.trading"
 
 PROJECT_DIR = Path(__file__).parent.resolve()
@@ -293,7 +293,7 @@ body::before {
     </div>
     <div class="title">VIBESBOT</div>
     <div class="subtitle">TRADING RADAR</div>
-    <div class="version">v1.2.0</div>
+    <div class="version">v1.3.0</div>
     <div class="loader"><div class="loader-bar"></div></div>
     <div class="status">CONNECTING...</div>
 </div>

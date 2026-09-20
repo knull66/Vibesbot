@@ -447,16 +447,22 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         try:
             while True:
                 data = await websocket.receive_json()
-                command = data.get("command")
+                action = data.get("action") or data.get("command")
                 
-                if command == "start":
+                if action == "start":
                     await bot.start()
-                elif command == "stop":
+                elif action == "stop":
                     await bot.stop()
-                elif command == "pause":
-                    bot.pause()
-                elif command == "resume":
+                elif action == "pause":
+                    if bot._paused:
+                        bot.resume()
+                    else:
+                        bot.pause()
+                elif action == "resume":
                     bot.resume()
+                elif action == "set_mode":
+                    simulation = data.get("simulation", True)
+                    logger.info(f"Mode changed to: {'SIMULATION' if simulation else 'REAL'}")
                     
         except WebSocketDisconnect:
             manager.disconnect(websocket)
@@ -495,19 +501,26 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         return {"success": True}
     
     @app.post("/api/settings/binance/test")
-    async def test_binance_connection():
+    async def test_binance_connection(request: Request):
         """Prueba la conexión con Binance."""
+        data = await request.json()
         sm = get_settings_manager()
+        
+        # Actualizar temporalmente las credenciales para la prueba
+        sm.update_binance_credentials(
+            api_key=data.get("api_key", ""),
+            api_secret=data.get("api_secret", ""),
+            is_testnet=data.get("use_testnet", True)
+        )
+        
         result = await sm.test_binance_connection()
         return result
     
     @app.post("/api/simulation/reset")
-    async def reset_simulation(request: Request):
+    async def reset_simulation():
         """Reinicia la cuenta de simulación."""
-        data = await request.json()
         sm = get_settings_manager()
-        starting_balance = data.get("starting_balance", 1000.0)
-        sm.reset_simulation(starting_balance)
+        sm.reset_simulation(100.0)
         return {"success": True, "simulation": sm.settings.simulation.to_dict()}
     
     @app.get("/api/simulation/history")
