@@ -52,6 +52,10 @@ user_data/
 config.json
 .env
 
+# Trading data (user specific)
+trading_data.json
+user_settings.json
+
 # Models (large files)
 models/*.pkl
 models/*.joblib

@@ -1105,5 +1105,9 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 8080, config_path: Optional
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
+# Crear instancia de app para usar con uvicorn directamente (ej: uvicorn src.web_server:app)
+app = create_app()
+
+
 if __name__ == "__main__":
     run_dashboard()
