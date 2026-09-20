@@ -170,12 +170,21 @@ class Updater:
         Returns:
             Path al archivo descargado o None si falla
         """
+        logger.info(f"Downloading update from: {url}")
+        
         try:
             temp_dir = Path(tempfile.mkdtemp())
             zip_path = temp_dir / "update.zip"
             
+            # GitHub zipball URLs redirect, need to follow
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=300)) as response:
+                async with session.get(
+                    url, 
+                    timeout=aiohttp.ClientTimeout(total=300),
+                    allow_redirects=True
+                ) as response:
+                    logger.info(f"Download response: {response.status}")
+                    
                     if response.status != 200:
                         logger.error(f"Download failed: {response.status}")
                         return None
@@ -192,11 +201,19 @@ class Updater:
                                 progress = int((downloaded / total_size) * 100)
                                 progress_callback(progress)
             
-            logger.info(f"Update downloaded to {zip_path}")
+            file_size = zip_path.stat().st_size
+            logger.info(f"Update downloaded to {zip_path} ({file_size} bytes)")
+            
+            if file_size < 1000:
+                logger.error("Downloaded file too small, probably an error")
+                return None
+            
             return zip_path
             
         except Exception as e:
             logger.error(f"Error downloading update: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     async def apply_update(self, zip_path: Path, new_version: str) -> bool:
@@ -211,32 +228,54 @@ class Updater:
             True si se aplicó correctamente
         """
         try:
+            logger.info(f"Applying update from {zip_path}")
+            logger.info(f"App path: {self.app_path}")
+            
             # Extraer a directorio temporal
             extract_dir = zip_path.parent / "extracted"
             
+            logger.info(f"Extracting to {extract_dir}")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_dir)
             
             # Encontrar el directorio del proyecto (GitHub añade un prefijo)
             project_dirs = list(extract_dir.iterdir())
+            logger.info(f"Extracted dirs: {project_dirs}")
+            
             if not project_dirs:
                 logger.error("Empty zip file")
                 return False
             
             source_dir = project_dirs[0]
+            logger.info(f"Source dir: {source_dir}")
             
             # Archivos y directorios a actualizar
-            items_to_update = ['src', 'web', 'assets']
+            items_to_update = ['src', 'web', 'assets', 'VERSION']
             
             for item in items_to_update:
                 source = source_dir / item
                 dest = self.app_path / item
                 
+                logger.info(f"Updating {item}: {source} -> {dest}")
+                
                 if source.exists():
-                    if dest.exists():
-                        shutil.rmtree(dest)
-                    shutil.copytree(source, dest)
-                    logger.info(f"Updated: {item}")
+                    try:
+                        if dest.exists():
+                            if dest.is_dir():
+                                shutil.rmtree(dest)
+                            else:
+                                dest.unlink()
+                        
+                        if source.is_dir():
+                            shutil.copytree(source, dest)
+                        else:
+                            shutil.copy2(source, dest)
+                        
+                        logger.info(f"✓ Updated: {item}")
+                    except Exception as e:
+                        logger.error(f"Error updating {item}: {e}")
+                else:
+                    logger.warning(f"Source not found: {source}")
             
             # Guardar nueva versión
             self._save_version(new_version)
