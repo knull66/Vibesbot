@@ -35,9 +35,15 @@ except Exception:
     HAS_TA = False
     ta = None
 
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+try:
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.model_selection import TimeSeriesSplit
+    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+    HAS_SKLEARN = True
+except Exception:
+    HAS_SKLEARN = False
+    StandardScaler = None
+    TimeSeriesSplit = None
 
 from .config import PredictionConfig
 from .data_stream import DataStream, OrderBook
