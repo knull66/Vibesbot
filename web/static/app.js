@@ -176,7 +176,7 @@ class VibesBot {
     }
     
     bindAccount() {
-        document.getElementById('btn-logout')?.addEventListener('click', () => this.logout());
+        document.getElementById('user-chip')?.addEventListener('click', () => this.openProfile());
         document.getElementById('btn-change-password')?.addEventListener('click', () => this.changePassword());
         document.getElementById('btn-create-invite')?.addEventListener('click', () => this.createInvite());
         document.getElementById('btn-refresh-pin')?.addEventListener('click', () => this.refreshCompanionPin());
@@ -204,23 +204,22 @@ class VibesBot {
                 window.location.href = '/login';
                 return;
             }
+            if (!response.ok) {
+                return;
+            }
             const data = await response.json();
             this.user = data.user;
             this.isCompanion = !!data.companion;
-            const nameEl = document.getElementById('user-name');
-            if (nameEl) nameEl.textContent = data.user?.username || '--';
-            const roleEl = document.getElementById('account-role');
-            const tagEl = document.getElementById('brand-tag');
+            this.renderProfile(data);
             if (this.isCompanion) {
                 document.body.classList.add('companion-mode');
-                if (roleEl) roleEl.textContent = 'Companion of the Mac app';
-                if (tagEl) tagEl.textContent = 'Companion';
                 document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
                 document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
                 const ownerTools = document.getElementById('owner-account-tools');
                 if (ownerTools) ownerTools.style.display = 'none';
             } else if (data.user?.is_owner) {
-                document.getElementById('owner-account-tools').style.display = 'block';
+                const ownerTools = document.getElementById('owner-account-tools');
+                if (ownerTools) ownerTools.style.display = 'block';
                 this.loadOwnerTools();
                 this.loadCompanionInfo();
             } else {
@@ -231,12 +230,45 @@ class VibesBot {
             console.error('Auth check failed', e);
         }
     }
-    
-    async logout() {
-        try {
-            await fetch('/api/auth/logout', { method: 'POST' });
-        } catch (e) {}
-        window.location.href = '/login';
+
+    initials(name) {
+        const clean = (name || 'VB').trim();
+        const parts = clean.split(/[\s_]+/).filter(Boolean);
+        if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+        return clean.slice(0, 2).toUpperCase();
+    }
+
+    renderProfile(data) {
+        const username = data.user?.username || 'Pilot';
+        const role = data.companion ? 'Companion' : (data.user?.is_owner ? 'Owner' : 'Pilot');
+        const initials = this.initials(username);
+        const nameEl = document.getElementById('user-name');
+        const roleChip = document.getElementById('user-role-chip');
+        const avatar = document.getElementById('user-avatar');
+        const profileName = document.getElementById('profile-name');
+        const profileAvatar = document.getElementById('profile-avatar');
+        const roleEl = document.getElementById('account-role');
+        const tagEl = document.getElementById('brand-tag');
+        if (nameEl) nameEl.textContent = username;
+        if (roleChip) roleChip.textContent = role;
+        if (avatar) avatar.textContent = initials;
+        if (profileName) profileName.textContent = username;
+        if (profileAvatar) profileAvatar.textContent = initials;
+        if (roleEl) roleEl.textContent = data.companion ? 'Paired with the Mac app' : (data.user?.is_owner ? 'Owner desk' : 'Signed in');
+        if (tagEl && data.companion) tagEl.textContent = 'Companion';
+    }
+
+    openProfile() {
+        document.getElementById('settings-modal')?.classList.add('active');
+        document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+        const tab = document.querySelector('.settings-tab[data-panel="account"]');
+        tab?.classList.add('active');
+        document.getElementById('panel-account')?.classList.add('active');
+    }
+
+    logout() {
+        window.location.href = '/logout';
     }
     
     async changePassword() {
@@ -630,6 +662,20 @@ class VibesBot {
         
         if (this.statWins) this.statWins.textContent = data.wins || 0;
         if (this.statLosses) this.statLosses.textContent = data.losses || 0;
+
+        const profileCapital = document.getElementById('profile-capital');
+        const profilePnl = document.getElementById('profile-pnl');
+        const profileTrades = document.getElementById('profile-trades');
+        const profileWinrate = document.getElementById('profile-winrate');
+        if (profileCapital) profileCapital.textContent = '$' + (data.capital || 100).toFixed(2);
+        if (profilePnl) {
+            const pnl = data.pnl || 0;
+            profilePnl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+            profilePnl.classList.toggle('positive', pnl >= 0);
+            profilePnl.classList.toggle('negative', pnl < 0);
+        }
+        if (profileTrades) profileTrades.textContent = data.trades || 0;
+        if (profileWinrate) profileWinrate.textContent = (data.winrate || 0).toFixed(1) + '%';
         
         // Advanced stats
         const streakEl = document.getElementById('stat-streak');
@@ -1112,9 +1158,27 @@ class VibesBot {
         }
     }
     
+    parseVersion(value) {
+        return String(value || '0').replace(/^v/i, '').split('.').map(part => parseInt(part, 10) || 0);
+    }
+
+    isNewerVersion(latest, current) {
+        const a = this.parseVersion(latest);
+        const b = this.parseVersion(current);
+        const len = Math.max(a.length, b.length);
+        for (let i = 0; i < len; i++) {
+            const left = a[i] || 0;
+            const right = b[i] || 0;
+            if (left > right) return true;
+            if (left < right) return false;
+        }
+        return false;
+    }
+
     async checkUpdates() {
         const statusEl = document.getElementById('update-status');
         const latestEl = document.getElementById('latest-version');
+        const currentEl = document.getElementById('current-version');
         const installBtn = document.getElementById('btn-install-update');
         
         if (statusEl) statusEl.textContent = 'Checking...';
@@ -1122,14 +1186,19 @@ class VibesBot {
         try {
             const response = await fetch('/api/updates/check');
             const data = await response.json();
+            const current = data.current_version || '';
+            const latest = data.latest_version || '';
+            const available = !!data.available || this.isNewerVersion(latest, current);
             
-            if (latestEl) latestEl.textContent = 'v' + data.latest_version;
+            if (currentEl && current) currentEl.textContent = 'v' + current.replace(/^v/i, '');
+            if (latestEl) latestEl.textContent = latest ? ('v' + latest.replace(/^v/i, '')) : '--';
             
-            if (data.available) {
-                if (statusEl) statusEl.textContent = 'Update available!';
+            if (available) {
+                if (statusEl) statusEl.textContent = 'Update available';
                 if (installBtn) installBtn.disabled = false;
             } else {
                 if (statusEl) statusEl.textContent = 'You have the latest version';
+                if (installBtn) installBtn.disabled = true;
             }
         } catch (e) {
             if (statusEl) statusEl.textContent = 'Error checking updates';

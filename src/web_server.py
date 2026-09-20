@@ -860,6 +860,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     companion = get_companion()
     public_exact = {
         "/login",
+        "/logout",
         "/companion",
         "/api/auth/status",
         "/api/auth/login",
@@ -955,6 +956,14 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         if _user_from_request(request):
             return RedirectResponse("/", status_code=302)
         return templates.TemplateResponse(request, "login.html")
+
+    @app.exception_handler(404)
+    async def not_found_handler(request: Request, exc):
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            target = "/login" if _is_local(request) else "/companion"
+            return RedirectResponse(target, status_code=302)
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
 
     @app.get("/companion", response_class=HTMLResponse)
     async def companion_page(request: Request):
@@ -1301,9 +1310,10 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     
     @app.get("/api/version")
     async def get_version():
-        """Obtiene la versión actual."""
-        updater = get_updater()
-        return {"version": updater.current_version}
+        """Obtiene la versión actual del bundle en ejecución."""
+        version_path = Path(__file__).resolve().parent.parent / "VERSION"
+        version = version_path.read_text().strip() if version_path.exists() else "0.0.0"
+        return {"version": version.lstrip("vV")}
     
     # ═══════════════════════════════════════════════════════════
     # API Endpoints para Estrategias

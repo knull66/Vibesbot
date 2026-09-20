@@ -52,25 +52,38 @@ class Updater:
         self.current_version = self._get_current_version()
     
     def _find_app_path(self) -> Path:
-        """Encuentra la ruta de la aplicación."""
-        # Buscar en varios lugares
+        """Siempre la copia que está ejecutándose, no Downloads."""
+        running = Path(__file__).resolve().parent.parent
+        if (running / "src").exists() and (running / "web").exists():
+            return running
         possible_paths = [
-            Path(__file__).parent.parent,  # Desde src/
-            Path.home() / "Downloads" / "Vibesbot",
+            running,
             Path("/Applications/Vibesbot.app/Contents/Resources/vibesbot"),
+            Path.home() / "Downloads" / "Vibesbot",
         ]
-        
         for path in possible_paths:
             if path.exists() and (path / "src").exists():
                 return path
-        
-        return Path(__file__).parent.parent
-    
+        return running
+
     def _get_current_version(self) -> str:
         """Obtiene la versión actual instalada."""
         if self.version_file.exists():
-            return self.version_file.read_text().strip()
+            return self.version_file.read_text().strip().lstrip("vV")
         return CURRENT_VERSION
+
+    def _parse_version(self, value: str):
+        raw = (value or "").strip().lstrip("vV")
+        parts = []
+        for chunk in raw.split("."):
+            digits = "".join(ch for ch in chunk if ch.isdigit())
+            parts.append(int(digits) if digits else 0)
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts[:3])
+
+    def _is_newer_version(self, latest: str) -> bool:
+        return self._parse_version(latest) > self._parse_version(self.current_version)
     
     def _save_version(self, version: str):
         """Guarda la versión actual."""
@@ -98,7 +111,7 @@ class Updater:
                     
                     if response.status == 200:
                         data = await response.json()
-                        latest_version = data.get("tag_name", "").lstrip("v")
+                        latest_version = data.get("tag_name", "").lstrip("vV")
                         logger.info(f"Latest version from releases: {latest_version}")
                         
                         is_newer = self._is_newer_version(latest_version)
@@ -149,16 +162,7 @@ class Updater:
             current_version=self.current_version,
             latest_version=self.current_version
         )
-    
-    def _is_newer_version(self, latest: str) -> bool:
-        """Compara versiones."""
-        try:
-            current_parts = [int(x) for x in self.current_version.split(".")]
-            latest_parts = [int(x) for x in latest.split(".")]
-            return latest_parts > current_parts
-        except:
-            return latest != self.current_version
-    
+
     async def download_update(self, url: str, progress_callback=None) -> Optional[Path]:
         """
         Descarga una actualización.
@@ -250,7 +254,7 @@ class Updater:
             logger.info(f"Source dir: {source_dir}")
             
             # Archivos y directorios a actualizar
-            items_to_update = ['src', 'web', 'assets', 'VERSION']
+            items_to_update = ['src', 'web', 'assets', 'VERSION', 'app_launcher.py']
             
             for item in items_to_update:
                 source = source_dir / item
