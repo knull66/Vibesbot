@@ -292,10 +292,11 @@
             </div>
             <div class="modal-body">
                 <div class="settings-tabs">
-                    <button class="settings-tab active" data-panel="binance">BINANCE</button>
+                    <button class="settings-tab active" data-panel="binance">API</button>
                     <button class="settings-tab" data-panel="trading">TRADING</button>
-                    <button class="settings-tab" data-panel="simulation">SIMULATION</button>
-                    <button class="settings-tab" data-panel="updates">UPDATES</button>
+                    <button class="settings-tab" data-panel="strategy">STRATEGY</button>
+                    <button class="settings-tab" data-panel="backtest">BACKTEST</button>
+                    <button class="settings-tab" data-panel="export">EXPORT</button>
                 </div>
 
                 <!-- Binance Panel -->
@@ -331,73 +332,179 @@
                 <!-- Trading Panel -->
                 <div class="settings-panel" id="panel-trading">
                     <div class="settings-section">
-                        <h3>Trading Parameters</h3>
+                        <h3>TRADING PARAMETERS</h3>
                         
                         <div class="form-group">
-                            <label for="bet-amount">Bet Amount ($)</label>
+                            <label for="bet-amount">BET AMOUNT ($)</label>
                             <input type="number" id="bet-amount" value="1.00" min="0.1" step="0.1">
                         </div>
                         <div class="form-group">
-                            <label for="confidence-threshold">Min Confidence (%)</label>
+                            <label for="confidence-threshold">MIN CONFIDENCE (%)</label>
                             <input type="number" id="confidence-threshold" value="55" min="50" max="99">
                         </div>
                         <div class="form-group">
-                            <label for="daily-loss-limit">Daily Loss Limit ($)</label>
+                            <label for="daily-loss-limit">DAILY LOSS LIMIT ($)</label>
                             <input type="number" id="daily-loss-limit" value="20" min="1">
                         </div>
                         
-                        <div class="form-actions">
-                            <button class="btn btn-primary" id="btn-save-trading">Save</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Simulation Panel -->
-                <div class="settings-panel" id="panel-simulation">
-                    <div class="settings-section">
-                        <h3>Simulation Account</h3>
-                        
-                        <div class="sim-stats">
+                        <div class="sim-stats" style="margin-top:16px;">
                             <div class="sim-stat">
-                                <div class="sim-stat-label">Balance</div>
-                                <div class="sim-stat-value" id="sim-balance">$100.00</div>
+                                <div class="sim-stat-label">BALANCE</div>
+                                <div class="sim-stat-value" id="sim-balance">$100</div>
                             </div>
                             <div class="sim-stat">
                                 <div class="sim-stat-label">P&L</div>
-                                <div class="sim-stat-value" id="sim-pnl">$0.00</div>
+                                <div class="sim-stat-value" id="sim-pnl">$0</div>
                             </div>
                             <div class="sim-stat">
-                                <div class="sim-stat-label">Trades</div>
+                                <div class="sim-stat-label">TRADES</div>
                                 <div class="sim-stat-value" id="sim-trades">0</div>
                             </div>
                         </div>
                         
                         <div class="form-actions">
-                            <button class="btn btn-danger" id="btn-reset-sim">Reset</button>
+                            <button class="btn btn-primary" id="btn-save-trading">SAVE</button>
+                            <button class="btn btn-danger" id="btn-reset-sim">RESET</button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Updates Panel -->
-                <div class="settings-panel" id="panel-updates">
+                <!-- Strategy Panel -->
+                <div class="settings-panel" id="panel-strategy">
                     <div class="settings-section">
-                        <h3>Updates</h3>
+                        <h3>ACTIVE STRATEGY</h3>
                         
-                        <div class="update-info">
-                            <div class="update-version">
-                                <span>Current:</span>
-                                <span id="current-version">v1.5.1</span>
+                        <div class="form-group">
+                            <label for="strategy-select">SELECT STRATEGY</label>
+                            <select id="strategy-select">
+                                <option value="default">Balanced</option>
+                                <option value="conservative">Conservative</option>
+                                <option value="aggressive">Aggressive</option>
+                                <option value="rsi_focused">RSI Focused</option>
+                                <option value="macd_focused">MACD Focused</option>
+                            </select>
+                        </div>
+                        
+                        <div id="strategy-info" style="padding:12px; background:var(--bg-dark); border-radius:4px; margin:12px 0;">
+                            <div style="font-size:8px; color:var(--accent); margin-bottom:8px;">STRATEGY STATS</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:8px;">
+                                <div>Trades: <span id="strat-trades">0</span></div>
+                                <div>Win Rate: <span id="strat-winrate">0%</span></div>
+                                <div>P&L: <span id="strat-pnl">$0</span></div>
                             </div>
-                            <div class="update-version">
-                                <span>Latest:</span>
-                                <span id="latest-version">--</span>
-                            </div>
-                            <div class="update-status" id="update-status"></div>
+                        </div>
+                        
+                        <h3 style="margin-top:16px;">INDICATOR WEIGHTS</h3>
+                        <p class="settings-hint">Adjust influence of each indicator (0=off, 3=high)</p>
+                        
+                        <div class="form-group">
+                            <label>RSI: <span id="rsi-weight-val">2</span></label>
+                            <input type="range" id="rsi-weight" min="0" max="3" value="2" style="width:100%">
+                        </div>
+                        <div class="form-group">
+                            <label>MACD: <span id="macd-weight-val">2</span></label>
+                            <input type="range" id="macd-weight" min="0" max="3" value="2" style="width:100%">
+                        </div>
+                        <div class="form-group">
+                            <label>BOLLINGER: <span id="bb-weight-val">1</span></label>
+                            <input type="range" id="bb-weight" min="0" max="3" value="1" style="width:100%">
+                        </div>
+                        <div class="form-group">
+                            <label>MOMENTUM: <span id="mom-weight-val">1</span></label>
+                            <input type="range" id="mom-weight" min="0" max="3" value="1" style="width:100%">
                         </div>
                         
                         <div class="form-actions">
-                            <button class="btn" id="btn-check-update">Check</button>
-                            <button class="btn btn-primary" id="btn-install-update" disabled>Install</button>
+                            <button class="btn btn-primary" id="btn-save-strategy">SAVE STRATEGY</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Backtest Panel -->
+                <div class="settings-panel" id="panel-backtest">
+                    <div class="settings-section">
+                        <h3>BACKTEST</h3>
+                        <p class="settings-hint">Test strategy with historical data</p>
+                        
+                        <div class="form-group">
+                            <label for="backtest-days">PERIOD (DAYS)</label>
+                            <select id="backtest-days">
+                                <option value="3">3 Days</option>
+                                <option value="7" selected>7 Days</option>
+                                <option value="14">14 Days</option>
+                                <option value="30">30 Days</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="backtest-capital">INITIAL CAPITAL ($)</label>
+                            <input type="number" id="backtest-capital" value="100" min="10">
+                        </div>
+                        <div class="form-group">
+                            <label for="backtest-bet">BET AMOUNT ($)</label>
+                            <input type="number" id="backtest-bet" value="1" min="0.1" step="0.1">
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button class="btn btn-primary" id="btn-run-backtest">RUN BACKTEST</button>
+                        </div>
+                        
+                        <div id="backtest-progress" style="display:none; margin-top:12px;">
+                            <div style="font-size:8px; color:var(--text-dim); margin-bottom:6px;">
+                                <span id="backtest-status">Running...</span>
+                            </div>
+                            <div style="height:6px; background:var(--bg-dark); border-radius:3px; overflow:hidden;">
+                                <div id="backtest-bar" style="height:100%; width:0%; background:var(--accent); transition:width 0.3s;"></div>
+                            </div>
+                        </div>
+                        
+                        <div id="backtest-result" style="display:none; margin-top:16px; padding:12px; background:var(--bg-dark); border-radius:4px;">
+                            <div style="font-size:8px; color:var(--accent); margin-bottom:10px;">BACKTEST RESULTS</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:9px;">
+                                <div>Trades: <span id="bt-trades" style="color:var(--accent)">0</span></div>
+                                <div>Win Rate: <span id="bt-winrate" style="color:var(--accent)">0%</span></div>
+                                <div>Final Capital: <span id="bt-capital" style="color:var(--up)">$100</span></div>
+                                <div>Total P&L: <span id="bt-pnl" style="color:var(--up)">$0</span></div>
+                                <div>Max Drawdown: <span id="bt-drawdown" style="color:var(--down)">0%</span></div>
+                                <div>Profit Factor: <span id="bt-pf" style="color:var(--accent)">0</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export Panel -->
+                <div class="settings-panel" id="panel-export">
+                    <div class="settings-section">
+                        <h3>EXPORT DATA</h3>
+                        <p class="settings-hint">Download your trading data</p>
+                        
+                        <div class="form-actions" style="flex-direction:column; gap:10px;">
+                            <button class="btn" id="btn-export-csv" style="width:100%;">DOWNLOAD TRADES (CSV)</button>
+                            <button class="btn" id="btn-export-json" style="width:100%;">DOWNLOAD TRADES (JSON)</button>
+                            <button class="btn btn-primary" id="btn-export-report" style="width:100%;">GENERATE REPORT</button>
+                        </div>
+                        
+                        <div id="report-result" style="display:none; margin-top:16px; padding:12px; background:var(--bg-dark); border-radius:4px; max-height:200px; overflow-y:auto;">
+                            <div style="font-size:8px; color:var(--accent); margin-bottom:10px;">ANALYSIS REPORT</div>
+                            <div id="report-content" style="font-size:8px; line-height:1.8;"></div>
+                        </div>
+                        
+                        <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
+                            <h3>APP INFO</h3>
+                            <div style="font-size:9px; margin-top:10px;">
+                                <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                                    <span>Version:</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.7.0</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                                    <span>Latest:</span>
+                                    <span id="latest-version">--</span>
+                                </div>
+                            </div>
+                            <div class="form-actions" style="margin-top:10px;">
+                                <button class="btn" id="btn-check-update">CHECK UPDATE</button>
+                                <button class="btn btn-primary" id="btn-install-update" disabled>INSTALL</button>
+                            </div>
+                            <div class="update-status" id="update-status" style="margin-top:8px;"></div>
                         </div>
                     </div>
                 </div>

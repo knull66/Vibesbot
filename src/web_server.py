@@ -925,6 +925,172 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         updater = get_updater()
         return {"version": updater.current_version}
     
+    # ═══════════════════════════════════════════════════════════
+    # API Endpoints para Estrategias
+    # ═══════════════════════════════════════════════════════════
+    
+    from .strategy_manager import get_strategy_manager
+    
+    @app.get("/api/strategies")
+    async def get_strategies():
+        """Obtiene todas las estrategias."""
+        sm = get_strategy_manager()
+        return {
+            "strategies": sm.get_all_strategies(),
+            "active": sm.active_strategy
+        }
+    
+    @app.get("/api/strategies/active")
+    async def get_active_strategy():
+        """Obtiene la estrategia activa."""
+        sm = get_strategy_manager()
+        strategy = sm.get_active_strategy()
+        return {"id": sm.active_strategy, **strategy.to_dict()}
+    
+    @app.post("/api/strategies/active")
+    async def set_active_strategy(request: Request):
+        """Establece la estrategia activa."""
+        data = await request.json()
+        sm = get_strategy_manager()
+        success = sm.set_active_strategy(data.get("id", "default"))
+        return {"success": success, "active": sm.active_strategy}
+    
+    @app.post("/api/strategies")
+    async def create_strategy(request: Request):
+        """Crea una nueva estrategia."""
+        data = await request.json()
+        sm = get_strategy_manager()
+        strategy = sm.create_strategy(data.get("name", "Custom"), data)
+        return {"success": True, "strategy": strategy.to_dict()}
+    
+    @app.put("/api/strategies/{strategy_id}")
+    async def update_strategy(strategy_id: str, request: Request):
+        """Actualiza una estrategia."""
+        data = await request.json()
+        sm = get_strategy_manager()
+        strategy = sm.update_strategy(strategy_id, data)
+        if strategy:
+            return {"success": True, "strategy": strategy.to_dict()}
+        return {"success": False, "error": "Strategy not found"}
+    
+    @app.delete("/api/strategies/{strategy_id}")
+    async def delete_strategy(strategy_id: str):
+        """Elimina una estrategia."""
+        sm = get_strategy_manager()
+        success = sm.delete_strategy(strategy_id)
+        return {"success": success}
+    
+    @app.get("/api/strategies/compare")
+    async def compare_strategies():
+        """Compara rendimiento de estrategias."""
+        sm = get_strategy_manager()
+        return {"comparison": sm.compare_strategies()}
+    
+    # ═══════════════════════════════════════════════════════════
+    # API Endpoints para Backtesting
+    # ═══════════════════════════════════════════════════════════
+    
+    from .dashboard_backtest import get_backtester
+    
+    @app.post("/api/backtest/run")
+    async def run_backtest(request: Request):
+        """Ejecuta un backtest."""
+        data = await request.json()
+        
+        backtester = get_backtester()
+        
+        if backtester.is_running:
+            return {"success": False, "error": "Backtest already running"}
+        
+        try:
+            # Obtener estrategia
+            strategy = None
+            strategy_id = data.get("strategy_id")
+            if strategy_id:
+                sm = get_strategy_manager()
+                if strategy_id in sm.strategies:
+                    strategy = sm.strategies[strategy_id]
+            
+            result = await backtester.run_backtest(
+                strategy=strategy,
+                days=data.get("days", 7),
+                initial_capital=data.get("initial_capital", 100.0),
+                bet_amount=data.get("bet_amount", 1.0)
+            )
+            
+            return {"success": True, "result": result.to_dict()}
+            
+        except Exception as e:
+            logger.error(f"Backtest error: {e}")
+            return {"success": False, "error": str(e)}
+    
+    @app.get("/api/backtest/status")
+    async def get_backtest_status():
+        """Obtiene el estado del backtest."""
+        backtester = get_backtester()
+        return {
+            "running": backtester.is_running,
+            "progress": backtester.progress,
+            "has_result": backtester.current_result is not None
+        }
+    
+    @app.get("/api/backtest/result")
+    async def get_backtest_result():
+        """Obtiene el resultado del último backtest."""
+        backtester = get_backtester()
+        if backtester.current_result:
+            return {"success": True, "result": backtester.current_result.to_dict()}
+        return {"success": False, "error": "No backtest result available"}
+    
+    # ═══════════════════════════════════════════════════════════
+    # API Endpoints para Exportación
+    # ═══════════════════════════════════════════════════════════
+    
+    from .data_exporter import get_exporter
+    from fastapi.responses import Response
+    
+    @app.get("/api/export/trades/csv")
+    async def export_trades_csv():
+        """Exporta trades a CSV."""
+        sm = get_settings_manager()
+        exporter = get_exporter()
+        
+        trades = sm.settings.simulation.history
+        csv_content = exporter.generate_csv_content(trades)
+        
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename=vibesbot_trades_{datetime.now().strftime('%Y%m%d')}.csv"
+            }
+        )
+    
+    @app.get("/api/export/trades/json")
+    async def export_trades_json():
+        """Exporta trades a JSON."""
+        sm = get_settings_manager()
+        
+        return {
+            "exported_at": datetime.now().isoformat(),
+            "trades": sm.settings.simulation.history,
+            "stats": sm.settings.simulation.to_dict()
+        }
+    
+    @app.get("/api/export/report")
+    async def export_report():
+        """Genera un reporte de análisis."""
+        sm = get_settings_manager()
+        strategy_mgr = get_strategy_manager()
+        exporter = get_exporter()
+        
+        trades = sm.settings.simulation.history
+        stats = sm.settings.simulation.to_dict()
+        strategy_name = strategy_mgr.get_active_strategy().name
+        
+        report = exporter.generate_report(trades, stats, strategy_name)
+        return report
+    
     return app
 
 

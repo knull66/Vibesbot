@@ -138,6 +138,36 @@ class VibesBot {
         document.getElementById('btn-confirm-real')?.addEventListener('click', () => {
             this.confirmRealMode();
         });
+        
+        // Strategy controls
+        document.getElementById('strategy-select')?.addEventListener('change', async (e) => {
+            const response = await fetch('/api/strategies');
+            const data = await response.json();
+            const strategy = data.strategies?.find(s => s.id === e.target.value);
+            this.updateStrategyInfo(strategy);
+        });
+        
+        document.getElementById('btn-save-strategy')?.addEventListener('click', () => this.saveStrategy());
+        
+        // Weight sliders
+        ['rsi', 'macd', 'bb', 'mom'].forEach(id => {
+            const slider = document.getElementById(id + '-weight');
+            const label = document.getElementById(id + '-weight-val');
+            slider?.addEventListener('input', (e) => {
+                if (label) label.textContent = e.target.value;
+            });
+        });
+        
+        // Backtest
+        document.getElementById('btn-run-backtest')?.addEventListener('click', () => this.runBacktest());
+        
+        // Export
+        document.getElementById('btn-export-csv')?.addEventListener('click', () => this.exportCSV());
+        document.getElementById('btn-export-json')?.addEventListener('click', () => this.exportJSON());
+        document.getElementById('btn-export-report')?.addEventListener('click', () => this.generateReport());
+        
+        // Load strategies on init
+        this.loadStrategies();
     }
     
     // ═══════════════════════════════════════════════════════════
@@ -918,6 +948,211 @@ class VibesBot {
             if (currentEl) currentEl.textContent = 'v' + data.version;
         } catch (e) {
             console.error('Error loading version');
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════
+    // Strategy Management
+    // ═══════════════════════════════════════════════════════════
+    
+    async loadStrategies() {
+        try {
+            const response = await fetch('/api/strategies');
+            const data = await response.json();
+            
+            const select = document.getElementById('strategy-select');
+            if (select && data.strategies) {
+                select.innerHTML = data.strategies.map(s => 
+                    `<option value="${s.id}" ${s.id === data.active ? 'selected' : ''}>${s.name}</option>`
+                ).join('');
+                
+                this.updateStrategyInfo(data.strategies.find(s => s.id === data.active));
+            }
+        } catch (e) {
+            console.error('Error loading strategies');
+        }
+    }
+    
+    updateStrategyInfo(strategy) {
+        if (!strategy) return;
+        
+        document.getElementById('strat-trades').textContent = strategy.stats?.total_trades || 0;
+        document.getElementById('strat-winrate').textContent = (strategy.stats?.win_rate || 0).toFixed(1) + '%';
+        document.getElementById('strat-pnl').textContent = '$' + (strategy.stats?.total_pnl || 0).toFixed(2);
+        
+        // Update weight sliders
+        if (strategy.weights) {
+            this.setSlider('rsi-weight', strategy.weights.rsi);
+            this.setSlider('macd-weight', strategy.weights.macd);
+            this.setSlider('bb-weight', strategy.weights.bollinger);
+            this.setSlider('mom-weight', strategy.weights.momentum);
+        }
+    }
+    
+    setSlider(id, value) {
+        const slider = document.getElementById(id);
+        const label = document.getElementById(id + '-val');
+        if (slider) slider.value = value;
+        if (label) label.textContent = value;
+    }
+    
+    async saveStrategy() {
+        const strategyId = document.getElementById('strategy-select')?.value || 'default';
+        
+        const data = {
+            rsi_weight: parseInt(document.getElementById('rsi-weight')?.value || 2),
+            macd_weight: parseInt(document.getElementById('macd-weight')?.value || 2),
+            bollinger_weight: parseInt(document.getElementById('bb-weight')?.value || 1),
+            momentum_weight: parseInt(document.getElementById('mom-weight')?.value || 1)
+        };
+        
+        try {
+            await fetch(`/api/strategies/${strategyId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            
+            // Set as active
+            await fetch('/api/strategies/active', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: strategyId })
+            });
+            
+            this.addLog('Strategy saved', 'info');
+        } catch (e) {
+            this.addLog('Error saving strategy', 'loss');
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════════════
+    // Backtesting
+    // ═══════════════════════════════════════════════════════════
+    
+    async runBacktest() {
+        const progressDiv = document.getElementById('backtest-progress');
+        const resultDiv = document.getElementById('backtest-result');
+        const statusEl = document.getElementById('backtest-status');
+        const barEl = document.getElementById('backtest-bar');
+        
+        if (progressDiv) progressDiv.style.display = 'block';
+        if (resultDiv) resultDiv.style.display = 'none';
+        
+        const data = {
+            strategy_id: document.getElementById('strategy-select')?.value || 'default',
+            days: parseInt(document.getElementById('backtest-days')?.value || 7),
+            initial_capital: parseFloat(document.getElementById('backtest-capital')?.value || 100),
+            bet_amount: parseFloat(document.getElementById('backtest-bet')?.value || 1)
+        };
+        
+        try {
+            if (statusEl) statusEl.textContent = 'Fetching data...';
+            if (barEl) barEl.style.width = '10%';
+            
+            const response = await fetch('/api/backtest/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                if (barEl) barEl.style.width = '100%';
+                if (statusEl) statusEl.textContent = 'Complete!';
+                
+                this.displayBacktestResult(result.result);
+            } else {
+                if (statusEl) statusEl.textContent = 'Error: ' + (result.error || 'Unknown');
+            }
+        } catch (e) {
+            if (statusEl) statusEl.textContent = 'Error: ' + e.message;
+        }
+    }
+    
+    displayBacktestResult(result) {
+        const resultDiv = document.getElementById('backtest-result');
+        if (resultDiv) resultDiv.style.display = 'block';
+        
+        document.getElementById('bt-trades').textContent = result.trades?.total || 0;
+        document.getElementById('bt-winrate').textContent = (result.trades?.win_rate || 0).toFixed(1) + '%';
+        document.getElementById('bt-capital').textContent = '$' + (result.capital?.final || 100).toFixed(2);
+        document.getElementById('bt-pnl').textContent = '$' + (result.metrics?.total_pnl || 0).toFixed(2);
+        document.getElementById('bt-drawdown').textContent = (result.metrics?.max_drawdown || 0).toFixed(1) + '%';
+        document.getElementById('bt-pf').textContent = (result.metrics?.profit_factor || 0).toFixed(2);
+        
+        // Color coding
+        const pnlEl = document.getElementById('bt-pnl');
+        const capitalEl = document.getElementById('bt-capital');
+        if (pnlEl) pnlEl.style.color = result.metrics?.total_pnl >= 0 ? 'var(--up)' : 'var(--down)';
+        if (capitalEl) capitalEl.style.color = result.capital?.final >= result.capital?.initial ? 'var(--up)' : 'var(--down)';
+    }
+    
+    // ═══════════════════════════════════════════════════════════
+    // Data Export
+    // ═══════════════════════════════════════════════════════════
+    
+    async exportCSV() {
+        try {
+            const response = await fetch('/api/export/trades/csv');
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'vibesbot_trades.csv';
+            a.click();
+            window.URL.revokeObjectURL(url);
+            this.addLog('CSV exported', 'info');
+        } catch (e) {
+            this.addLog('Export failed', 'loss');
+        }
+    }
+    
+    async exportJSON() {
+        try {
+            const response = await fetch('/api/export/trades/json');
+            const data = await response.json();
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'vibesbot_trades.json';
+            a.click();
+            window.URL.revokeObjectURL(url);
+            this.addLog('JSON exported', 'info');
+        } catch (e) {
+            this.addLog('Export failed', 'loss');
+        }
+    }
+    
+    async generateReport() {
+        try {
+            const response = await fetch('/api/export/report');
+            const report = await response.json();
+            
+            const resultDiv = document.getElementById('report-result');
+            const contentDiv = document.getElementById('report-content');
+            
+            if (resultDiv) resultDiv.style.display = 'block';
+            
+            if (contentDiv && report.analysis) {
+                contentDiv.innerHTML = `
+                    <div style="margin-bottom:8px;"><b>Summary:</b></div>
+                    <div>Total Trades: ${report.summary?.total_trades || 0}</div>
+                    <div>Win Rate: ${(report.summary?.win_rate || 0).toFixed(1)}%</div>
+                    <div>Total P&L: $${(report.summary?.total_pnl || 0).toFixed(2)}</div>
+                    <div style="margin:8px 0;"><b>Analysis:</b></div>
+                    <div>Best Hour: ${report.analysis?.best_hour !== null ? report.analysis.best_hour + ':00' : 'N/A'}</div>
+                    <div>Worst Hour: ${report.analysis?.worst_hour !== null ? report.analysis.worst_hour + ':00' : 'N/A'}</div>
+                    <div>Best Streak: +${report.analysis?.best_streak || 0}</div>
+                    <div>Worst Streak: ${report.analysis?.worst_streak || 0}</div>
+                    <div>UP Win Rate: ${(report.analysis?.up_signal_win_rate || 0).toFixed(1)}%</div>
+                    <div>DOWN Win Rate: ${(report.analysis?.down_signal_win_rate || 0).toFixed(1)}%</div>
+                `;
+            }
+        } catch (e) {
+            this.addLog('Report generation failed', 'loss');
         }
     }
     
