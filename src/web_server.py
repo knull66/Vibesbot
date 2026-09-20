@@ -89,6 +89,10 @@ class DashboardBot:
         self._wins = 0
         self._losses = 0
         self._time_offset = 0.0  # Offset de sincronización con Binance
+        
+        # Última predicción generada (para usar en el trade)
+        self._last_prediction = None
+        self._last_prediction_confidence = 0.5
     
     async def initialize(self) -> bool:
         """Inicializa los componentes del bot."""
@@ -296,6 +300,10 @@ class DashboardBot:
                         except:
                             pass
             
+            # Guardar predicción para el trade
+            self._last_prediction = signal
+            self._last_prediction_confidence = confidence
+            
             await self.manager.broadcast({
                 "type": "prediction",
                 "signal": signal,
@@ -316,17 +324,25 @@ class DashboardBot:
             logger.error(f"Error generating prediction: {e}")
     
     async def _execute_trade(self):
-        """Ejecuta un trade simulado."""
+        """Ejecuta un trade simulado basado en la última predicción."""
         import random
         from datetime import datetime
         
         try:
-            # Obtener la última predicción
-            # Por ahora usar valores simulados si no hay predicción activa
-            signal = random.choice(["UP", "DOWN"])
-            confidence = random.uniform(0.55, 0.70)
+            # Usar la predicción guardada
+            signal = self._last_prediction
+            confidence = self._last_prediction_confidence
             
-            # Solo tradear si hay suficiente confianza
+            # Si no hay predicción válida, saltar
+            if not signal or signal == "WAIT":
+                await self.manager.broadcast({
+                    "type": "log", 
+                    "message": "Skipped: No valid prediction",
+                    "level": "warn"
+                })
+                return
+            
+            # Solo tradear si hay suficiente confianza (>55%)
             if confidence < 0.55:
                 await self.manager.broadcast({
                     "type": "log", 
@@ -335,15 +351,32 @@ class DashboardBot:
                 })
                 return
             
+            # Obtener precio actual
             current_price = 80000.0
             if self.data_stream:
                 current_price = self.data_stream.get_current_price() or current_price
             
+            # Guardar precio de entrada
+            entry_price = current_price
+            
             amount = 1.0  # $1 por trade
             
-            # Simular resultado (probabilidad basada en confianza)
-            win_prob = confidence * 0.85 + 0.05
-            is_win = random.random() < win_prob
+            # Esperar 3 segundos y ver el nuevo precio para determinar resultado
+            await asyncio.sleep(3)
+            
+            new_price = current_price
+            if self.data_stream:
+                new_price = self.data_stream.get_current_price() or current_price
+            
+            # Determinar resultado basado en movimiento real del precio
+            price_moved_up = new_price > entry_price
+            
+            # WIN si: predijimos UP y el precio subió, o predijimos DOWN y el precio bajó
+            is_win = (signal == "UP" and price_moved_up) or (signal == "DOWN" and not price_moved_up)
+            
+            # Si el precio no se movió, usar probabilidad basada en confianza
+            if abs(new_price - entry_price) < 0.01:
+                is_win = random.random() < (confidence * 0.8 + 0.1)
             
             pnl = amount * 0.95 if is_win else -amount
             result = "WIN" if is_win else "LOSS"
@@ -355,43 +388,56 @@ class DashboardBot:
                 self._losses += 1
             self._cumulative_pnl += pnl
             
+            # Calcular cambio de precio
+            price_change = new_price - entry_price
+            price_direction = "↑" if price_change > 0 else "↓" if price_change < 0 else "→"
+            
             # Enviar trade al frontend
             await self.manager.broadcast({
                 "type": "trade",
                 "timestamp": datetime.now().isoformat(),
                 "direction": signal,
                 "amount": amount,
-                "entry_price": current_price,
+                "entry_price": entry_price,
+                "exit_price": new_price,
                 "confidence": confidence * 100,
                 "pnl": pnl,
                 "result": result
             })
             
-            # Enviar log
+            # Enviar log detallado
             emoji = "✓" if is_win else "✗"
             await self.manager.broadcast({
                 "type": "log",
-                "message": f"{emoji} Trade {signal} @ ${current_price:,.0f} → {result} (${pnl:+.2f})",
+                "message": f"{emoji} {signal} @ ${entry_price:,.0f} {price_direction} ${new_price:,.0f} = {result} (${pnl:+.2f})",
                 "level": "success" if is_win else "error"
             })
             
             # Actualizar stats
+            total_trades = self._wins + self._losses
+            winrate = (self._wins / max(1, total_trades)) * 100
+            
             await self.manager.broadcast({
                 "type": "stats",
                 "capital": 100.0 + self._cumulative_pnl,
                 "pnl": self._cumulative_pnl,
-                "trades": self._wins + self._losses,
-                "winrate": (self._wins / max(1, self._wins + self._losses)) * 100,
+                "trades": total_trades,
+                "winrate": winrate,
                 "wins": self._wins,
                 "losses": self._losses,
                 "streak": 0,
                 "max_drawdown": 0
             })
             
-            logger.info(f"Trade: {signal} @ ${current_price:.2f} -> {result} (${pnl:+.2f})")
+            logger.info(f"Trade: {signal} @ ${entry_price:.2f} -> ${new_price:.2f} = {result} (${pnl:+.2f})")
+            
+            # Limpiar predicción después de usarla
+            self._last_prediction = None
             
         except Exception as e:
             logger.error(f"Error executing trade: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def _send_updates(self):
         """Envía actualizaciones periódicas al dashboard."""
