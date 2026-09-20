@@ -176,116 +176,108 @@ def main():
             loading = """<!DOCTYPE html>
 <html>
 <head>
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-    background: #0a0a0f;
-    color: #00FFFF;
-    font-family: 'Press Start 2P', monospace;
+    background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(92, 242, 255, 0.14) 0%, transparent 55%),
+        #070809;
+    color: #5CF2FF;
+    font-family: Outfit, -apple-system, sans-serif;
     display: flex;
     justify-content: center;
     align-items: center;
     height: 100vh;
     overflow: hidden;
 }
-body::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(180deg, 
-        rgba(0,255,255,0.03) 0%, 
-        transparent 50%,
-        rgba(0,255,255,0.02) 100%);
-    pointer-events: none;
-}
 .container { text-align: center; z-index: 10; }
 .logo {
-    width: 100px;
-    height: 100px;
-    margin: 0 auto 30px;
+    width: 88px;
+    height: 88px;
+    margin: 0 auto 28px;
     position: relative;
 }
-/* Bunny face */
 .bunny {
     width: 100%;
     height: 100%;
-    background: #000;
-    border-radius: 20px;
+    background: rgba(14, 16, 20, 0.72);
+    border: 1px solid rgba(92, 242, 255, 0.32);
+    border-radius: 24px;
     position: relative;
-    box-shadow: 0 0 30px rgba(0, 255, 255, 0.4);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 18px 40px rgba(0,0,0,0.35);
 }
-/* Bunny ears */
 .ear {
     position: absolute;
-    width: 22px;
-    height: 45px;
-    background: #000;
-    top: -38px;
-    border-radius: 10px;
-    box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+    width: 20px;
+    height: 40px;
+    background: #070809;
+    border: 1px solid rgba(92, 242, 255, 0.28);
+    top: -34px;
+    border-radius: 12px;
 }
-.ear.left { left: 18px; transform: rotate(-8deg); }
-.ear.right { right: 18px; transform: rotate(8deg); }
-/* Horizontal line eyes */
+.ear.left { left: 16px; transform: rotate(-8deg); }
+.ear.right { right: 16px; transform: rotate(8deg); }
 .eye {
     position: absolute;
-    width: 26px;
-    height: 6px;
-    background: #00FFFF;
+    width: 22px;
+    height: 4px;
+    background: #5CF2FF;
     top: 50%;
     transform: translateY(-50%);
-    border-radius: 3px;
-    box-shadow: 0 0 15px #00FFFF, 0 0 30px #00FFFF;
+    border-radius: 99px;
+    box-shadow: 0 0 12px rgba(92, 242, 255, 0.7);
     animation: blink 3s infinite;
 }
 .eye.left { left: 16px; }
 .eye.right { right: 16px; }
 @keyframes blink {
     0%, 90%, 100% { opacity: 1; }
-    95% { opacity: 0.3; }
+    95% { opacity: 0.25; }
 }
 .title {
-    font-size: 24px;
-    letter-spacing: 4px;
-    margin-bottom: 8px;
-    text-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 18px;
+    letter-spacing: 3px;
+    margin-bottom: 10px;
 }
 .subtitle {
-    color: #0aa;
-    font-size: 8px;
-    letter-spacing: 2px;
-    margin-bottom: 30px;
+    color: rgba(244,247,250,0.5);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
 }
 .version {
-    color: #044;
-    font-size: 6px;
-    margin-bottom: 20px;
+    color: rgba(244,247,250,0.32);
+    font-size: 12px;
+    margin-bottom: 22px;
 }
 .loader {
-    width: 200px;
+    width: 180px;
     height: 4px;
-    background: #111;
+    background: rgba(255,255,255,0.08);
     margin: 0 auto;
     overflow: hidden;
-    border: 1px solid #00FFFF33;
+    border-radius: 99px;
 }
 .loader-bar {
-    width: 30%;
+    width: 32%;
     height: 100%;
-    background: #00FFFF;
-    box-shadow: 0 0 10px #00FFFF;
+    background: #5CF2FF;
+    border-radius: 99px;
     animation: load 1.2s ease-in-out infinite;
 }
 @keyframes load {
     0% { transform: translateX(-100%); }
-    100% { transform: translateX(400%); }
+    100% { transform: translateX(360%); }
 }
 .status {
-    color: #066;
-    font-size: 8px;
-    margin-top: 20px;
-    letter-spacing: 1px;
+    color: rgba(244,247,250,0.45);
+    font-size: 12px;
+    margin-top: 18px;
+    letter-spacing: 0.08em;
 }
 </style>
 </head>
@@ -300,10 +292,10 @@ body::before {
         </div>
     </div>
     <div class="title">VIBESBOT</div>
-    <div class="subtitle">TRADING RADAR</div>
+    <div class="subtitle">Trading radar</div>
     <div class="version">v__VERSION__</div>
     <div class="loader"><div class="loader-bar"></div></div>
-    <div class="status">CONNECTING...</div>
+    <div class="status">Connecting</div>
 </div>
 </body>
 </html>"""

@@ -214,7 +214,7 @@ class VibesBot {
             if (this.isCompanion) {
                 document.body.classList.add('companion-mode');
                 if (roleEl) roleEl.textContent = 'Companion of the Mac app';
-                if (tagEl) tagEl.textContent = 'COMPANION';
+                if (tagEl) tagEl.textContent = 'Companion';
                 document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
                 document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
                 const ownerTools = document.getElementById('owner-account-tools');
@@ -781,13 +781,13 @@ class VibesBot {
         const range = max - min || 1;
         
         // Clear
-        ctx.fillStyle = '#0a0e14';
+        ctx.fillStyle = 'rgba(7, 8, 9, 0.35)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
         // Draw line
         const lastPrice = prices[prices.length - 1];
         const firstPrice = prices[0];
-        const color = lastPrice >= firstPrice ? '#00FF88' : '#FF3366';
+        const color = lastPrice >= firstPrice ? '#3DFFB0' : '#FF5C7A';
         
         ctx.strokeStyle = color;
         ctx.lineWidth = 1.5;
@@ -805,7 +805,7 @@ class VibesBot {
         ctx.lineTo(canvas.width, canvas.height);
         ctx.lineTo(0, canvas.height);
         ctx.closePath();
-        ctx.fillStyle = lastPrice >= firstPrice ? 'rgba(0, 255, 136, 0.1)' : 'rgba(255, 51, 102, 0.1)';
+        ctx.fillStyle = lastPrice >= firstPrice ? 'rgba(61, 255, 176, 0.12)' : 'rgba(255, 92, 122, 0.12)';
         ctx.fill();
     }
     
@@ -824,11 +824,11 @@ class VibesBot {
         const range = max - min || 1;
         
         // Background
-        ctx.fillStyle = '#0a0e14';
+        ctx.fillStyle = 'rgba(7, 8, 9, 0.35)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
         // Grid
-        ctx.strokeStyle = '#21262d';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
         ctx.lineWidth = 0.5;
         for (let i = 0; i <= 4; i++) {
             const y = (i / 4) * canvas.height;
@@ -839,15 +839,15 @@ class VibesBot {
             
             // Price label
             const price = max - (i / 4) * range;
-            ctx.fillStyle = '#484F58';
-            ctx.font = '9px JetBrains Mono';
+            ctx.fillStyle = 'rgba(244, 247, 250, 0.38)';
+            ctx.font = '11px Outfit, sans-serif';
             ctx.fillText('$' + price.toFixed(2), 5, y + 12);
         }
         
         // Price line
         const lastPrice = prices[prices.length - 1];
         const firstPrice = prices[0];
-        const color = lastPrice >= firstPrice ? '#00FF88' : '#FF3366';
+        const color = lastPrice >= firstPrice ? '#3DFFB0' : '#FF5C7A';
         
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
@@ -868,11 +868,11 @@ class VibesBot {
         
         const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
         if (lastPrice >= firstPrice) {
-            gradient.addColorStop(0, 'rgba(0, 255, 136, 0.3)');
-            gradient.addColorStop(1, 'rgba(0, 255, 136, 0)');
+            gradient.addColorStop(0, 'rgba(61, 255, 176, 0.22)');
+            gradient.addColorStop(1, 'rgba(61, 255, 176, 0)');
         } else {
-            gradient.addColorStop(0, 'rgba(255, 51, 102, 0.3)');
-            gradient.addColorStop(1, 'rgba(255, 51, 102, 0)');
+            gradient.addColorStop(0, 'rgba(255, 92, 122, 0.22)');
+            gradient.addColorStop(1, 'rgba(255, 92, 122, 0)');
         }
         ctx.fillStyle = gradient;
         ctx.fill();
@@ -887,7 +887,7 @@ class VibesBot {
         // Price to Beat line if active
         if (this.priceToBeat && this.priceToBeat >= min && this.priceToBeat <= max) {
             const targetY = canvas.height - ((this.priceToBeat - min) / range) * canvas.height;
-            ctx.strokeStyle = '#FFB800';
+            ctx.strokeStyle = '#FFD166';
             ctx.setLineDash([4, 4]);
             ctx.beginPath();
             ctx.moveTo(0, targetY);
@@ -895,8 +895,8 @@ class VibesBot {
             ctx.stroke();
             ctx.setLineDash([]);
             
-            ctx.fillStyle = '#FFB800';
-            ctx.font = '9px JetBrains Mono';
+            ctx.fillStyle = '#FFD166';
+            ctx.font = '11px Outfit, sans-serif';
             ctx.fillText('TARGET $' + this.priceToBeat.toFixed(2), canvas.width - 110, targetY - 5);
         }
     }
@@ -915,12 +915,12 @@ class VibesBot {
         const range = max - min || 1;
         
         // Clear
-        ctx.fillStyle = '#0d1117';
+        ctx.fillStyle = 'rgba(7, 8, 9, 0.2)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
         // $100 reference line
         const y100 = canvas.height - ((100 - min) / range) * canvas.height;
-        ctx.strokeStyle = '#21262d';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(0, y100);
@@ -930,7 +930,7 @@ class VibesBot {
         
         // Equity line
         const lastVal = equityData[equityData.length - 1];
-        const color = lastVal >= 100 ? '#00FFFF' : '#FF3366';
+        const color = lastVal >= 100 ? '#5CF2FF' : '#FF5C7A';
         
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
@@ -946,7 +946,7 @@ class VibesBot {
         
         // Label
         ctx.fillStyle = color;
-        ctx.font = 'bold 11px JetBrains Mono';
+        ctx.font = '600 13px Outfit, sans-serif';
         ctx.fillText('$' + lastVal.toFixed(2), 5, 15);
     }
     
@@ -983,7 +983,7 @@ class VibesBot {
         if (this.btnStop) this.btnStop.disabled = !this.isRunning;
         
         if (this.btnPause) {
-            this.btnPause.textContent = this.isPaused ? '▶ RESUME' : '⏸ PAUSE';
+            this.btnPause.textContent = this.isPaused ? 'Resume' : 'Pause';
         }
     }
     

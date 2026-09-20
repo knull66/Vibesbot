@@ -4,8 +4,8 @@
   "description": "Automated Trading Bot for Binance Prediction",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#050508",
-  "theme_color": "#00FFFF",
+  "background_color": "#070809",
+  "theme_color": "#070809",
   "orientation": "any",
   "icons": [
     {

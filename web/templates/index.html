@@ -6,7 +6,7 @@
     <title>VIBESBOT</title>
     
     <!-- PWA Meta Tags -->
-    <meta name="theme-color" content="#00FFFF">
+    <meta name="theme-color" content="#070809">
     <meta name="description" content="Automated Trading Bot for Binance Prediction">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -24,9 +24,9 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.11.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.12.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Press+Start+2P&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body data-view="signal">
     <div class="app">
@@ -38,7 +38,7 @@
                     <div class="eye"></div>
                 </div>
                 <span class="brand-name">VIBESBOT</span>
-                <span class="brand-tag" id="brand-tag">PREDICTION RADAR</span>
+                <span class="brand-tag" id="brand-tag">Prediction</span>
             </div>
 
             <div class="status-bar">
@@ -62,13 +62,13 @@
                     <div class="mode-toggle simulation" id="mode-toggle" title="Toggle SIM/REAL"></div>
                 </div>
                 
-                <button class="btn btn-start" id="btn-start">▶ START</button>
-                <button class="btn btn-pause" id="btn-pause" disabled>⏸ PAUSE</button>
-                <button class="btn btn-stop" id="btn-stop" disabled>⏹ STOP</button>
+                <button class="btn btn-start" id="btn-start">Start</button>
+                <button class="btn btn-pause" id="btn-pause" disabled>Pause</button>
+                <button class="btn btn-stop" id="btn-stop" disabled>Stop</button>
                 <button class="btn btn-settings" id="btn-settings" title="Settings">⚙</button>
                 <div class="user-chip" id="user-chip">
                     <span id="user-name">--</span>
-                    <button class="btn btn-logout" id="btn-logout" title="Logout">OUT</button>
+                    <button class="btn btn-logout" id="btn-logout" title="Logout">Out</button>
                 </div>
             </div>
         </header>
@@ -79,7 +79,7 @@
             <div class="panel panel-signal" data-view="signal">
                 <div class="panel-header">
                     <span class="panel-icon">◉</span>
-                    <span class="panel-title">SIGNAL RADAR</span>
+                    <span class="panel-title">Signal</span>
                 </div>
                 <div class="panel-body">
                     <!-- Signal Display -->
@@ -154,9 +154,9 @@
             <!-- Center Panel - Stats & Chart -->
             <div class="panel panel-center" data-view="stats">
                 <div class="tabs">
-                    <button class="tab active" data-tab="stats">STATS</button>
-                    <button class="tab" data-tab="chart">CHART</button>
-                    <button class="tab" data-tab="history">HISTORY</button>
+                    <button class="tab active" data-tab="stats">Stats</button>
+                    <button class="tab" data-tab="chart">Chart</button>
+                    <button class="tab" data-tab="history">History</button>
                 </div>
 
                 <div class="tab-content active" id="tab-stats">
@@ -251,7 +251,7 @@
             <div class="panel panel-feed" data-view="feed">
                 <div class="panel-header">
                     <span class="panel-icon">◆</span>
-                    <span class="panel-title">LIVE FEED</span>
+                    <span class="panel-title">Live feed</span>
                     <span id="trade-count" class="trade-badge">0</span>
                 </div>
                 <div class="panel-body">
@@ -301,15 +301,15 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Multi-Indicator</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.11.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.12.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
         <nav class="mobile-nav" id="mobile-nav" aria-label="Mobile views">
-            <button class="mobile-nav-btn active" data-view="signal">SIGNAL</button>
-            <button class="mobile-nav-btn" data-view="stats">STATS</button>
-            <button class="mobile-nav-btn" data-view="chart">CHART</button>
-            <button class="mobile-nav-btn" data-view="feed">FEED</button>
+            <button class="mobile-nav-btn active" data-view="signal">Signal</button>
+            <button class="mobile-nav-btn" data-view="stats">Stats</button>
+            <button class="mobile-nav-btn" data-view="chart">Chart</button>
+            <button class="mobile-nav-btn" data-view="feed">Feed</button>
         </nav>
     </div>
 
@@ -318,17 +318,17 @@
         <div class="modal-backdrop"></div>
         <div class="modal-content">
             <div class="modal-header">
-                <span class="modal-title">SETTINGS</span>
+                <span class="modal-title">Settings</span>
                 <button class="modal-close" id="modal-close">×</button>
             </div>
             <div class="modal-body">
                 <div class="settings-tabs">
                     <button class="settings-tab active" data-panel="binance">API</button>
-                    <button class="settings-tab" data-panel="trading">TRADING</button>
-                    <button class="settings-tab" data-panel="strategy">STRATEGY</button>
-                    <button class="settings-tab" data-panel="backtest">BACKTEST</button>
-                    <button class="settings-tab" data-panel="export">EXPORT</button>
-                    <button class="settings-tab" data-panel="account">ACCOUNT</button>
+                    <button class="settings-tab" data-panel="trading">Trading</button>
+                    <button class="settings-tab" data-panel="strategy">Strategy</button>
+                    <button class="settings-tab" data-panel="backtest">Backtest</button>
+                    <button class="settings-tab" data-panel="export">Export</button>
+                    <button class="settings-tab" data-panel="account">Account</button>
                 </div>
 
                 <!-- Binance Panel -->
@@ -417,9 +417,9 @@
                             </select>
                         </div>
                         
-                        <div id="strategy-info" style="padding:12px; background:var(--bg-dark); border-radius:4px; margin:12px 0;">
-                            <div style="font-size:8px; color:var(--accent); margin-bottom:8px;">STRATEGY STATS</div>
-                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:8px;">
+                        <div id="strategy-info" class="info-card">
+                            <div class="info-card-title">Strategy stats</div>
+                            <div class="metric-grid">
                                 <div>Trades: <span id="strat-trades">0</span></div>
                                 <div>Win Rate: <span id="strat-winrate">0%</span></div>
                                 <div>P&L: <span id="strat-pnl">$0</span></div>
@@ -481,17 +481,17 @@
                         </div>
                         
                         <div id="backtest-progress" style="display:none; margin-top:12px;">
-                            <div style="font-size:8px; color:var(--text-dim); margin-bottom:6px;">
+                            <div class="settings-hint" style="margin-bottom:6px;">
                                 <span id="backtest-status">Running...</span>
                             </div>
-                            <div style="height:6px; background:var(--bg-dark); border-radius:3px; overflow:hidden;">
-                                <div id="backtest-bar" style="height:100%; width:0%; background:var(--accent); transition:width 0.3s;"></div>
+                            <div class="progress-track">
+                                <div id="backtest-bar" class="progress-bar" style="width:0%;"></div>
                             </div>
                         </div>
                         
-                        <div id="backtest-result" style="display:none; margin-top:16px; padding:12px; background:var(--bg-dark); border-radius:4px;">
-                            <div style="font-size:8px; color:var(--accent); margin-bottom:10px;">BACKTEST RESULTS</div>
-                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:9px;">
+                        <div id="backtest-result" class="info-card" style="display:none;">
+                            <div class="info-card-title">Backtest results</div>
+                            <div class="metric-grid">
                                 <div>Trades: <span id="bt-trades" style="color:var(--accent)">0</span></div>
                                 <div>Win Rate: <span id="bt-winrate" style="color:var(--accent)">0%</span></div>
                                 <div>Final Capital: <span id="bt-capital" style="color:var(--up)">$100</span></div>
@@ -510,31 +510,31 @@
                         <p class="settings-hint">Download your trading data</p>
                         
                         <div class="form-actions" style="flex-direction:column; gap:10px;">
-                            <button class="btn" id="btn-export-csv" style="width:100%;">DOWNLOAD TRADES (CSV)</button>
-                            <button class="btn" id="btn-export-json" style="width:100%;">DOWNLOAD TRADES (JSON)</button>
-                            <button class="btn btn-primary" id="btn-export-report" style="width:100%;">GENERATE REPORT</button>
+                            <button class="btn" id="btn-export-csv" style="width:100%;">Download trades (CSV)</button>
+                            <button class="btn" id="btn-export-json" style="width:100%;">Download trades (JSON)</button>
+                            <button class="btn btn-primary" id="btn-export-report" style="width:100%;">Generate report</button>
                         </div>
                         
-                        <div id="report-result" style="display:none; margin-top:16px; padding:12px; background:var(--bg-dark); border-radius:4px; max-height:200px; overflow-y:auto;">
-                            <div style="font-size:8px; color:var(--accent); margin-bottom:10px;">ANALYSIS REPORT</div>
-                            <div id="report-content" style="font-size:8px; line-height:1.8;"></div>
+                        <div id="report-result" class="info-card" style="display:none; max-height:200px; overflow-y:auto;">
+                            <div class="info-card-title">Analysis report</div>
+                            <div id="report-content" style="font-size:13px; line-height:1.7;"></div>
                         </div>
                         
                         <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
-                            <h3>APP INFO</h3>
-                            <div style="font-size:9px; margin-top:10px;">
-                                <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                                    <span>Version:</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.11.0</span>
+                            <h3>App info</h3>
+                            <div class="update-info" style="margin-top:10px;">
+                                <div class="update-version">
+                                    <span>Version</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.12.0</span>
                                 </div>
-                                <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                                    <span>Latest:</span>
+                                <div class="update-version">
+                                    <span>Latest</span>
                                     <span id="latest-version">--</span>
                                 </div>
                             </div>
                             <div class="form-actions" style="margin-top:10px;">
-                                <button class="btn" id="btn-check-update">CHECK UPDATE</button>
-                                <button class="btn btn-primary" id="btn-install-update" disabled>INSTALL</button>
+                                <button class="btn" id="btn-check-update">Check update</button>
+                                <button class="btn btn-primary" id="btn-install-update" disabled>Install</button>
                             </div>
                             <div class="update-status" id="update-status" style="margin-top:8px;"></div>
                         </div>
@@ -603,7 +603,7 @@
         <div class="modal-backdrop"></div>
         <div class="modal-content" style="max-width:360px;">
             <div class="modal-header">
-                <span class="modal-title" style="color:var(--down);">⚠ WARNING</span>
+                <span class="modal-title" style="color:var(--down);">Warning</span>
             </div>
             <div class="modal-body" style="padding:16px; text-align:center;">
                 <p style="color:var(--down); margin-bottom:12px;">
@@ -623,6 +623,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.11.0"></script>
+    <script src="/static/app.js?v=1.12.0"></script>
 </body>
 </html>

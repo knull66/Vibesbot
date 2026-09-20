@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>VIBESBOT LOGIN</title>
-    <meta name="theme-color" content="#00FFFF">
+    <meta name="theme-color" content="#070809">
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-    <link rel="stylesheet" href="/static/styles.css?v=1.11.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.12.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Press+Start+2P&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body class="login-page">
     <div class="login-shell">
@@ -19,29 +19,29 @@
                 <div class="eye"></div>
             </div>
             <div class="brand-name">VIBESBOT</div>
-            <div class="login-tag" id="login-tag">SECURE ACCESS</div>
+            <div class="login-tag" id="login-tag">Secure access</div>
         </div>
 
         <div class="login-card">
             <div class="login-tabs" id="login-tabs">
-                <button class="login-tab active" data-mode="login">LOGIN</button>
-                <button class="login-tab" data-mode="register" id="tab-register">REGISTER</button>
+                <button class="login-tab active" data-mode="login">Sign in</button>
+                <button class="login-tab" data-mode="register" id="tab-register">Register</button>
             </div>
 
             <form id="auth-form" autocomplete="on">
                 <div class="form-group">
-                    <label for="username">USERNAME</label>
+                    <label for="username">Username</label>
                     <input type="text" id="username" name="username" maxlength="24" required>
                 </div>
                 <div class="form-group">
-                    <label for="password">PASSWORD</label>
+                    <label for="password">Password</label>
                     <input type="password" id="password" name="password" minlength="8" required>
                 </div>
                 <div class="form-group" id="invite-group" style="display:none;">
-                    <label for="invite">INVITE CODE</label>
+                    <label for="invite">Invite code</label>
                     <input type="text" id="invite" name="invite" placeholder="VIBE-XXXX-XXXX">
                 </div>
-                <button class="btn btn-primary" type="submit" id="auth-submit" style="width:100%;">ENTER</button>
+                <button class="btn btn-primary" type="submit" id="auth-submit" style="width:100%;">Sign in</button>
                 <div class="login-error" id="auth-error"></div>
                 <p class="settings-hint" id="auth-hint"></p>
             </form>
@@ -66,7 +66,7 @@
                 tab.classList.toggle('active', tab.dataset.mode === mode);
             });
             inviteGroup.style.display = (mode === 'register' && status.invite_required && !status.setup_required) ? 'block' : 'none';
-            submitBtn.textContent = status.setup_required ? 'CREATE OWNER' : (mode === 'register' ? 'CREATE ACCOUNT' : 'ENTER');
+            submitBtn.textContent = status.setup_required ? 'Create owner' : (mode === 'register' ? 'Create account' : 'Sign in');
             errorEl.textContent = '';
         }
 
