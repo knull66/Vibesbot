@@ -2051,6 +2051,10 @@ body.companion-mode .brand-tag {
     100% { opacity: 0; visibility: hidden; pointer-events: none; }
 }
 
+body.auth-wait .app {
+    visibility: hidden;
+}
+
 .restart-banner {
     display: none;
     position: fixed;

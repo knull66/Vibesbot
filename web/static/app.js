@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.14.0';
+const APP_VERSION = '1.15.0';
 
 class VibesBot {
     constructor() {
@@ -27,16 +27,9 @@ class VibesBot {
     init() {
         this.cacheElements();
         this.bindEvents();
-        this.connect();
         this.startClock();
         this.loadVersion();
-        this.showBootSplash();
-    }
-
-    showBootSplash() {
-        const splash = document.getElementById('boot-splash');
-        if (!splash) return;
-        window.setTimeout(() => splash.classList.add('done'), 4200);
+        this.requireAccount();
     }
     
     cacheElements() {
@@ -180,7 +173,6 @@ class VibesBot {
         this.loadStrategies();
         this.bindMobileNav();
         this.bindAccount();
-        this.loadAccount();
     }
     
     bindAccount() {
@@ -207,20 +199,23 @@ class VibesBot {
         });
     }
     
-    async loadAccount() {
+    async requireAccount() {
         try {
-            const response = await fetch('/api/auth/me');
-            if (response.status === 401) {
+            const response = await fetch('/api/auth/me', { credentials: 'same-origin' });
+            if (!response.ok) {
                 window.location.replace('/static/lobby.html');
                 return;
             }
-            if (!response.ok) {
+            const data = await response.json();
+            if (!data.user || !data.user.username) {
+                window.location.replace('/static/lobby.html');
                 return;
             }
-            const data = await response.json();
             this.user = data.user;
             this.isCompanion = !!data.companion;
             this.renderProfile(data);
+            document.body.classList.remove('auth-wait');
+            this.connect();
             if (this.isCompanion) {
                 document.body.classList.add('companion-mode');
                 document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
@@ -237,7 +232,7 @@ class VibesBot {
                 document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
             }
         } catch (e) {
-            console.error('Auth check failed', e);
+            window.location.replace('/static/lobby.html');
         }
     }
 

@@ -82,12 +82,9 @@ def main():
             self.attempts += 1
             try:
                 urllib.request.urlopen("http://127.0.0.1:8080", timeout=1)
-                # Keep the native splash visible so a fast boot is still seen.
-                if self.attempts < 8:
-                    return
                 timer.invalidate()
                 self.window.setTitle_("VIBESBOT")
-                url = NSURL.URLWithString_("http://127.0.0.1:8080")
+                url = NSURL.URLWithString_("http://127.0.0.1:8080/login")
                 self.webView.loadRequest_(NSURLRequest.requestWithURL_(url))
             except Exception:
                 if self.attempts > 60:

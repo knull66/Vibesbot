@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#070809">
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-    <link rel="stylesheet" href="/static/styles.css?v=1.14.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.15.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -21,7 +21,7 @@
             <div class="brand-name">VIBESBOT</div>
             <p class="lobby-kicker" id="login-tag">Prediction radar</p>
             <p class="lobby-copy">Your desk. Your stats. Sign in to continue.</p>
-            <p class="boot-version">v1.14.0</p>
+            <p class="boot-version">v1.15.0</p>
         </div>
 
         <div class="login-card">
@@ -43,101 +43,12 @@
                     <label for="invite">Invite code</label>
                     <input type="text" id="invite" name="invite" placeholder="VIBE-XXXX-XXXX">
                 </div>
-                <button class="btn btn-primary" type="submit" id="auth-submit" style="width:100%;">Enter</button>
+                <button class="btn btn-primary" type="submit" id="auth-submit" style="width:100%;" disabled>Enter</button>
                 <div class="login-error" id="auth-error"></div>
                 <p class="settings-hint" id="auth-hint"></p>
             </form>
         </div>
     </div>
-
-    <script>
-    (function () {
-        const form = document.getElementById('auth-form');
-        const errorEl = document.getElementById('auth-error');
-        const hintEl = document.getElementById('auth-hint');
-        const tagEl = document.getElementById('login-tag');
-        const inviteGroup = document.getElementById('invite-group');
-        const registerTab = document.getElementById('tab-register');
-        const submitBtn = document.getElementById('auth-submit');
-        let mode = 'login';
-        let status = { setup_required: false, registration_open: false, invite_required: true };
-
-        function setMode(next) {
-            mode = next;
-            document.querySelectorAll('.login-tab').forEach(tab => {
-                tab.classList.toggle('active', tab.dataset.mode === mode);
-            });
-            inviteGroup.style.display = (mode === 'register' && status.invite_required && !status.setup_required) ? 'block' : 'none';
-            submitBtn.textContent = status.setup_required ? 'Create owner' : (mode === 'register' ? 'Create account' : 'Enter');
-            errorEl.textContent = '';
-        }
-
-        document.querySelectorAll('.login-tab').forEach(tab => {
-            tab.addEventListener('click', () => setMode(tab.dataset.mode));
-        });
-
-        fetch('/api/auth/status').then(r => {
-            if (!r.ok) throw new Error('no-auth');
-            return r.json();
-        }).then(data => {
-            status = data;
-            if (data.setup_required) {
-                tagEl.textContent = 'Create owner';
-                hintEl.textContent = 'First account becomes the owner. Registration stays invite-only after this.';
-                document.getElementById('login-tabs').style.display = 'none';
-                registerTab.style.display = 'none';
-                setMode('register');
-            } else if (!data.registration_open) {
-                registerTab.style.display = 'none';
-                document.getElementById('login-tabs').style.display = 'none';
-                hintEl.textContent = 'Private desk. Ask the owner for an invite.';
-                setMode('login');
-            } else {
-                hintEl.textContent = data.invite_required ? 'Register with an invite code from the owner.' : 'Create an account or sign in.';
-                setMode('login');
-            }
-        }).catch(() => {
-            hintEl.textContent = 'Open the desk below.';
-            submitBtn.textContent = 'Enter dashboard';
-            form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                window.location.href = '/';
-            }, { once: true });
-        });
-
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            errorEl.textContent = '';
-            submitBtn.disabled = true;
-            const payload = {
-                username: document.getElementById('username').value.trim(),
-                password: document.getElementById('password').value,
-                invite_code: document.getElementById('invite').value.trim()
-            };
-            const url = mode === 'register' ? '/api/auth/register' : '/api/auth/login';
-            try {
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                if (res.status === 404) {
-                    window.location.href = '/';
-                    return;
-                }
-                const data = await res.json();
-                if (!res.ok || !data.success) {
-                    errorEl.textContent = data.error || 'Access denied';
-                    submitBtn.disabled = false;
-                    return;
-                }
-                window.location.href = '/';
-            } catch (err) {
-                errorEl.textContent = 'Connection error';
-                submitBtn.disabled = false;
-            }
-        });
-    })();
-    </script>
+    <script src="/static/auth-gate.js?v=1.15.0"></script>
 </body>
 </html>
