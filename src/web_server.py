@@ -1218,7 +1218,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     # API Endpoints para Settings
     # ═══════════════════════════════════════════════════════════
     
-    from .user_settings import get_settings_manager, TradingMode
+    from .user_settings import get_settings_manager, TradingMode, binance_testnet_from_payload
     from .updater import get_updater
     
     @app.get("/api/settings")
@@ -1245,7 +1245,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         sm.update_binance_credentials(
             api_key=data.get("api_key", ""),
             api_secret=data.get("api_secret", ""),
-            is_testnet=data.get("is_testnet", True)
+            is_testnet=binance_testnet_from_payload(data)
         )
         return {"success": True}
     
@@ -1256,14 +1256,11 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
             return JSONResponse({"error": "Only the Mac owner can test API keys"}, status_code=403)
         data = await request.json()
         sm = get_settings_manager()
-        
-        # Actualizar temporalmente las credenciales para la prueba
         sm.update_binance_credentials(
             api_key=data.get("api_key", ""),
             api_secret=data.get("api_secret", ""),
-            is_testnet=data.get("use_testnet", True)
+            is_testnet=binance_testnet_from_payload(data)
         )
-        
         result = await sm.test_binance_connection()
         return result
     

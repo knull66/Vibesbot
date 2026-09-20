@@ -22,6 +22,26 @@ from .utils.logger import get_logger
 logger = get_logger("user_settings")
 
 
+def binance_testnet_from_payload(data: Optional[dict]) -> bool:
+    """JS sends testnet; older clients sent use_testnet or is_testnet."""
+    if not data:
+        return False
+    for key in ("is_testnet", "use_testnet", "testnet"):
+        if key in data:
+            return bool(data.get(key))
+    return False
+
+
+def describe_binance_error(status: int, payload: dict, is_testnet: bool) -> str:
+    msg = str(payload.get("msg") or payload.get("message") or f"HTTP {status}")
+    code = payload.get("code")
+    if is_testnet and code in (-2008, -2014, -2015):
+        return msg + " Uncheck Use Testnet: this key is from live Binance, not testnet.binance.vision."
+    if not is_testnet and code == -2015:
+        return msg + " Enable Reading on the key, or add this Mac's IP to the whitelist."
+    return msg
+
+
 class TradingMode(Enum):
     """Modos de trading disponibles."""
     SIMULATION = "simulation"  # Paper trading con dinero virtual
@@ -33,7 +53,7 @@ class BinanceCredentials:
     """Credenciales de Binance."""
     api_key: str = ""
     api_secret: str = ""
-    is_testnet: bool = True  # Usar testnet por defecto para seguridad
+    is_testnet: bool = False
     
     @property
     def is_configured(self) -> bool:
@@ -206,7 +226,8 @@ class BinanceConnector:
         if not self.credentials.is_configured:
             return {
                 "success": False,
-                "message": "API Key y Secret no configurados"
+                "message": "API Key and Secret are required",
+                "error": "API Key and Secret are required",
             }
         
         try:
@@ -214,7 +235,7 @@ class BinanceConnector:
             import time
             
             timestamp = int(time.time() * 1000)
-            query_string = f"timestamp={timestamp}"
+            query_string = f"timestamp={timestamp}&recvWindow=5000"
             
             signature = hmac.new(
                 self.credentials.api_secret.encode('utf-8'),
@@ -242,30 +263,37 @@ class BinanceConnector:
                         
                         return {
                             "success": True,
-                            "message": "Conexión exitosa",
+                            "message": "Connected to live Binance" if not self.credentials.is_testnet else "Connected to Binance Testnet",
+                            "error": "",
                             "account_info": {
                                 "can_trade": data.get("canTrade", False),
                                 "balances": balances,
                                 "account_type": "Testnet" if self.credentials.is_testnet else "Real"
                             }
                         }
-                    else:
+                    try:
                         error_data = await response.json()
-                        return {
-                            "success": False,
-                            "message": f"Error: {error_data.get('msg', 'Unknown error')}"
-                        }
+                    except Exception:
+                        error_data = {"msg": (await response.text())[:180] or f"HTTP {response.status}"}
+                    detail = describe_binance_error(response.status, error_data, self.credentials.is_testnet)
+                    return {
+                        "success": False,
+                        "message": detail,
+                        "error": detail,
+                    }
         
         except aiohttp.ClientError as e:
             return {
                 "success": False,
-                "message": f"Error de conexión: {str(e)}"
+                "message": f"Connection error: {str(e)}",
+                "error": f"Connection error: {str(e)}",
             }
         except Exception as e:
             logger.error(f"Error testing Binance connection: {e}")
             return {
                 "success": False,
-                "message": f"Error: {str(e)}"
+                "message": f"Error: {str(e)}",
+                "error": f"Error: {str(e)}",
             }
     
     async def get_current_price(self, symbol: str = "BTCUSDT") -> Optional[float]:
@@ -393,7 +421,7 @@ class SettingsManager:
         except Exception as e:
             logger.error(f"Error saving settings: {e}")
     
-    def update_binance_credentials(self, api_key: str, api_secret: str, is_testnet: bool = True):
+    def update_binance_credentials(self, api_key: str, api_secret: str, is_testnet: bool = False):
         """Actualiza las credenciales de Binance."""
         self.settings.binance = BinanceCredentials(
             api_key=api_key,

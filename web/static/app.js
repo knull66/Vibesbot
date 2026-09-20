@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.16.0';
+const APP_VERSION = '1.16.1';
 
 class VibesBot {
     constructor() {
@@ -1098,10 +1098,13 @@ class VibesBot {
     }
     
     async saveBinanceSettings() {
+        const testnet = !!document.getElementById('use-testnet')?.checked;
         const settings = {
             api_key: document.getElementById('api-key')?.value || '',
             api_secret: document.getElementById('api-secret')?.value || '',
-            testnet: document.getElementById('use-testnet')?.checked || false
+            testnet,
+            is_testnet: testnet,
+            use_testnet: testnet,
         };
         
         try {
@@ -1133,14 +1136,17 @@ class VibesBot {
                 body: JSON.stringify({
                     api_key: document.getElementById('api-key')?.value || '',
                     api_secret: document.getElementById('api-secret')?.value || '',
-                    testnet: document.getElementById('use-testnet')?.checked || false
+                    testnet: !!document.getElementById('use-testnet')?.checked,
+                    is_testnet: !!document.getElementById('use-testnet')?.checked,
+                    use_testnet: !!document.getElementById('use-testnet')?.checked,
                 })
             });
             
             const data = await response.json();
+            const detail = data.message || data.error || 'Failed';
             
             if (statusEl) {
-                statusEl.textContent = data.success ? '✓ Connected' : '✗ ' + (data.error || 'Failed');
+                statusEl.textContent = data.success ? '✓ ' + (data.message || 'Connected') : '✗ ' + detail;
                 statusEl.style.color = data.success ? 'var(--up)' : 'var(--down)';
             }
         } catch (e) {
