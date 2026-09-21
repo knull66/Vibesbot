@@ -36,6 +36,7 @@ from .wallet_prediction import (
     PendingWalletTrade,
     WalletPredictionClient,
     clamp_bet_amount,
+    fetch_spot_top_of_book,
     fill_from_quote,
     looks_like_btc_price,
     market_book,
@@ -354,7 +355,12 @@ class DashboardBot:
             topic = await client.find_btc_5m_market()
             if topic:
                 self._market_topic = topic
-                self._market_book = market_book(topic)
+                book = market_book(topic)
+                if not looks_like_btc_price(book.get("live_price")):
+                    book["live_price"] = await fetch_spot_top_of_book()
+                    if looks_like_btc_price(book.get("live_price")):
+                        book["live_source"] = "binance-spot-tob"
+                self._market_book = book
                 self._market_fetched_at = now
         except Exception as exc:
             logger.warning(f"Wallet market book failed: {exc}")
@@ -374,6 +380,7 @@ class DashboardBot:
         return self.data_stream.get_last_closed_candle("5m")
 
     def _resolve_price_to_beat(self, book: Optional[Dict[str, Any]], round_number: int) -> float:
+        """Wallet Chainlink lock only. Never invent from a 5m candle."""
         book = book or {}
         from_book = float(book.get("price_to_beat") or 0)
         if looks_like_btc_price(from_book):
@@ -382,13 +389,18 @@ class DashboardBot:
             return from_book
         if self._price_to_beat_round == round_number and looks_like_btc_price(self._price_to_beat):
             return self._price_to_beat
-        open_px = self._five_minute_open()
-        if looks_like_btc_price(open_px):
-            self._price_to_beat = open_px
-            self._price_to_beat_round = round_number
-            return open_px
-        if looks_like_btc_price(self._price_to_beat):
-            return self._price_to_beat
+        return 0.0
+
+    def _live_btc_price(self, book: Optional[Dict[str, Any]] = None) -> float:
+        """Live Chainlink-equivalent: topic oracle, else Binance Spot top-of-book."""
+        book = book if book is not None else (self._market_book or {})
+        live = float(book.get("live_price") or 0)
+        if looks_like_btc_price(live):
+            return live
+        if self.data_stream:
+            price = self.data_stream.get_current_price()
+            if looks_like_btc_price(price):
+                return float(price)
         return 0.0
 
     def _round_close_price(self) -> float:
@@ -713,9 +725,7 @@ class DashboardBot:
                     share_price = float(book.get("up") or 0.5)
                 elif signal == "DOWN":
                     share_price = float(book.get("down") or 0.5)
-            current_px = 0.0
-            if self.data_stream:
-                current_px = float(self.data_stream.get_current_price() or 0)
+            current_px = self._live_btc_price(book)
             confirmed, confirm_reason = price_confirms(signal, current_px, open_price)
             if not confirmed:
                 await self.manager.send_to_session(session.session_id, {
@@ -876,7 +886,6 @@ class DashboardBot:
             traceback.print_exc()
 
     async def _settle_due(self, current_round: int) -> None:
-        close_price = self._round_close_price()
         for session in list(self.sessions.values()):
             pending = session.pending_trade
             if not pending:
@@ -886,7 +895,7 @@ class DashboardBot:
                 continue
             if pending.round_number >= current_round:
                 continue
-            await self._settle_paper_trade(session, pending, close_price)
+            await self._settle_paper_trade(session, pending)
 
     async def _live_prediction_client(self, session: ClientSession) -> Optional[WalletPredictionClient]:
         from .user_settings import get_settings_manager
@@ -936,17 +945,19 @@ class DashboardBot:
             explanation=f"Binance settled {result} · {title}" + (f" · outcome {actual}" if actual else ""),
         )
 
-    async def _settle_paper_trade(self, session: ClientSession, pending: PendingWalletTrade, close_price: float) -> None:
-        closed = self._last_closed_five_minute()
-        if closed:
-            if not looks_like_btc_price(pending.open_price) and looks_like_btc_price(closed.open):
-                pending.open_price = float(closed.open)
-            if not looks_like_btc_price(close_price) and looks_like_btc_price(closed.close):
-                close_price = float(closed.close)
-
-        if not looks_like_btc_price(pending.open_price) or not looks_like_btc_price(close_price):
+    async def _settle_paper_trade(self, session: ClientSession, pending: PendingWalletTrade) -> None:
+        close_price = self._live_btc_price()
+        topic_close = float((self._market_book or {}).get("close_price") or 0)
+        if looks_like_btc_price(topic_close):
+            close_price = topic_close
+        if not looks_like_btc_price(pending.open_price):
             logger.warning(
-                f"Delay settle {pending.signal}: open={pending.open_price} close={close_price}"
+                f"Delay paper settle {pending.signal}: no Wallet Price to Beat yet"
+            )
+            return
+        if not looks_like_btc_price(close_price):
+            logger.warning(
+                f"Delay paper settle {pending.signal}: no live BTC print yet"
             )
             return
 
@@ -1037,29 +1048,23 @@ class DashboardBot:
     
     async def _send_market(self):
         """Envía datos de mercado a todos los clientes (compartido)."""
-        import random
-        
-        # Calcular tiempo de ronda (sincronizado con Binance)
         round_times = calculate_round_times(5, self._time_offset)
         remaining = int(round_times["seconds_remaining"])
         
-        # Obtener precio
-        price = None
-        if self.data_stream:
-            price = self.data_stream.get_current_price()
+        price = self._live_btc_price()
+        if not looks_like_btc_price(price) and self.data_stream:
+            raw = self.data_stream.get_current_price()
+            if looks_like_btc_price(raw):
+                price = float(raw)
+        if not looks_like_btc_price(price) and getattr(self, "_price_history", None):
+            price = self._price_history[-1]["price"]
         
-        if not price:
-            if not hasattr(self, '_sim_price'):
-                self._sim_price = 80000.0
-            self._sim_price += random.uniform(-20, 20)
-            price = self._sim_price
-        
-        # Guardar historial de precios para el chart
-        if not hasattr(self, '_price_history'):
-            self._price_history = []
-        self._price_history.append({"time": datetime.now().isoformat(), "price": price})
-        if len(self._price_history) > 300:  # Mantener últimos 5 minutos
-            self._price_history = self._price_history[-300:]
+        if looks_like_btc_price(price):
+            if not hasattr(self, '_price_history'):
+                self._price_history = []
+            self._price_history.append({"time": datetime.now().isoformat(), "price": price})
+            if len(self._price_history) > 300:
+                self._price_history = self._price_history[-300:]
         
         # Obtener features técnicos
         rsi = 50.0

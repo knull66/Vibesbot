@@ -30,6 +30,7 @@ from src.wallet_prediction import (
     spend_wallet_label,
     taker_fee,
     topic_duration_minutes,
+    topic_live_price,
     topic_start_price,
     tradable_edge,
     unwrap_prediction_payload,
@@ -201,6 +202,14 @@ class WalletMarketPickerTests(unittest.TestCase):
         self.assertAlmostEqual(topic_start_price({
             "oracle": {"lockPrice": "86,047.04"},
         }), 86047.04)
+        mixed = {
+            "oraclePrice": "99999.00",
+            "currentPrice": "99999.00",
+            "oracle": {"lockPrice": "86,047.04"},
+        }
+        self.assertAlmostEqual(topic_start_price(mixed), 86047.04)
+        self.assertAlmostEqual(topic_live_price(mixed), 99999.00)
+        self.assertEqual(topic_start_price({"oraclePrice": "86000.00"}), 0.0)
 
     def test_wallets_from_wrapped_payload(self):
         rows = wallets_from_payload({

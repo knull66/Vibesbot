@@ -596,28 +596,56 @@ def as_probability(value: Any, default: float = 0.5) -> float:
     return min(max(number, 0.01), 0.99)
 
 
-def topic_start_price(topic: Dict[str, Any]) -> float:
-    """Binance 'Price to Beat' is the locked round open, never the live tick."""
-    keys = (
-        "startPrice",
-        "openPrice",
-        "priceToBeat",
-        "strikePrice",
-        "startValue",
-        "initialPrice",
-        "eventStartPrice",
-        "lockPrice",
-        "lockedPrice",
-        "oraclePrice",
-        "chainlinkPrice",
-        "referencePrice",
-        "targetPrice",
-        "openOraclePrice",
-        "resolutionOpenPrice",
-        "start_price",
-        "open_price",
-        "price_to_beat",
-    )
+TOPIC_LOCK_KEYS = (
+    "priceToBeat",
+    "lockPrice",
+    "lockedPrice",
+    "startPrice",
+    "openPrice",
+    "strikePrice",
+    "startValue",
+    "initialPrice",
+    "eventStartPrice",
+    "openOraclePrice",
+    "resolutionOpenPrice",
+    "chainlinkLockPrice",
+    "lockOraclePrice",
+    "start_price",
+    "open_price",
+    "price_to_beat",
+    "lock_price",
+)
+
+TOPIC_LIVE_KEYS = (
+    "currentPrice",
+    "livePrice",
+    "lastPrice",
+    "midPrice",
+    "oraclePrice",
+    "chainlinkPrice",
+    "lastOraclePrice",
+    "currentOraclePrice",
+    "indexPrice",
+    "current_price",
+    "live_price",
+)
+
+TOPIC_CLOSE_KEYS = (
+    "closePrice",
+    "endPrice",
+    "resolutionPrice",
+    "settlePrice",
+    "finalPrice",
+    "closeOraclePrice",
+    "chainlinkClosePrice",
+    "resolvedPrice",
+    "endOraclePrice",
+    "close_price",
+    "end_price",
+)
+
+
+def topic_blobs(topic: Dict[str, Any]) -> List[Any]:
     blobs: List[Any] = [topic]
     for nested in ("event", "metadata", "market", "stats", "oracle", "resolution", "condition"):
         row = topic.get(nested)
@@ -626,6 +654,10 @@ def topic_start_price(topic: Dict[str, Any]) -> float:
     for market in topic.get("markets") or []:
         if isinstance(market, dict):
             blobs.append(market)
+    return blobs
+
+
+def first_btc_price(blobs: List[Any], keys: Tuple[str, ...]) -> float:
     for blob in blobs:
         if not isinstance(blob, dict):
             continue
@@ -642,8 +674,23 @@ def topic_start_price(topic: Dict[str, Any]) -> float:
     return 0.0
 
 
+def topic_start_price(topic: Dict[str, Any]) -> float:
+    """Chainlink lock / Binance Price to Beat. Never the live tick."""
+    return first_btc_price(topic_blobs(topic or {}), TOPIC_LOCK_KEYS)
+
+
+def topic_live_price(topic: Dict[str, Any]) -> float:
+    """Live oracle/Chainlink print on the topic, if Binance sends one."""
+    return first_btc_price(topic_blobs(topic or {}), TOPIC_LIVE_KEYS)
+
+
+def topic_close_price(topic: Dict[str, Any]) -> float:
+    """Resolved Chainlink close, if the market already settled."""
+    return first_btc_price(topic_blobs(topic or {}), TOPIC_CLOSE_KEYS)
+
+
 def market_book(topic: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Binance Wallet Up/Down odds for the active BTC 5m market."""
+    """Binance Wallet Up/Down odds and Chainlink lock for the active BTC 5m market."""
     topic = topic or {}
     up = outcome_token(topic, "UP") or {}
     down = outcome_token(topic, "DOWN") or {}
@@ -655,8 +702,35 @@ def market_book(topic: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "up_odds": (1.0 / up_p) if up_p else 2.0,
         "down_odds": (1.0 / down_p) if down_p else 2.0,
         "price_to_beat": topic_start_price(topic),
+        "live_price": topic_live_price(topic),
+        "close_price": topic_close_price(topic),
         "title": str(topic.get("title") or "BTC Up or Down 5m"),
+        "source": "wallet",
     }
+
+
+async def fetch_spot_top_of_book(symbol: str = "BTCUSDT") -> float:
+    """Binance Spot bid/ask mid — same underlying as Chainlink BTC/USDT TopOfBook DataLink."""
+    timeout = aiohttp.ClientTimeout(total=6)
+    url = "https://api.binance.com/api/v3/ticker/bookTicker"
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, params={"symbol": symbol}) as response:
+                if response.status != 200:
+                    return 0.0
+                data = await response.json()
+        if not isinstance(data, dict):
+            return 0.0
+        bid = float(data.get("bidPrice") or 0)
+        ask = float(data.get("askPrice") or 0)
+        if bid > 0 and ask > 0:
+            mid = (bid + ask) / 2.0
+            return mid if looks_like_btc_price(mid) else 0.0
+        last = float(data.get("price") or 0)
+        return last if looks_like_btc_price(last) else 0.0
+    except Exception as exc:
+        logger.warning(f"Spot bookTicker failed: {exc}")
+        return 0.0
 
 
 def outcome_token(topic: Dict[str, Any], signal: str) -> Optional[Dict[str, Any]]:
