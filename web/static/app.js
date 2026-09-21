@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.21.0';
+const APP_VERSION = '1.22.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -30,6 +30,7 @@ class VibesBot {
         this.cacheElements();
         this.loadSoundPrefs();
         this.bindEvents();
+        this.lockBrowserChrome();
         this.startClock();
         this.loadVersion();
         this.requireAccount();
@@ -81,6 +82,17 @@ class VibesBot {
         this.tradeCount = document.getElementById('trade-count');
         this.activeTrade = document.getElementById('active-trade');
     }
+
+    lockBrowserChrome() {
+        const local = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+        if (!local) return;
+        document.addEventListener('contextmenu', (event) => event.preventDefault(), true);
+        document.addEventListener('keydown', (event) => {
+            if ((event.metaKey || event.ctrlKey) && (event.key === 'r' || event.key === 'R') && !window.__vbAllowReload) {
+                event.preventDefault();
+            }
+        }, true);
+    }
     
     bindEvents() {
         // Control buttons
@@ -91,6 +103,10 @@ class VibesBot {
         // Mode toggle
         this.modeToggle?.addEventListener('click', () => this.toggleMode());
 
+        document.getElementById('btn-refresh')?.addEventListener('click', () => {
+            window.__vbAllowReload = true;
+            window.location.reload();
+        });
         document.getElementById('btn-sound')?.addEventListener('click', () => this.toggleSound());
         document.getElementById('sound-enabled')?.addEventListener('change', (e) => {
             this.setSoundEnabled(!!e.target.checked);
@@ -549,7 +565,7 @@ class VibesBot {
         }
         
         // Timer
-        if (data.timer && this.roundTimer) {
+        if (data.timer != null && this.roundTimer) {
             const minutes = Math.floor(data.timer / 60);
             const seconds = data.timer % 60;
             this.roundTimer.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;

@@ -60,6 +60,19 @@ def main():
     )
     from WebKit import WKWebView, WKWebViewConfiguration
 
+    NATIVE_JS = """
+    (function(){
+      if (window.__vbNative) return;
+      window.__vbNative = true;
+      document.addEventListener('contextmenu', function(e){ e.preventDefault(); }, true);
+      document.addEventListener('keydown', function(e){
+        if ((e.metaKey || e.ctrlKey) && (e.key === 'r' || e.key === 'R') && !window.__vbAllowReload) {
+          e.preventDefault();
+        }
+      }, true);
+    })();
+    """
+
     class AppDelegate(NSObject):
         window = objc.ivar()
         webView = objc.ivar()
@@ -79,6 +92,12 @@ def main():
             app_item = NSMenuItem.alloc().init()
             menubar.addItem_(app_item)
             app_menu = NSMenu.alloc().init()
+            refresh_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                "Refresh", "refreshPage:", "r"
+            )
+            refresh_item.setTarget_(self)
+            app_menu.addItem_(refresh_item)
+            app_menu.addItem_(NSMenuItem.separatorItem())
             quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
                 "Quit Vibesbot", "terminate:", "q"
             )
@@ -87,11 +106,38 @@ def main():
             app_item.setSubmenu_(app_menu)
             NSApp.setMainMenu_(menubar)
 
+        def refreshPage_(self, sender):
+            if self.webView:
+                self.webView.reload()
+
+        def webView_willOpenMenu_withEvent_(self, webView, menu, event):
+            try:
+                menu.removeAllItems()
+            except Exception:
+                pass
+
+        def webView_didFinishNavigation_(self, webView, navigation):
+            try:
+                webView.evaluateJavaScript_completionHandler_(NATIVE_JS, None)
+            except Exception:
+                pass
+
         def createWindow(self):
             config = WKWebViewConfiguration.alloc().init()
+            try:
+                prefs = config.preferences()
+                prefs.setValue_forKey_(False, "developerExtrasEnabled")
+            except Exception:
+                pass
             self.webView = WKWebView.alloc().initWithFrame_configuration_(
                 NSMakeRect(0, 0, 1400, 900), config
             )
+            try:
+                self.webView.setUIDelegate_(self)
+                self.webView.setNavigationDelegate_(self)
+                self.webView.setAllowsBackForwardNavigationGestures_(False)
+            except Exception:
+                pass
             style = (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                      NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
             self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(

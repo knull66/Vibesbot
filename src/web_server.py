@@ -28,6 +28,7 @@ from .data_stream import DataStream
 from .predictor import Predictor, Signal, ModelType
 from .risk_manager import RiskManager, RiskStatus
 from .utils.logger import setup_logger, get_logger
+from .utils.helpers import calculate_round_times
 from .round_signal import combine_indicator_votes, price_confirms, tape_vote
 from .auth import COOKIE_NAME, SESSION_DAYS, get_auth
 from .companion import get_companion, is_loopback
@@ -265,40 +266,46 @@ class DashboardBot:
     
     async def initialize(self) -> bool:
         """Inicializa los componentes del bot."""
+        model_loaded = False
         try:
-            # Sincronizar tiempo con Binance
             from .utils.helpers import sync_binance_time
             logger.info("Synchronizing time with Binance...")
             self._time_offset = await sync_binance_time()
             logger.info(f"Time offset: {self._time_offset:.3f}s")
-            
+        except Exception as e:
+            logger.warning(f"Time sync failed, using local clock: {e}")
+            self._time_offset = 0.0
+        try:
             logger.info("Initializing data stream...")
             self.data_stream = DataStream(self.config.data_stream)
             await self.data_stream.start()
-            
+        except Exception as e:
+            logger.error(f"Data stream failed: {e}")
+        try:
             logger.info("Initializing predictor...")
             self.predictor = Predictor(self.config.prediction, ModelType.LIGHTGBM)
             model_loaded = await self.predictor.initialize()
-            
+        except Exception as e:
+            logger.error(f"Predictor failed: {e}")
+        try:
             logger.info("Initializing risk manager...")
             self.risk_manager = RiskManager(self.config.risk, self.config.trading)
-            
+        except Exception as e:
+            logger.error(f"Risk manager failed: {e}")
+        try:
             await self.manager.broadcast({
                 "type": "status",
                 "running": False,
                 "paused": False,
                 "model_loaded": model_loaded
             })
-            
-            # Iniciar loop de datos en background (siempre activo)
+        except Exception:
+            pass
+        if self._data_task is None or self._data_task.done():
             self._data_task = asyncio.create_task(self._data_loop())
+        if self._engine_task is None or self._engine_task.done():
             self._engine_task = asyncio.create_task(self._session_engine())
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Initialization error: {e}")
-            return False
+        return True
     
     def get_session(self, session_id: str) -> ClientSession:
         if session_id not in self.sessions:
@@ -1017,7 +1024,7 @@ class DashboardBot:
                     logger.debug(f"Error calculating features: {e}")
         
         # Enviar market data a TODOS (el precio es el mismo)
-        await self.manager.broadcast({
+        payload = {
             "type": "market",
             "price": price,
             "timer": remaining,
@@ -1031,13 +1038,21 @@ class DashboardBot:
             "prob_down": (self._market_book or {}).get("down"),
             "up_odds": (self._market_book or {}).get("up_odds"),
             "down_odds": (self._market_book or {}).get("down_odds"),
-            "price_to_beat": self._resolve_price_to_beat(
-                self._market_book, int(round_times.get("round_number") or 0)
-            ) or None,
+            "price_to_beat": None,
             "signal": self._last_prediction,
-        })
+        }
+        try:
+            payload["price_to_beat"] = self._resolve_price_to_beat(
+                self._market_book, int(round_times.get("round_number") or 0)
+            ) or None
+        except Exception as exc:
+            logger.warning(f"Price to beat unavailable: {exc}")
+        await self.manager.broadcast(payload)
         if remaining % 5 == 0:
-            await self.refresh_market_book()
+            try:
+                await self.refresh_market_book()
+            except Exception as exc:
+                logger.warning(f"Market book refresh failed: {exc}")
     
     def _sessions_dir(self) -> Path:
         path = Path(__file__).parent.parent / "data" / "sessions"
@@ -1511,6 +1526,10 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                     session = bot.attach_client(websocket, f"user:{user.id}")
                     await manager.send_to(websocket, session.status_payload(model_ready))
                     await manager.send_to(websocket, session.stats_payload())
+                    try:
+                        await bot._send_market()
+                    except Exception as exc:
+                        logger.error(f"Market snapshot failed: {exc}")
                     continue
                 
                 if action == "start":

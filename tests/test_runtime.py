@@ -59,5 +59,16 @@ class FindBundleTests(unittest.TestCase):
         self.assertNotIn(os.getpid(), pids_on_port(1))
 
 
+class WebServerClockTests(unittest.TestCase):
+    def test_market_loop_can_read_round_clock(self):
+        from src import web_server
+        from src.utils.helpers import calculate_round_times
+
+        self.assertIs(web_server.calculate_round_times, calculate_round_times)
+        info = web_server.calculate_round_times(5, 0)
+        self.assertIn("seconds_remaining", info)
+        self.assertGreaterEqual(info["seconds_remaining"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
