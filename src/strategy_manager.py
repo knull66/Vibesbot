@@ -299,9 +299,15 @@ class StrategyManager:
             return None
         
         strategy = self.strategies[name]
+        weights = config.get("weights") if isinstance(config.get("weights"), dict) else {}
+        mapped = dict(config)
+        if weights:
+            mapped["rsi_weight"] = weights.get("rsi", mapped.get("rsi_weight", strategy.rsi_weight))
+            mapped["macd_weight"] = weights.get("macd", mapped.get("macd_weight", strategy.macd_weight))
+            mapped["bollinger_weight"] = weights.get("bollinger", mapped.get("bollinger_weight", strategy.bollinger_weight))
+            mapped["momentum_weight"] = weights.get("momentum", mapped.get("momentum_weight", strategy.momentum_weight))
         
-        # Actualizar campos
-        for key, value in config.items():
+        for key, value in mapped.items():
             if hasattr(strategy, key):
                 setattr(strategy, key, value)
         

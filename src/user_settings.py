@@ -276,6 +276,8 @@ class UserSettings:
     # Auto-update
     auto_update: bool = True
     last_update_check: Optional[str] = None
+    update_snooze_until: Optional[str] = None
+    update_snooze_version: Optional[str] = None
     
     def to_dict(self) -> dict:
         return {
@@ -286,7 +288,9 @@ class UserSettings:
             "sound_enabled": self.sound_enabled,
             "notifications_enabled": self.notifications_enabled,
             "auto_update": self.auto_update,
-            "last_update_check": self.last_update_check
+            "last_update_check": self.last_update_check,
+            "update_snooze_until": self.update_snooze_until,
+            "update_snooze_version": self.update_snooze_version,
         }
 
 
@@ -593,6 +597,8 @@ class SettingsManager:
             self.settings.notifications_enabled = data.get("notifications_enabled", True)
             self.settings.auto_update = data.get("auto_update", True)
             self.settings.last_update_check = data.get("last_update_check")
+            self.settings.update_snooze_until = data.get("update_snooze_until")
+            self.settings.update_snooze_version = data.get("update_snooze_version")
             
             logger.info("Settings loaded successfully")
             chmod_private(self.settings_path)
@@ -627,7 +633,9 @@ class SettingsManager:
                 "sound_enabled": self.settings.sound_enabled,
                 "notifications_enabled": self.settings.notifications_enabled,
                 "auto_update": self.settings.auto_update,
-                "last_update_check": self.settings.last_update_check
+                "last_update_check": self.settings.last_update_check,
+                "update_snooze_until": self.settings.update_snooze_until,
+                "update_snooze_version": self.settings.update_snooze_version,
             }
             
             with open(self.settings_path, 'w') as f:

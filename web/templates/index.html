@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.29.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.30.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -128,6 +128,7 @@
                         <div class="price-beat">
                             <span class="price-label">PRICE TO BEAT</span>
                             <span class="price-value target" id="price-to-beat">$--</span>
+                            <span class="price-label" id="price-to-beat-source">Waiting for lock</span>
                         </div>
                         <div class="price-current-box">
                             <span class="price-label">CURRENT PRICE</span>
@@ -317,7 +318,7 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Live weights</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.29.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.30.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -341,9 +342,6 @@
                 <div class="settings-tabs">
                     <button class="settings-tab active" data-panel="binance">API</button>
                     <button class="settings-tab" data-panel="trading">Trading</button>
-                    <button class="settings-tab" data-panel="strategy">Strategy</button>
-                    <button class="settings-tab" data-panel="backtest">Backtest</button>
-                    <button class="settings-tab" data-panel="export">Export</button>
                     <button class="settings-tab" data-panel="account">Account</button>
                 </div>
 
@@ -417,19 +415,8 @@
                             </div>
                         </div>
                         
-                        <div class="form-actions">
-                            <button class="btn btn-primary" id="btn-save-trading">SAVE</button>
-                            <button class="btn btn-danger" id="btn-reset-sim">RESET</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Strategy Panel -->
-                <div class="settings-panel" id="panel-strategy">
-                    <div class="settings-section">
-                        <h3>LIVE SIGNAL</h3>
-                        <p class="settings-hint">Wallet bets use RSI, MACD, Bollinger, momentum and the Binance spot tape — not LightGBM. These weights feed that live vote. Presets only change the mix.</p>
-                        
+                        <h3 style="margin-top:20px;">LIVE SIGNAL</h3>
+                        <p class="settings-hint">Pesos del voto RSI / MACD / Bollinger / momentum + tape. Se aplican al guardar. No es LightGBM.</p>
                         <div class="form-group">
                             <label for="strategy-select">PRESET</label>
                             <select id="strategy-select">
@@ -440,19 +427,6 @@
                                 <option value="macd_focused">MACD Focused</option>
                             </select>
                         </div>
-                        
-                        <div id="strategy-info" class="info-card">
-                            <div class="info-card-title">Strategy stats</div>
-                            <div class="metric-grid">
-                                <div>Trades: <span id="strat-trades">0</span></div>
-                                <div>Win Rate: <span id="strat-winrate">0%</span></div>
-                                <div>P&L: <span id="strat-pnl">$0</span></div>
-                            </div>
-                        </div>
-                        
-                        <h3 style="margin-top:16px;">INDICATOR WEIGHTS</h3>
-                        <p class="settings-hint">Adjust influence of each indicator (0=off, 3=high)</p>
-                        
                         <div class="form-group">
                             <label>RSI: <span id="rsi-weight-val">2</span></label>
                             <input type="range" id="rsi-weight" min="0" max="3" value="2" style="width:100%">
@@ -469,98 +443,10 @@
                             <label>MOMENTUM: <span id="mom-weight-val">1</span></label>
                             <input type="range" id="mom-weight" min="0" max="3" value="1" style="width:100%">
                         </div>
-                        
                         <div class="form-actions">
-                            <button class="btn btn-primary" id="btn-save-strategy">SAVE STRATEGY</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Backtest Panel -->
-                <div class="settings-panel" id="panel-backtest">
-                    <div class="settings-section">
-                        <h3>BACKTEST</h3>
-                        <p class="settings-hint">Test strategy with historical data</p>
-                        
-                        <div class="form-group">
-                            <label for="backtest-days">PERIOD (DAYS)</label>
-                            <select id="backtest-days">
-                                <option value="3">3 Days</option>
-                                <option value="7" selected>7 Days</option>
-                                <option value="14">14 Days</option>
-                                <option value="30">30 Days</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="backtest-capital">INITIAL CAPITAL ($)</label>
-                            <input type="number" id="backtest-capital" value="100" min="10">
-                        </div>
-                        <div class="form-group">
-                            <label for="backtest-bet">BET AMOUNT ($)</label>
-                            <input type="number" id="backtest-bet" value="1" min="0.1" step="0.1">
-                        </div>
-                        
-                        <div class="form-actions">
-                            <button class="btn btn-primary" id="btn-run-backtest">RUN BACKTEST</button>
-                        </div>
-                        
-                        <div id="backtest-progress" style="display:none; margin-top:12px;">
-                            <div class="settings-hint" style="margin-bottom:6px;">
-                                <span id="backtest-status">Running...</span>
-                            </div>
-                            <div class="progress-track">
-                                <div id="backtest-bar" class="progress-bar" style="width:0%;"></div>
-                            </div>
-                        </div>
-                        
-                        <div id="backtest-result" class="info-card" style="display:none;">
-                            <div class="info-card-title">Backtest results</div>
-                            <div class="metric-grid">
-                                <div>Trades: <span id="bt-trades" style="color:var(--accent)">0</span></div>
-                                <div>Win Rate: <span id="bt-winrate" style="color:var(--accent)">0%</span></div>
-                                <div>Final Capital: <span id="bt-capital" style="color:var(--up)">$100</span></div>
-                                <div>Total P&L: <span id="bt-pnl" style="color:var(--up)">$0</span></div>
-                                <div>Max Drawdown: <span id="bt-drawdown" style="color:var(--down)">0%</span></div>
-                                <div>Profit Factor: <span id="bt-pf" style="color:var(--accent)">0</span></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Export Panel -->
-                <div class="settings-panel" id="panel-export">
-                    <div class="settings-section">
-                        <h3>EXPORT DATA</h3>
-                        <p class="settings-hint">Download your trading data</p>
-                        
-                        <div class="form-actions" style="flex-direction:column; gap:10px;">
-                            <button class="btn" id="btn-export-csv" style="width:100%;">Download trades (CSV)</button>
-                            <button class="btn" id="btn-export-json" style="width:100%;">Download trades (JSON)</button>
-                            <button class="btn btn-primary" id="btn-export-report" style="width:100%;">Generate report</button>
-                        </div>
-                        
-                        <div id="report-result" class="info-card" style="display:none; max-height:200px; overflow-y:auto;">
-                            <div class="info-card-title">Analysis report</div>
-                            <div id="report-content" style="font-size:13px; line-height:1.7;"></div>
-                        </div>
-                        
-                        <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
-                            <h3>App info</h3>
-                            <div class="update-info" style="margin-top:10px;">
-                                <div class="update-version">
-                                    <span>Version</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.29.0</span>
-                                </div>
-                                <div class="update-version">
-                                    <span>Latest</span>
-                                    <span id="latest-version">--</span>
-                                </div>
-                            </div>
-                            <div class="form-actions" style="margin-top:10px;">
-                                <button class="btn" id="btn-check-update">Check update</button>
-                                <button class="btn btn-primary" id="btn-install-update" disabled>Install</button>
-                            </div>
-                            <div class="update-status" id="update-status" style="margin-top:8px;"></div>
+                            <button class="btn btn-primary" id="btn-save-trading">SAVE</button>
+                            <button class="btn" id="btn-save-strategy">APPLY WEIGHTS</button>
+                            <button class="btn btn-danger" id="btn-reset-sim">RESET SIM</button>
                         </div>
                     </div>
                 </div>
@@ -615,6 +501,12 @@
                             <a class="btn btn-logout" id="btn-logout-settings" href="/static/lobby.html">Sign out</a>
                         </div>
                         <div class="update-status" id="password-status"></div>
+                        <h3 style="margin-top:20px;">APP</h3>
+                        <p class="settings-hint">Version <span id="current-version">v1.30.0</span>. If a new build is out, a popup asks you to update — no need to hunt in Settings.</p>
+                        <div class="form-actions">
+                            <button class="btn" id="btn-export-csv">CSV</button>
+                            <button class="btn" id="btn-export-json">JSON</button>
+                        </div>
                     </div>
                     <div class="settings-section" id="owner-account-tools" style="display:none; margin-top:18px;">
                         <h3>INVITES</h3>
@@ -656,6 +548,26 @@
         </div>
     </div>
 
+    <div class="modal" id="update-prompt">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content" style="max-width:380px;">
+            <div class="modal-header">
+                <span class="modal-title">Update available</span>
+            </div>
+            <div class="modal-body" style="padding:16px 20px 22px;">
+                <p class="settings-hint" style="margin-bottom:12px;">
+                    <span id="update-prompt-from">v1.30.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
+                </p>
+                <p id="update-prompt-notes" class="settings-hint" style="margin-bottom:16px;"></p>
+                <div class="form-actions" style="justify-content:center;">
+                    <button class="btn" id="btn-update-later">Later</button>
+                    <button class="btn btn-primary" id="btn-update-now">Update</button>
+                </div>
+                <div class="update-status" id="update-status" style="margin-top:10px;"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Real Mode Warning Modal -->
     <div class="modal" id="real-mode-modal">
         <div class="modal-backdrop"></div>
@@ -681,6 +593,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.29.0"></script>
+    <script src="/static/app.js?v=1.30.0"></script>
 </body>
 </html>

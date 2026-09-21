@@ -620,6 +620,14 @@ body {
 .price-value.target { color: var(--warning); }
 .price-value.live { color: var(--accent); }
 
+#price-to-beat-source {
+    display: block;
+    margin-top: 4px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
 .price-diff {
     display: inline-block;
     font-size: 12px;

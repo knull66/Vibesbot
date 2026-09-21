@@ -487,7 +487,7 @@ async def maybe_daily_update(apply: Optional[bool] = None) -> dict:
     from .user_settings import get_settings_manager
 
     if apply is None:
-        apply = sys.platform == "darwin"
+        apply = False
     sm = get_settings_manager()
     if not sm.settings.auto_update:
         return {"skipped": True, "reason": "auto_update off"}
@@ -527,7 +527,43 @@ async def maybe_daily_update(apply: Optional[bool] = None) -> dict:
                 logger.warning(f"Relaunch after daily update failed: {exc}")
     elif info.available:
         result["message"] = f"Update {info.latest_version} available"
+    result["prompt"] = bool(info.available) and not update_is_snoozed(info.latest_version)
     return result
+
+
+def update_is_snoozed(latest: str) -> bool:
+    from .user_settings import get_settings_manager
+
+    latest = str(latest or "").lstrip("vV")
+    if not latest:
+        return False
+    sm = get_settings_manager()
+    if str(sm.settings.update_snooze_version or "").lstrip("vV") != latest:
+        return False
+    until = sm.settings.update_snooze_until
+    if not until:
+        return False
+    try:
+        end = datetime.fromisoformat(until)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) < end
+
+
+def snooze_update(latest: str, hours: int = 12) -> dict:
+    from .user_settings import get_settings_manager
+
+    sm = get_settings_manager()
+    sm.settings.update_snooze_version = str(latest or "").lstrip("vV")
+    sm.settings.update_snooze_until = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+    sm.save()
+    return {
+        "snoozed": True,
+        "version": sm.settings.update_snooze_version,
+        "until": sm.settings.update_snooze_until,
+    }
 
 
 async def check_updates_on_startup():

@@ -15,9 +15,10 @@ Clona el repo público: [knull66/Vibesbot](https://github.com/knull66/Vibesbot).
 - **Settlement REAL**: `position/settled-history` / posiciones ENDED. No inventa WIN/LOSS con velas 5m locales.
 - **Señal**: mayoría de indicadores + tape (`round_signal`). El panel Strategy ajusta esos pesos. No hay LightGBM en el camino de apuesta. Umbral ~**0.50**.
 - **Filtros**: crowd de Wallet de acuerdo, ≥ $12 vs Price to Beat, share price ~0.38–0.62.
+- **Price to Beat**: lock oficial de Wallet si Binance lo manda; si no, el open de la vela 5m de Spot (etiqueta “Est. 5m open”). Sirve para no apostar un 50/50 al inicio de ronda. REAL se liquida con Binance, no con esa línea.
 - **Circuit breaker**: 5 pérdidas seguidas pausan ~30 min. Settings de pérdida diaria y máximo de trades también cortan.
 - **Journal**: cada settle se guarda en `trade_journal.jsonl` (Application Support).
-- **Updates Mac**: al abrir, si auto-update está on y no se checó en ~20h, overlay del último GitHub release.
+- **Updates**: popup Actualizar / Más tarde al abrir y cada ~30 min. No hay que ir a Settings.
 
 ## Bind y Settings
 

@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.29.0';
+const APP_VERSION = '1.30.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -157,8 +157,10 @@ class VibesBot {
         document.getElementById('btn-save-binance')?.addEventListener('click', () => this.saveBinanceSettings());
         document.getElementById('btn-test-api')?.addEventListener('click', () => this.testApi());
         document.getElementById('btn-reset-sim')?.addEventListener('click', () => this.resetSimulation());
-        document.getElementById('btn-check-update')?.addEventListener('click', () => this.checkUpdates());
+        document.getElementById('btn-check-update')?.addEventListener('click', () => this.checkUpdates({prompt: true}));
         document.getElementById('btn-install-update')?.addEventListener('click', () => this.installUpdate());
+        document.getElementById('btn-update-now')?.addEventListener('click', () => this.installUpdate());
+        document.getElementById('btn-update-later')?.addEventListener('click', () => this.snoozeUpdate());
         
         // Real mode confirmation
         document.getElementById('btn-cancel-real')?.addEventListener('click', () => {
@@ -175,6 +177,7 @@ class VibesBot {
             const data = await response.json();
             const strategy = data.strategies?.find(s => s.id === e.target.value);
             this.updateStrategyInfo(strategy);
+            this.saveStrategy();
         });
         
         document.getElementById('btn-save-strategy')?.addEventListener('click', () => this.saveStrategy());
@@ -245,11 +248,12 @@ class VibesBot {
             this.connect();
             this.loadSavedSettings();
             this.loadJournal();
+            this.checkUpdates({prompt: true});
+            window.setInterval(() => this.checkUpdates({prompt: true}), 30 * 60 * 1000);
             if (this.isCompanion) {
                 document.body.classList.add('companion-mode');
                 document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
                 document.querySelector('.settings-tab[data-panel="trading"]')?.style.setProperty('display', 'none');
-                document.querySelector('.settings-tab[data-panel="strategy"]')?.style.setProperty('display', 'none');
                 document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
                 const ownerTools = document.getElementById('owner-account-tools');
                 if (ownerTools) ownerTools.style.display = 'none';
@@ -261,7 +265,6 @@ class VibesBot {
             } else {
                 document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
                 document.querySelector('.settings-tab[data-panel="trading"]')?.style.setProperty('display', 'none');
-                document.querySelector('.settings-tab[data-panel="strategy"]')?.style.setProperty('display', 'none');
                 document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
             }
         } catch (e) {
@@ -518,6 +521,9 @@ class VibesBot {
             case 'journal':
                 this.applyJournal(data.trades || []);
                 break;
+            case 'update':
+                if (data.available) this.showUpdatePrompt(data);
+                break;
             case 'trade':
                 this.addTrade(data);
                 break;
@@ -602,15 +608,7 @@ class VibesBot {
         const downOddsEl = document.getElementById('prob-down-odds');
         if (upOddsEl && data.up_odds) upOddsEl.textContent = Number(data.up_odds).toFixed(2) + 'x';
         if (downOddsEl && data.down_odds) downOddsEl.textContent = Number(data.down_odds).toFixed(2) + 'x';
-        if (data.price_to_beat) {
-            this.priceToBeat = parseFloat(data.price_to_beat);
-            if (this.priceToBeatEl && this.priceToBeat) {
-                this.priceToBeatEl.textContent = '$' + this.priceToBeat.toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                });
-            }
-        }
+        this.applyPriceToBeat(data);
         
         // Draw charts
         this.drawMiniChart();
@@ -695,16 +693,34 @@ class VibesBot {
         if (upOdds && data.up_odds) upOdds.textContent = Number(data.up_odds).toFixed(2) + 'x';
         if (downOdds && data.down_odds) downOdds.textContent = Number(data.down_odds).toFixed(2) + 'x';
         
-        // Price to Beat for this round
-        if (data.price_to_beat) {
-            this.priceToBeat = parseFloat(data.price_to_beat);
+        this.applyPriceToBeat(data);
+    }
+
+    applyPriceToBeat(data) {
+        const sourceEl = document.getElementById('price-to-beat-source');
+        const beat = parseFloat(data.price_to_beat);
+        if (beat && !Number.isNaN(beat)) {
+            this.priceToBeat = beat;
             if (this.priceToBeatEl) {
-                this.priceToBeatEl.textContent = '$' + this.priceToBeat.toLocaleString('en-US', {
+                this.priceToBeatEl.textContent = '$' + beat.toLocaleString('en-US', {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2
                 });
             }
+            const source = data.price_to_beat_source || '';
+            if (sourceEl) {
+                sourceEl.textContent = source === 'wallet'
+                    ? 'Wallet lock'
+                    : source === 'spot-5m-open'
+                        ? 'Est. 5m open'
+                        : source || 'Lock';
+            }
+            const live = parseFloat(data.price || data.live_price);
+            if (live && !Number.isNaN(live)) this.updatePriceDiff(live);
+            return;
         }
+        if (this.priceToBeatEl) this.priceToBeatEl.textContent = '$--';
+        if (sourceEl) sourceEl.textContent = 'Waiting for lock';
     }
     
     updateStats(data) {
@@ -1256,6 +1272,7 @@ class VibesBot {
             if (response.ok) {
                 const payload = await response.json();
                 this.applyTradingSettings(payload.settings || settings);
+                await this.saveStrategy();
                 this.addLog('✓ Trading settings saved for SIM and REAL', 'info');
             }
         } catch (e) {
@@ -1395,13 +1412,12 @@ class VibesBot {
         return false;
     }
 
-    async checkUpdates() {
+    async checkUpdates(options = {}) {
         const statusEl = document.getElementById('update-status');
         const latestEl = document.getElementById('latest-version');
         const currentEl = document.getElementById('current-version');
         const installBtn = document.getElementById('btn-install-update');
-        
-        if (statusEl) statusEl.textContent = 'Checking...';
+        const prompt = options.prompt !== false;
         
         try {
             const response = await fetch('/api/updates/check');
@@ -1416,13 +1432,41 @@ class VibesBot {
             if (available) {
                 if (statusEl) statusEl.textContent = 'Update available';
                 if (installBtn) installBtn.disabled = false;
-            } else {
-                if (statusEl) statusEl.textContent = 'You have the latest version';
+                if (prompt && data.prompt !== false) this.showUpdatePrompt(data);
+            } else if (statusEl && !prompt) {
+                statusEl.textContent = 'You have the latest version';
                 if (installBtn) installBtn.disabled = true;
             }
         } catch (e) {
-            if (statusEl) statusEl.textContent = 'Error checking updates';
+            if (statusEl && !prompt) statusEl.textContent = 'Error checking updates';
         }
+    }
+
+    showUpdatePrompt(data) {
+        const latest = String(data.latest_version || '').replace(/^v/i, '');
+        if (!latest || this._updatePromptShown === latest) return;
+        this._updatePromptShown = latest;
+        this._pendingUpdateVersion = latest;
+        const fromEl = document.getElementById('update-prompt-from');
+        const toEl = document.getElementById('update-prompt-to');
+        const notesEl = document.getElementById('update-prompt-notes');
+        if (fromEl) fromEl.textContent = 'v' + APP_VERSION;
+        if (toEl) toEl.textContent = 'v' + latest;
+        if (notesEl) notesEl.textContent = data.release_notes || 'A new Vibesbot build is ready.';
+        document.getElementById('update-prompt')?.classList.add('active');
+    }
+
+    async snoozeUpdate() {
+        const latest = this._pendingUpdateVersion || '';
+        document.getElementById('update-prompt')?.classList.remove('active');
+        try {
+            await fetch('/api/updates/later', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ latest_version: latest })
+            });
+        } catch (e) {}
+        this.addLog('Update later — reminder in ~12h', 'info');
     }
     
     async installUpdate() {
@@ -1476,12 +1520,13 @@ class VibesBot {
     
     updateStrategyInfo(strategy) {
         if (!strategy) return;
+        const trades = document.getElementById('strat-trades');
+        const winrate = document.getElementById('strat-winrate');
+        const pnl = document.getElementById('strat-pnl');
+        if (trades) trades.textContent = strategy.stats?.total_trades || 0;
+        if (winrate) winrate.textContent = (strategy.stats?.win_rate || 0).toFixed(1) + '%';
+        if (pnl) pnl.textContent = '$' + (strategy.stats?.total_pnl || 0).toFixed(2);
         
-        document.getElementById('strat-trades').textContent = strategy.stats?.total_trades || 0;
-        document.getElementById('strat-winrate').textContent = (strategy.stats?.win_rate || 0).toFixed(1) + '%';
-        document.getElementById('strat-pnl').textContent = '$' + (strategy.stats?.total_pnl || 0).toFixed(2);
-        
-        // Update weight sliders
         if (strategy.weights) {
             this.setSlider('rsi-weight', strategy.weights.rsi);
             this.setSlider('macd-weight', strategy.weights.macd);

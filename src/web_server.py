@@ -255,6 +255,7 @@ class DashboardBot:
         self._market_fetched_at = 0.0
         self._price_to_beat = 0.0
         self._price_to_beat_round = -1
+        self._price_to_beat_source = ""
         
         # Estadísticas avanzadas
         self._equity_history = [100.0]  # Historial de capital
@@ -382,16 +383,31 @@ class DashboardBot:
         return self.data_stream.get_last_closed_candle("5m")
 
     def _resolve_price_to_beat(self, book: Optional[Dict[str, Any]], round_number: int) -> float:
-        """Wallet Chainlink lock only. Never invent from a 5m candle."""
+        """Official Wallet lock when Binance sends it; else this 5m Spot open."""
         book = book or {}
         from_book = float(book.get("price_to_beat") or 0)
         if looks_like_btc_price(from_book):
             self._price_to_beat = from_book
             self._price_to_beat_round = round_number
+            self._price_to_beat_source = str(book.get("price_to_beat_source") or "wallet")
             return from_book
         if self._price_to_beat_round == round_number and looks_like_btc_price(self._price_to_beat):
             return self._price_to_beat
+        fallback = self._five_minute_open()
+        if looks_like_btc_price(fallback):
+            self._price_to_beat = fallback
+            self._price_to_beat_round = round_number
+            self._price_to_beat_source = "spot-5m-open"
+            return fallback
+        self._price_to_beat_source = ""
         return 0.0
+
+    def _price_to_beat_payload(self, book: Optional[Dict[str, Any]], round_number: int) -> Dict[str, Any]:
+        beat = self._resolve_price_to_beat(book, round_number)
+        return {
+            "price_to_beat": beat or None,
+            "price_to_beat_source": self._price_to_beat_source if beat else "",
+        }
 
     def _live_btc_price(self, book: Optional[Dict[str, Any]] = None) -> float:
         """Live Chainlink-equivalent: topic oracle, else Binance Spot top-of-book."""
@@ -645,7 +661,8 @@ class DashboardBot:
                 "prob_down": binance_down,
                 "up_odds": (book or {}).get("up_odds"),
                 "down_odds": (book or {}).get("down_odds"),
-                "price_to_beat": price_to_beat
+                "price_to_beat": price_to_beat,
+                "price_to_beat_source": self._price_to_beat_source if price_to_beat else "",
             })
             
             await self._emit_sessions(sessions, {
@@ -1201,12 +1218,13 @@ class DashboardBot:
             "up_odds": (self._market_book or {}).get("up_odds"),
             "down_odds": (self._market_book or {}).get("down_odds"),
             "price_to_beat": None,
+            "price_to_beat_source": "",
             "signal": self._last_prediction,
         }
         try:
-            payload["price_to_beat"] = self._resolve_price_to_beat(
+            payload.update(self._price_to_beat_payload(
                 self._market_book, int(round_times.get("round_number") or 0)
-            ) or None
+            ))
         except Exception as exc:
             logger.warning(f"Price to beat unavailable: {exc}")
         await self.manager.broadcast(payload)
@@ -1449,11 +1467,16 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         await bot.initialize()
         try:
             from .updater import maybe_daily_update
-            result = await maybe_daily_update()
-            if result.get("applied"):
-                logger.info(f"Daily update applied: {result.get('message')}")
-            elif result.get("available"):
+            result = await maybe_daily_update(apply=False)
+            if result.get("available"):
                 logger.info(f"Update available: {result.get('latest')}")
+                await bot.manager.broadcast({
+                    "type": "update",
+                    "available": True,
+                    "current_version": result.get("current"),
+                    "latest_version": result.get("latest"),
+                    "release_notes": result.get("message") or "",
+                })
         except Exception as exc:
             logger.warning(f"Daily update skipped: {exc}")
     
@@ -1887,13 +1910,27 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         
         logger.info(f"Update check: current={info.current_version}, latest={info.latest_version}, available={info.available}")
         
+        from .updater import update_is_snoozed
+        prompt = bool(info.available) and not update_is_snoozed(info.latest_version)
         return {
             "available": info.available,
+            "prompt": prompt,
             "current_version": info.current_version,
             "latest_version": info.latest_version,
             "release_notes": info.release_notes,
             "download_url": info.download_url
         }
+
+    @app.post("/api/updates/later")
+    async def snooze_update_prompt(request: Request):
+        from .updater import snooze_update
+        data = {}
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        latest = str(data.get("latest_version") or data.get("version") or "")
+        return snooze_update(latest)
     
     @app.post("/api/updates/install")
     async def install_update(request: Request):

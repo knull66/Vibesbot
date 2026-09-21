@@ -266,6 +266,23 @@ def looks_like_btc_price(value: Any) -> bool:
     return BTC_PRICE_MIN <= price <= BTC_PRICE_MAX
 
 
+def parse_btc_price(raw: Any) -> float:
+    """Human BTC price, or Chainlink 8/18-decimal integers."""
+    if isinstance(raw, str):
+        raw = raw.replace(",", "").replace("$", "").strip()
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    if looks_like_btc_price(number):
+        return number
+    for div in (1e8, 1e10, 1e18):
+        scaled = number / div
+        if looks_like_btc_price(scaled):
+            return scaled
+    return 0.0
+
+
 def taker_fee(stake: float, share_price: float, fee_bps: int = DEFAULT_FEE_BPS) -> float:
     price = normalize_share_price(share_price)
     shares = float(stake) / price
@@ -672,21 +689,72 @@ def first_btc_price(blobs: List[Any], keys: Tuple[str, ...]) -> float:
         if not isinstance(blob, dict):
             continue
         for key in keys:
-            raw = blob.get(key)
-            if isinstance(raw, str):
-                raw = raw.replace(",", "")
-            try:
-                price = float(raw)
-            except (TypeError, ValueError):
-                continue
-            if looks_like_btc_price(price):
+            price = parse_btc_price(blob.get(key))
+            if price:
                 return price
+    return 0.0
+
+
+LOCK_KEY_PARTS = (
+    "pricetobeat",
+    "lockprice",
+    "lockedprice",
+    "startprice",
+    "openprice",
+    "strikeprice",
+    "startvalue",
+    "initialprice",
+    "eventstartprice",
+    "openoracleprice",
+    "resolutionopenprice",
+    "chainlinklock",
+    "lockoracleprice",
+    "referenceprice",
+    "benchmarkprice",
+    "targetprice",
+)
+LIVE_KEY_NOISE = (
+    "current",
+    "live",
+    "lastprice",
+    "midprice",
+    "closeprice",
+    "endprice",
+    "finalprice",
+    "settleprice",
+)
+
+
+def _key_token(name: Any) -> str:
+    return "".join(ch for ch in str(name or "").lower() if ch.isalnum())
+
+
+def walk_lock_price(obj: Any) -> float:
+    """Find a lock-like BTC price anywhere in a market/detail payload."""
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            token = _key_token(key)
+            if any(part in token for part in LOCK_KEY_PARTS) and not any(noise in token for noise in LIVE_KEY_NOISE):
+                price = parse_btc_price(value)
+                if price:
+                    return price
+            nested = walk_lock_price(value)
+            if nested:
+                return nested
+    elif isinstance(obj, list):
+        for item in obj:
+            nested = walk_lock_price(item)
+            if nested:
+                return nested
     return 0.0
 
 
 def topic_start_price(topic: Dict[str, Any]) -> float:
     """Chainlink lock / Binance Price to Beat. Never the live tick."""
-    return first_btc_price(topic_blobs(topic or {}), TOPIC_LOCK_KEYS)
+    direct = first_btc_price(topic_blobs(topic or {}), TOPIC_LOCK_KEYS)
+    if direct:
+        return direct
+    return walk_lock_price(topic or {})
 
 
 def topic_live_price(topic: Dict[str, Any]) -> float:
@@ -706,12 +774,14 @@ def market_book(topic: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     down = outcome_token(topic, "DOWN") or {}
     up_p = as_probability(up.get("price"), 0.5)
     down_p = as_probability(down.get("price"), 0.5)
+    lock = topic_start_price(topic)
     return {
         "up": up_p,
         "down": down_p,
         "up_odds": (1.0 / up_p) if up_p else 2.0,
         "down_odds": (1.0 / down_p) if down_p else 2.0,
-        "price_to_beat": topic_start_price(topic),
+        "price_to_beat": lock,
+        "price_to_beat_source": "wallet" if lock else "",
         "live_price": topic_live_price(topic),
         "close_price": topic_close_price(topic),
         "title": str(topic.get("title") or "BTC Up or Down 5m"),
