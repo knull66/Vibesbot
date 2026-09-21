@@ -490,7 +490,9 @@ class BinanceConnector:
             "display_balance": amount,
             "wallet_address": address,
             "network": "BNB Smart Chain",
-            "error": picked.get("error") or "",
+            "can_trade": bool(picked.get("can_trade")),
+            "error": "" if address else (picked.get("error") or "My Wallet address missing"),
+            "trade_error": picked.get("error") or "",
         }
 
 
@@ -669,10 +671,14 @@ class SettingsManager:
             )
             picked = await client.fetch_prediction_wallet()
             if picked.get("wallet_address"):
+                trade_note = ""
+                if not picked.get("can_trade"):
+                    trade_note = " | REAL bets blocked until this address is in wallet/list"
                 result["message"] = (
                     (result.get("message") or "Connected")
                     + f" | My Wallet {picked.get('wallet_address')} "
                     + f"${float(picked.get('usdt') or 0):.2f} USDT on BNB Smart Chain"
+                    + trade_note
                 )
             else:
                 result["message"] = (

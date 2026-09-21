@@ -37,6 +37,8 @@ from .wallet_prediction import (
     market_book,
     outcome_token,
     paper_fill,
+    resolve_preferred_address,
+    same_address,
     settle_payout,
 )
 
@@ -125,6 +127,8 @@ class ClientSession:
     live_wallet_address: str = ""
     live_network: str = ""
     live_error: str = ""
+    live_can_trade: bool = False
+    live_trade_error: str = ""
     live_fetched_at: float = 0.0
     pending_trade: Optional[PendingWalletTrade] = None
     
@@ -314,6 +318,8 @@ class DashboardBot:
         session.live_network = result.get("network") or "BNB Smart Chain"
         session.live_balance = float(result.get("display_balance") or 0)
         session.live_error = result.get("error") or ""
+        session.live_can_trade = bool(result.get("can_trade"))
+        session.live_trade_error = str(result.get("trade_error") or "")
         session.live_fetched_at = time.time()
 
     async def refresh_market_book(self, force: bool = False) -> Dict[str, Any]:
@@ -654,10 +660,18 @@ class DashboardBot:
                 )
                 wallet = await client.ensure_wallet(refresh=True)
                 pred_balance = float(wallet.get("usdt") or 0)
-                if not wallet.get("walletAddress"):
+                preferred = resolve_preferred_address(creds.prediction_wallet)
+                if (
+                    not wallet.get("can_trade")
+                    or not wallet.get("walletId")
+                    or not same_address(wallet.get("walletAddress"), preferred)
+                ):
                     await self.manager.send_to_session(session.session_id, {
                         "type": "log",
-                        "message": "Pinned Binance Wallet is missing. Check My Wallet on web3.binance.com.",
+                        "message": wallet.get("error") or (
+                            "REAL blocked: My Wallet is not in wallet/list. "
+                            "Will not spend Binance's auto Prediction Account."
+                        ),
                         "level": "loss",
                     })
                     return
@@ -665,7 +679,7 @@ class DashboardBot:
                     await self.manager.send_to_session(session.session_id, {
                         "type": "log",
                         "message": (
-                            f"Prediction BSC USDT ${pred_balance:.2f} is below ${amount:.2f}. "
+                            f"My Wallet BSC USDT ${pred_balance:.2f} is below ${amount:.2f}. "
                             "Send USDT on BNB Smart Chain to this wallet — the same one at "
                             "web3.binance.com/en/prediction."
                         ),
@@ -1408,13 +1422,23 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                                 "message": session.live_error,
                                 "level": "loss",
                             })
+                        elif not session.live_can_trade:
+                            await manager.send_to(websocket, {
+                                "type": "log",
+                                "message": (
+                                    f"My Wallet ${session.live_balance:.2f} "
+                                    f"{session.live_wallet_address or session.live_wallet} on BNB Smart Chain. "
+                                    + (session.live_trade_error or "REAL bets blocked until this address is in wallet/list.")
+                                ),
+                                "level": "loss",
+                            })
                         else:
                             await manager.send_to(websocket, {
                                 "type": "log",
                                 "message": (
                                     f"Live My Wallet ${session.live_balance:.2f} "
                                     f"{session.live_wallet_address or session.live_wallet}. "
-                                    "Start bets web3.binance.com/en/prediction with this USDT only."
+                                    "Start bets Predict.fun via web3.binance.com/en/prediction with this USDT only."
                                 ),
                                 "level": "info",
                             })

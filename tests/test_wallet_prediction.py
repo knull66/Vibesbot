@@ -22,6 +22,8 @@ from src.wallet_prediction import (
     taker_fee,
     unwrap_prediction_payload,
     wallets_from_payload,
+    api_error_text,
+    mismatch_wallet_error,
 )
 
 USER_WALLET = "0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A"
@@ -184,11 +186,42 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
              patch("src.wallet_prediction.fetch_bsc_usdt", fake_usdt):
             picked = await client.fetch_prediction_wallet()
 
-        self.assertEqual(picked["wallet_id"], "other")
-        self.assertTrue(same_address(
-            picked["wallet_address"],
-            "0x1111111111111111111111111111111111111111",
-        ))
+        self.assertEqual(picked["wallet_id"], "")
+        self.assertTrue(same_address(picked["wallet_address"], USER_WALLET))
+        self.assertAlmostEqual(picked["usdt"], 10.025)
+        self.assertFalse(picked["can_trade"])
+        self.assertIn("not in Binance wallet/list", picked["error"])
+        self.assertIn("Prediction Account", picked["error"])
+
+    async def test_quote_refuses_unlisted_prediction_account(self):
+        client = WalletPredictionClient("k", "s", preferred_address=USER_WALLET)
+
+        async def fake_wallet(refresh=True):
+            return {
+                "walletId": "other",
+                "walletAddress": "0x1111111111111111111111111111111111111111",
+                "orderAddress": "0x1111111111111111111111111111111111111111",
+                "usdt": 0.92,
+                "can_trade": False,
+                "error": mismatch_wallet_error(
+                    USER_WALLET,
+                    ["0x1111111111111111111111111111111111111111"],
+                ),
+            }
+
+        topic = {
+            "markets": [{
+                "title": "UP",
+                "outcomes": [{"name": "YES", "tokenId": "tok-up", "price": "0.52"}],
+            }],
+        }
+
+        with patch.object(client, "ensure_wallet", fake_wallet):
+            result = await client.quote_and_buy(topic, "UP", 1.5, 0.5)
+
+        self.assertFalse(result["success"])
+        self.assertIn("Prediction Account", result["error"])
+        self.assertNotIn("0.92", str(result))
 
     async def test_quote_uses_mpc_wallet_without_cex_account(self):
         client = WalletPredictionClient("k", "s", preferred_address=USER_WALLET)
@@ -206,7 +239,9 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
             return {
                 "walletId": "w",
                 "walletAddress": USER_WALLET,
+                "orderAddress": USER_WALLET,
                 "usdt": 10.0,
+                "can_trade": True,
             }
 
         topic = {
@@ -231,6 +266,20 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["trade/place-order-bundle"]["fundingSource"], "MPC")
         self.assertEqual(captured["trade/get-quote"]["walletAddress"], USER_WALLET)
         self.assertEqual(result["wallet_address"], USER_WALLET)
+        self.assertNotIn("accountType", captured["trade/get-quote"])
+
+
+class WalletErrorTextTests(unittest.TestCase):
+    def test_api_error_text(self):
+        self.assertIn("IP", api_error_text(400, {"code": -2015, "msg": "IP restriction"}))
+
+    def test_mismatch_names_listed_account(self):
+        text = mismatch_wallet_error(
+            USER_WALLET,
+            ["0x1111111111111111111111111111111111111111"],
+        )
+        self.assertIn(USER_WALLET, text)
+        self.assertIn("Prediction Account", text)
 
 
 if __name__ == "__main__":

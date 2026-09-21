@@ -1,4 +1,18 @@
-"""Binance Wallet Prediction Markets (official SAPI)."""
+"""Binance Wallet → Predict.fun (web3.binance.com/en/prediction).
+
+Two different Binance products exist. This module is only product B.
+
+A) Binance Exchange Event Contracts — binance.com/prediction
+   CEX binary options. No official bet API. Never used here.
+
+B) Binance Wallet Prediction Markets — web3.binance.com/en/prediction
+   Predict.fun markets on BNB Smart Chain. Official SAPI:
+   https://api.binance.com/sapi/v1/w3w/wallet/prediction
+   Orders spend USDT on the user's My Wallet (MPC), not Spot/Funding/CeDefi.
+
+Binance also auto-creates a separate "Prediction Account". That is not
+My Wallet. This client never falls back to it.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -108,6 +122,9 @@ def unwrap_prediction_payload(data: Any) -> Any:
     if isinstance(inner, (dict, list)) and ("code" in data or "success" in data or "msg" in data or "message" in data):
         return inner
     return data
+
+
+def api_error_text(status: int, data: Any) -> str:
     if isinstance(data, dict):
         nested = data.get("data")
         msg = data.get("msg") or data.get("message") or data.get("error")
@@ -118,6 +135,18 @@ def unwrap_prediction_payload(data: Any) -> Any:
             return f"HTTP {status} {code or ''} {msg}".strip()
         return f"HTTP {status} {str(data)[:180]}"
     return f"HTTP {status} {str(data)[:180]}"
+
+
+def mismatch_wallet_error(preferred: str, listed: List[str], extra: str = "") -> str:
+    others = [addr for addr in listed if addr and not same_address(addr, preferred)]
+    shown = ", ".join(short_wallet_label(addr) for addr in others) or "none"
+    text = (
+        f"My Wallet {preferred} is not in Binance wallet/list (listed: {shown}). "
+        "Those listed addresses are Binance's auto Prediction Account, not web3 My Wallet. "
+        "REAL will not spend them."
+    )
+    extra = (extra or "").strip()
+    return f"{text} {extra}".strip() if extra else text
 
 
 def encode_balance_of(address: str) -> str:
@@ -407,14 +436,6 @@ class WalletPredictionClient:
         detail = await self.market_detail(picked.get("marketTopicId"))
         return detail or picked
 
-    async def payment_options(self, account_type: Optional[str] = None) -> List[Dict[str, Any]]:
-        extra = {"type": account_type} if account_type else None
-        status, data = await self._request("GET", "balance/payment-options", extra)
-        if status != 200:
-            return []
-        items = data.get("items") if isinstance(data, dict) else data
-        return [row for row in (items or []) if isinstance(row, dict)]
-
     async def list_wallets(self) -> List[Dict[str, Any]]:
         status, data = await self._request("GET", "wallet/list")
         if status != 200:
@@ -433,59 +454,48 @@ class WalletPredictionClient:
         return wallets
 
     async def fetch_prediction_wallet(self) -> Dict[str, Any]:
-        """Use the Prediction wallet Binance registered (walletId + address from wallet/list)."""
+        """Display and spend My Wallet only. Never wallets[0] / CeDefi / Prediction Account."""
         preferred = resolve_preferred_address(self.preferred_address)
         wallets = await self.list_wallets()
         matched = match_wallet_row(wallets, preferred)
-        if not matched and wallets:
-            matched = wallets[0]
-        listed_address = wallet_address_of(matched) if matched else ""
-        address = listed_address or preferred
+        usdt = await fetch_bsc_usdt(preferred)
+        listed = [wallet_address_of(row) for row in wallets if wallet_address_of(row)]
         wallet_id = wallet_id_of(matched) if matched else ""
-        usdt = await fetch_bsc_usdt(address)
-        error = ""
-        if not wallet_id:
-            error = self._last_wallet_list_error or (
-                "Binance did not return a Prediction walletId. "
-                "On the API key: Enable Prediction Trading and IP restriction."
-            )
+        order_address = (wallet_address_of(matched) or preferred) if matched else ""
+        can_trade = bool(matched and wallet_id and same_address(order_address, preferred))
+        error = "" if can_trade else mismatch_wallet_error(
+            preferred, listed, self._last_wallet_list_error
+        )
         return {
-            "wallet_id": wallet_id,
-            "wallet_address": address,
+            "wallet_id": wallet_id if can_trade else "",
+            "wallet_address": preferred,
+            "order_address": order_address if can_trade else "",
             "usdt": usdt,
             "label": "My Wallet",
             "network": "BNB Smart Chain",
+            "listed_wallets": listed,
+            "can_trade": can_trade,
             "error": error,
         }
 
-    async def fetch_prediction_accounts(self) -> Dict[str, Any]:
-        picked = await self.fetch_prediction_wallet()
-        wallets = await self.list_wallets()
-        items = []
-        if picked.get("wallet_address"):
-            items.append({
-                "accountType": "Prediction BSC",
-                "availableBalanceDisplay": picked.get("usdt") or 0.0,
-                "walletAddress": picked.get("wallet_address"),
-                "enabled": True,
-            })
-        return {
-            "items": items,
-            "wallets": wallets,
-            "picked": picked,
-            "error": picked.get("error") or "",
-        }
-
     async def ensure_wallet(self, refresh: bool = True) -> Dict[str, Any]:
-        cached = self._wallet.get("walletId") and self._wallet.get("walletAddress")
+        cached = (
+            self._wallet.get("walletId")
+            and self._wallet.get("walletAddress")
+            and same_address(self._wallet.get("walletAddress"), resolve_preferred_address(self.preferred_address))
+        )
         if cached and not refresh:
             return self._wallet
         picked = await self.fetch_prediction_wallet()
+        can_trade = bool(picked.get("can_trade"))
         self._wallet = {
-            "walletId": str(picked.get("wallet_id") or ""),
+            "walletId": str(picked.get("wallet_id") or "") if can_trade else "",
             "walletAddress": str(picked.get("wallet_address") or ""),
+            "orderAddress": str(picked.get("order_address") or "") if can_trade else "",
             "usdt": float(picked.get("usdt") or 0),
             "label": str(picked.get("label") or "My Wallet"),
+            "can_trade": can_trade,
+            "error": str(picked.get("error") or ""),
         }
         return self._wallet
 
@@ -500,29 +510,31 @@ class WalletPredictionClient:
         if not token:
             return {"success": False, "error": f"No Wallet outcome token for {signal}"}
         wallet = await self.ensure_wallet(refresh=True)
-        if not wallet.get("walletId") or not wallet.get("walletAddress"):
-            detail = self._last_wallet_list_error or "wallet/list did not return walletId"
+        preferred = resolve_preferred_address(self.preferred_address)
+        order_address = str(wallet.get("orderAddress") or wallet.get("walletAddress") or "")
+        if (
+            not wallet.get("can_trade")
+            or not wallet.get("walletId")
+            or not same_address(order_address, preferred)
+        ):
             return {
                 "success": False,
-                "error": (
-                    f"{detail}. On-chain USDT is visible without this; orders need wallet/list. "
-                    "On the API key: Enable Prediction Trading and restrict to this Mac's IP."
-                ),
+                "error": wallet.get("error") or self._last_wallet_list_error or mismatch_wallet_error(preferred, []),
             }
-        usdt = await fetch_bsc_usdt(wallet["walletAddress"])
+        usdt = await fetch_bsc_usdt(preferred)
         wallet["usdt"] = usdt
         if usdt < float(stake_usdt):
             return {
                 "success": False,
                 "error": (
-                    f"Prediction BSC USDT ${usdt:.2f} is below ${float(stake_usdt):.2f}. "
-                    f"Send USDT on BNB Smart Chain to {short_wallet_label(wallet['walletAddress'])}."
+                    f"My Wallet BSC USDT ${usdt:.2f} is below ${float(stake_usdt):.2f}. "
+                    f"Send USDT on BNB Smart Chain to {preferred}."
                 ),
             }
         amount_in = str(int(round(float(stake_usdt) * USDT_WEI)))
         slippage = int(topic.get("slippageBps") or DEFAULT_SLIPPAGE_BPS)
         quote_req = {
-            "walletAddress": wallet["walletAddress"],
+            "walletAddress": preferred,
             "tokenId": token["token_id"],
             "side": "BUY",
             "amountIn": amount_in,
@@ -540,7 +552,7 @@ class WalletPredictionClient:
                 msg = str(quote.get("msg") or quote.get("message") or quote.get("error") or quote)
             return {"success": False, "error": msg or f"Quote failed HTTP {status}"}
         place_req = {
-            "walletAddress": wallet["walletAddress"],
+            "walletAddress": preferred,
             "walletId": wallet["walletId"],
             "quoteId": quote.get("quoteId"),
             "slippageBps": quote.get("slippageBps") or slippage,
@@ -574,7 +586,7 @@ class WalletPredictionClient:
             "quote": quote,
             "placed": placed,
             "account_type": "My Wallet",
-            "wallet_address": wallet["walletAddress"],
+            "wallet_address": preferred,
             "share_price": avg,
             "token": token,
             "title": topic.get("title") or "",

@@ -80,6 +80,7 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
                     "usdt": 10.025,
                     "label": "My Wallet",
                     "network": "BNB Smart Chain",
+                    "can_trade": True,
                     "error": "",
                 }
 
@@ -94,6 +95,41 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Spot", result["wallets"])
         self.assertNotIn("Funding", result["wallets"])
         self.assertEqual(result["wallets"], {"My Wallet": 10.025})
+        self.assertTrue(result["can_trade"])
+
+    async def test_unlisted_address_still_shows_my_wallet_usdt(self):
+        connector = BinanceConnector(BinanceCredentials(
+            api_key="k",
+            api_secret="s",
+            is_testnet=False,
+            prediction_wallet=USER_WALLET,
+        ))
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def fetch_prediction_wallet(self):
+                return {
+                    "wallet_id": "",
+                    "wallet_address": USER_WALLET,
+                    "usdt": 10.025,
+                    "label": "My Wallet",
+                    "network": "BNB Smart Chain",
+                    "can_trade": False,
+                    "error": "My Wallet is not in Binance wallet/list",
+                }
+
+        with patch("src.wallet_prediction.WalletPredictionClient", FakeClient):
+            result = await connector.fetch_live_balances()
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["display_wallet"], "My Wallet")
+        self.assertEqual(result["display_balance"], 10.025)
+        self.assertEqual(result["wallet_address"], USER_WALLET)
+        self.assertEqual(result["error"], "")
+        self.assertFalse(result["can_trade"])
+        self.assertIn("wallet/list", result["trade_error"])
 
     async def test_signed_cex_endpoints_are_not_called(self):
         connector = BinanceConnector(BinanceCredentials(api_key="k", api_secret="s", is_testnet=False))
@@ -109,6 +145,7 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
                     "wallet_address": USER_WALLET,
                     "usdt": 10.025,
                     "label": "My Wallet",
+                    "can_trade": True,
                     "error": "",
                 }
 
