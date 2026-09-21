@@ -13,14 +13,17 @@ Clona el repo público: [knull66/Vibesbot](https://github.com/knull66/Vibesbot).
 - **SIM**: paper trading contra el lock de Wallet (Price to Beat) y el mid de Binance Spot `bookTicker`.
 - **REAL**: `get-quote` + `place-order-bundle` firmados. Gasta el **Prediction Account** de `wallet/list` (Portfolio → Transfer In), no Web3 My Wallet.
 - **Settlement REAL**: `position/settled-history` / posiciones ENDED. No inventa WIN/LOSS con velas 5m locales.
-- **Señal**: mayoría de indicadores + tape (`round_signal`). No es un modelo ML en el camino de apuesta del dashboard. El umbral efectivo por defecto es **0.50** (un 0.62 legado se mapea a 0.50 porque bloqueaba casi todo).
-- **Edge**: solo apuesta si el share price está ~0.38–0.62 y el precio ya se movió ≥ $12 vs Price to Beat.
+- **Señal**: mayoría de indicadores + tape (`round_signal`). El panel Strategy ajusta esos pesos. No hay LightGBM en el camino de apuesta. Umbral ~**0.50**.
+- **Filtros**: crowd de Wallet de acuerdo, ≥ $12 vs Price to Beat, share price ~0.38–0.62.
+- **Circuit breaker**: 5 pérdidas seguidas pausan ~30 min. Settings de pérdida diaria y máximo de trades también cortan.
+- **Journal**: cada settle se guarda en `trade_journal.jsonl` (Application Support).
+- **Updates Mac**: al abrir, si auto-update está on y no se checó en ~20h, overlay del último GitHub release.
 
-## Lo que no está cableado (aún)
+## Bind y Settings
 
-El dashboard **no** llama a `RiskManager` / circuit breaker en `_execute_trade`. Sí respeta los límites de Settings: pérdida diaria y máximo de trades. No vendas el circuit breaker como si frenara el bot hoy.
+El dashboard escucha **127.0.0.1** salvo que el companion LAN esté activo (`0.0.0.0`). Settings de trading y strategy son **owner-only**.
 
-Playwright y el clicker de Event Contracts están eliminados.
+Playwright y el clicker de Event Contracts están eliminados. Al abrir, se purgan restos (`run_bot.py`).
 
 ## Requisitos para REAL
 

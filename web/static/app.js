@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.28.0';
+const APP_VERSION = '1.29.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -244,9 +244,12 @@ class VibesBot {
             document.body.classList.remove('auth-wait');
             this.connect();
             this.loadSavedSettings();
+            this.loadJournal();
             if (this.isCompanion) {
                 document.body.classList.add('companion-mode');
                 document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
+                document.querySelector('.settings-tab[data-panel="trading"]')?.style.setProperty('display', 'none');
+                document.querySelector('.settings-tab[data-panel="strategy"]')?.style.setProperty('display', 'none');
                 document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
                 const ownerTools = document.getElementById('owner-account-tools');
                 if (ownerTools) ownerTools.style.display = 'none';
@@ -257,6 +260,8 @@ class VibesBot {
                 this.loadCompanionInfo();
             } else {
                 document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
+                document.querySelector('.settings-tab[data-panel="trading"]')?.style.setProperty('display', 'none');
+                document.querySelector('.settings-tab[data-panel="strategy"]')?.style.setProperty('display', 'none');
                 document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
             }
         } catch (e) {
@@ -509,6 +514,9 @@ class VibesBot {
                 break;
             case 'stats':
                 this.updateStats(data);
+                break;
+            case 'journal':
+                this.applyJournal(data.trades || []);
                 break;
             case 'trade':
                 this.addTrade(data);
@@ -782,7 +790,7 @@ class VibesBot {
     addTrade(data) {
         // Add to history
         this.tradeHistory.unshift(data);
-        if (this.tradeHistory.length > 50) this.tradeHistory.pop();
+        if (this.tradeHistory.length > 80) this.tradeHistory.pop();
         
         // Update history tab
         this.renderHistory();
@@ -849,6 +857,31 @@ class VibesBot {
             this.tradeLog.removeChild(this.tradeLog.lastChild);
         }
     }
+
+    async loadJournal() {
+        try {
+            const response = await fetch('/api/journal');
+            if (!response.ok) return;
+            const data = await response.json();
+            this.applyJournal(data.trades || []);
+        } catch (e) {}
+    }
+
+    applyJournal(trades) {
+        if (!Array.isArray(trades) || !trades.length) return;
+        const incoming = trades.slice().reverse();
+        const merged = incoming.concat(this.tradeHistory);
+        const seen = new Set();
+        const deduped = [];
+        for (const row of merged) {
+            const key = [row.timestamp, row.order_id || '', row.pnl, row.direction].join('|');
+            if (seen.has(key)) continue;
+            seen.add(key);
+            deduped.push(row);
+        }
+        this.tradeHistory = deduped.slice(0, 80);
+        this.renderHistory();
+    }
     
     renderHistory() {
         const list = document.getElementById('history-list');
@@ -862,11 +895,11 @@ class VibesBot {
             return;
         }
         
-        list.innerHTML = this.tradeHistory.slice(0, 20).map(trade => `
+        list.innerHTML = this.tradeHistory.slice(0, 40).map(trade => `
             <div class="history-item ${trade.result?.toLowerCase() || ''}">
                 <div class="history-direction ${trade.direction?.toLowerCase() || ''}">${trade.direction || '?'}</div>
                 <div class="history-details">
-                    <div>${new Date(trade.timestamp || Date.now()).toLocaleTimeString()}</div>
+                    <div>${trade.mode || (trade.live ? 'REAL' : 'SIM')} · ${new Date(trade.timestamp || Date.now()).toLocaleTimeString()}</div>
                     <div class="history-prices">
                         Entry: $${(trade.entry_price || 0).toFixed(2)} → Exit: $${(trade.exit_price || 0).toFixed(2)}
                     </div>
@@ -1108,6 +1141,15 @@ class VibesBot {
         this.isPaused = data.paused || false;
         if (typeof data.simulation === 'boolean') {
             this.applyModeUi(data.simulation);
+        }
+        const engine = document.getElementById('model-status');
+        if (engine) {
+            const label = data.signal_engine || (data.model_loaded ? 'Indicators + tape' : 'Waiting');
+            engine.textContent = label === 'indicators+tape' ? 'Indicators + tape' : label;
+        }
+        const strategy = document.getElementById('strategy-status');
+        if (strategy && data.signal_engine) {
+            strategy.textContent = 'Live weights';
         }
         this.updateControlButtons();
     }

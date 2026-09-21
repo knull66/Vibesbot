@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.28.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.29.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -254,7 +254,7 @@
 
                 <div class="tab-content" id="tab-history">
                     <div class="history-header">
-                        <span>TRADE HISTORY</span>
+                        <span>TRADE JOURNAL</span>
                         <span class="history-count" id="history-count">0 trades</span>
                     </div>
                     <div class="history-list" id="history-list">
@@ -310,14 +310,14 @@
         <!-- Footer -->
         <footer class="footer">
             <div class="footer-item">
-                <span class="footer-label">Model:</span>
-                <span id="model-status">Not loaded</span>
+                <span class="footer-label">Signal:</span>
+                <span id="model-status">Indicators + tape</span>
             </div>
             <div class="footer-item">
                 <span class="footer-label">Strategy:</span>
-                <span id="strategy-status">Multi-Indicator</span>
+                <span id="strategy-status">Live weights</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.28.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.29.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -427,10 +427,11 @@
                 <!-- Strategy Panel -->
                 <div class="settings-panel" id="panel-strategy">
                     <div class="settings-section">
-                        <h3>ACTIVE STRATEGY</h3>
+                        <h3>LIVE SIGNAL</h3>
+                        <p class="settings-hint">Wallet bets use RSI, MACD, Bollinger, momentum and the Binance spot tape — not LightGBM. These weights feed that live vote. Presets only change the mix.</p>
                         
                         <div class="form-group">
-                            <label for="strategy-select">SELECT STRATEGY</label>
+                            <label for="strategy-select">PRESET</label>
                             <select id="strategy-select">
                                 <option value="default">Balanced</option>
                                 <option value="conservative">Conservative</option>
@@ -548,7 +549,7 @@
                             <div class="update-info" style="margin-top:10px;">
                                 <div class="update-version">
                                     <span>Version</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.28.0</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.29.0</span>
                                 </div>
                                 <div class="update-version">
                                     <span>Latest</span>
@@ -680,6 +681,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.28.0"></script>
+    <script src="/static/app.js?v=1.29.0"></script>
 </body>
 </html>

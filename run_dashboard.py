@@ -25,8 +25,8 @@ def main():
     parser.add_argument(
         "--host",
         type=str,
-        default="0.0.0.0",
-        help="Host to bind (default: 0.0.0.0)"
+        default=None,
+        help="Host to bind (default: 127.0.0.1, or 0.0.0.0 if companion LAN is on)",
     )
     parser.add_argument(
         "-c", "--config",

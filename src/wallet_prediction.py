@@ -14,6 +14,7 @@ B) Binance Wallet Prediction Markets — web3.binance.com/en/prediction
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import time
@@ -852,7 +853,7 @@ class WalletPredictionClient:
         ).hexdigest()
         return f"{query}&signature={signature}"
 
-    async def _request(self, method: str, path: str, extra: Optional[Dict[str, Any]] = None) -> Tuple[int, Any]:
+    async def _request_once(self, method: str, path: str, extra: Optional[Dict[str, Any]] = None) -> Tuple[int, Any]:
         if not self.api_key or not self.api_secret:
             return 400, {"msg": "API Key and Secret are required"}
         signed = self._signed_query(extra)
@@ -871,6 +872,18 @@ class WalletPredictionClient:
                     payload = {"msg": (await response.text())[:220]}
                 payload = unwrap_prediction_payload(payload)
                 return response.status, payload
+
+    async def _request(self, method: str, path: str, extra: Optional[Dict[str, Any]] = None) -> Tuple[int, Any]:
+        last: Tuple[int, Any] = (0, {})
+        for attempt in range(4):
+            status, payload = await self._request_once(method, path, extra)
+            last = (status, payload)
+            if status != 429:
+                return status, payload
+            wait = 0.4 * (2 ** attempt)
+            logger.warning(f"Wallet SAPI 429 on {path}, retry in {wait:.1f}s")
+            await asyncio.sleep(wait)
+        return last
 
     async def search_markets(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
         status, data = await self._request("GET", "market/search", {"query": query, "topK": min(limit, 50)})

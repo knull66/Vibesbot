@@ -496,6 +496,38 @@ class RiskManager:
         logger.warning(
             f"Circuit breaker activated! Cooldown until {self._circuit_breaker_until}"
         )
+
+    def circuit_status(self) -> tuple:
+        """True when _execute_trade may open a new Wallet bet."""
+        self._check_day_reset()
+        now = datetime.now(timezone.utc)
+        if self._circuit_breaker_active:
+            if self._circuit_breaker_until and now < self._circuit_breaker_until:
+                until = self._circuit_breaker_until.strftime("%H:%M")
+                return False, f"SKIP: circuit breaker until {until} UTC"
+            self._circuit_breaker_active = False
+            self._circuit_breaker_until = None
+        losses = self.position_sizer.consecutive_losses
+        if losses >= self.risk_config.circuit_breaker_consecutive_losses:
+            self._activate_circuit_breaker()
+            return False, f"SKIP: circuit breaker after {losses} consecutive losses"
+        return True, ""
+
+    def record_settled(self, result: str, pnl: float):
+        """Feed a settled Wallet round into the consecutive-loss breaker."""
+        self._check_day_reset()
+        outcome = str(result or "").upper()
+        if outcome == "PUSH":
+            return None
+        is_win = outcome == "WIN"
+        self.position_sizer.record_result(is_win, float(pnl or 0))
+        self._daily_pnl += float(pnl or 0)
+        if not is_win:
+            losses = self.position_sizer.consecutive_losses
+            if losses >= self.risk_config.circuit_breaker_consecutive_losses:
+                self._activate_circuit_breaker()
+                return f"Circuit breaker ON after {losses} consecutive losses"
+        return None
     
     def _check_day_reset(self) -> None:
         """Verifica si es un nuevo día y resetea contadores."""

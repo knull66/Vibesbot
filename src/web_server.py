@@ -29,9 +29,9 @@ from .predictor import Predictor, Signal, ModelType
 from .risk_manager import RiskManager, RiskStatus
 from .utils.logger import setup_logger, get_logger
 from .utils.helpers import calculate_round_times
-from .round_signal import combine_indicator_votes, price_confirms, tape_vote
+from .round_signal import combine_indicator_votes, crowd_agrees, price_confirms, tape_vote
 from .auth import COOKIE_NAME, SESSION_DAYS, get_auth
-from .companion import get_companion, is_loopback
+from .companion import dashboard_bind_host, get_companion, is_loopback
 from .wallet_prediction import (
     PendingWalletTrade,
     WalletPredictionClient,
@@ -156,7 +156,8 @@ class ClientSession:
             "type": "status",
             "running": self.running,
             "paused": self.paused,
-            "model_loaded": model_loaded,
+            "model_loaded": True,
+            "signal_engine": "indicators+tape",
             "session_id": self.session_id,
             "simulation": self.simulation,
         }
@@ -299,7 +300,8 @@ class DashboardBot:
                 "type": "status",
                 "running": False,
                 "paused": False,
-                "model_loaded": model_loaded
+                "model_loaded": True,
+                "signal_engine": "indicators+tape",
             })
         except Exception:
             pass
@@ -553,16 +555,9 @@ class DashboardBot:
             prob_up = 0.5
             prob_down = 0.5
             strategy_used = "none"
-            
-            # Intentar usar el modelo ML real
-            if self.predictor and self.predictor.is_ready:
-                prediction = await self.predictor.predict(self.data_stream)
-                signal = prediction.signal.value
-                confidence = prediction.confidence
-                prob_up = prediction.probability_up
-                prob_down = prediction.probability_down
-                strategy_used = "ML Model"
-            elif self.data_stream:
+
+            # Live Wallet bets use indicators + tape only. LightGBM is not on this path.
+            if self.data_stream:
                 df = self.data_stream.get_candles_df("1m")
                 if len(df) > 26:
                     try:
@@ -608,8 +603,20 @@ class DashboardBot:
                             book_imb = 0.0
                         tape_signal = tape_vote(float(flow.get("flow_imbalance") or 0), book_imb)
 
+                        weights = None
+                        try:
+                            from .strategy_manager import get_strategy_manager
+                            active = get_strategy_manager().get_active_strategy()
+                            weights = {
+                                "rsi": active.rsi_weight,
+                                "macd": active.macd_weight,
+                                "bollinger": active.bollinger_weight,
+                                "momentum": active.momentum_weight,
+                            }
+                        except Exception:
+                            weights = None
                         signal, confidence, strategy_used = combine_indicator_votes(
-                            rsi_signal, macd_signal, bb_signal, mom_signal, tape_signal
+                            rsi_signal, macd_signal, bb_signal, mom_signal, tape_signal, weights
                         )
                         
                         prob_up = confidence if signal == "UP" else 1 - confidence
@@ -680,6 +687,21 @@ class DashboardBot:
                 })
                 return
 
+            if self.risk_manager is None:
+                try:
+                    self.risk_manager = RiskManager(self.config.risk, self.config.trading)
+                except Exception:
+                    self.risk_manager = None
+            if self.risk_manager:
+                allowed, reason = self.risk_manager.circuit_status()
+                if not allowed:
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": reason,
+                        "level": "info",
+                    })
+                    return
+
             from .user_settings import effective_confidence_threshold, get_settings_manager
             sm = get_settings_manager()
             if self._last_prediction_round != current_round:
@@ -725,6 +747,17 @@ class DashboardBot:
                     share_price = float(book.get("up") or 0.5)
                 elif signal == "DOWN":
                     share_price = float(book.get("down") or 0.5)
+                if not crowd_agrees(signal, book):
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": (
+                            f"SKIP: crowd disagrees ({signal} vs "
+                            f"Up {float(book.get('up') or 0)*100:.0f}% / "
+                            f"Down {float(book.get('down') or 0)*100:.0f}%)"
+                        ),
+                        "level": "info",
+                    })
+                    return
             current_px = self._live_btc_price(book)
             confirmed, confirm_reason = price_confirms(signal, current_px, open_price)
             if not confirmed:
@@ -798,6 +831,17 @@ class DashboardBot:
                     })
                     return
                 topic_book = market_book(topic)
+                if topic_book and not crowd_agrees(signal, topic_book):
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": (
+                            f"SKIP: crowd disagrees on Wallet book "
+                            f"(Up {float(topic_book.get('up') or 0)*100:.0f}% / "
+                            f"Down {float(topic_book.get('down') or 0)*100:.0f}%)"
+                        ),
+                        "level": "info",
+                    })
+                    return
                 open_price = self._resolve_price_to_beat(topic_book, current_round) or open_price
                 token = outcome_token(topic, signal)
                 fee_bps = int(topic.get("feeRateBps") or 200)
@@ -1044,6 +1088,39 @@ class DashboardBot:
         })
         await self.manager.send_to_session(session.session_id, session.stats_payload())
         self._save_session(session)
+        try:
+            from .trade_journal import append_trade
+            append_trade({
+                "timestamp": datetime.now().isoformat(),
+                "session_id": session.session_id,
+                "direction": pending.signal,
+                "amount": pending.stake,
+                "entry_price": pending.open_price,
+                "exit_price": exit_price,
+                "pnl": pnl,
+                "result": result,
+                "live": pending.live,
+                "fee": pending.fee,
+                "market": pending.market_title,
+                "order_id": pending.order_id,
+                "mode": "REAL" if pending.live else "SIM",
+            })
+        except Exception as exc:
+            logger.warning(f"Journal append failed: {exc}")
+        if self.risk_manager:
+            tripped = self.risk_manager.record_settled(result, pnl)
+            if tripped:
+                await self.manager.send_to_session(session.session_id, {
+                    "type": "log",
+                    "message": tripped,
+                    "level": "info",
+                })
+        try:
+            from .strategy_manager import get_strategy_manager
+            if result in ("WIN", "LOSS"):
+                get_strategy_manager().record_trade_result(result == "WIN", pnl)
+        except Exception:
+            pass
         logger.info(f"[{session.session_id[:8]}] Settled {pending.signal} {result} ${pnl:+.2f}")
     
     async def _send_market(self):
@@ -1370,6 +1447,15 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.on_event("startup")
     async def startup():
         await bot.initialize()
+        try:
+            from .updater import maybe_daily_update
+            result = await maybe_daily_update()
+            if result.get("applied"):
+                logger.info(f"Daily update applied: {result.get('message')}")
+            elif result.get("available"):
+                logger.info(f"Update available: {result.get('latest')}")
+        except Exception as exc:
+            logger.warning(f"Daily update skipped: {exc}")
     
     @app.on_event("shutdown")
     async def shutdown():
@@ -1420,7 +1506,13 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
             return JSONResponse({"error": "forbidden"}, status_code=403)
         data = await request.json()
         companion.set_enabled(bool(data.get("enabled", False)))
-        return {"success": True, **companion.info(port=8080)}
+        payload = {"success": True, **companion.info(port=8080)}
+        if companion.enabled:
+            payload["listen"] = "0.0.0.0"
+            payload["hint"] = "Quit and reopen so the app listens on LAN for the phone."
+        else:
+            payload["listen"] = "127.0.0.1"
+        return payload
 
     @app.post("/api/companion/pin")
     async def companion_pin(request: Request):
@@ -1596,8 +1688,13 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                 await bot.refresh_live_balances(session)
             except Exception as exc:
                 logger.error(f"Live balance refresh on connect failed: {exc}")
-        await manager.send_to(websocket, session.status_payload(model_ready))
+        await manager.send_to(websocket, session.status_payload(True))
         await manager.send_to(websocket, session.stats_payload())
+        try:
+            from .trade_journal import read_trades
+            await manager.send_to(websocket, {"type": "journal", "trades": read_trades(80)})
+        except Exception:
+            pass
         await manager.send_to(websocket, {
             "type": "log",
             "message": f"Signed in as {user.username}",
@@ -1696,9 +1793,16 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         sm = get_settings_manager()
         return sm.get_settings_for_frontend()
     
+    @app.get("/api/journal")
+    async def get_journal(request: Request):
+        from .trade_journal import read_trades
+        return {"trades": read_trades(200)}
+
     @app.post("/api/settings/trading")
     async def update_trading_settings(request: Request):
         """Actualiza la configuración de trading."""
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can change trading settings"}, status_code=403)
         data = await request.json()
         sm = get_settings_manager()
         sm.update_trading_settings(**data)
@@ -1835,6 +1939,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.post("/api/strategies/active")
     async def set_active_strategy(request: Request):
         """Establece la estrategia activa."""
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can change strategy"}, status_code=403)
         data = await request.json()
         sm = get_strategy_manager()
         success = sm.set_active_strategy(data.get("id", "default"))
@@ -1843,6 +1949,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.post("/api/strategies")
     async def create_strategy(request: Request):
         """Crea una nueva estrategia."""
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can change strategy"}, status_code=403)
         data = await request.json()
         sm = get_strategy_manager()
         strategy = sm.create_strategy(data.get("name", "Custom"), data)
@@ -1851,6 +1959,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     @app.put("/api/strategies/{strategy_id}")
     async def update_strategy(strategy_id: str, request: Request):
         """Actualiza una estrategia."""
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can change strategy"}, status_code=403)
         data = await request.json()
         sm = get_strategy_manager()
         strategy = sm.update_strategy(strategy_id, data)
@@ -1859,8 +1969,10 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         return {"success": False, "error": "Strategy not found"}
     
     @app.delete("/api/strategies/{strategy_id}")
-    async def delete_strategy(strategy_id: str):
+    async def delete_strategy(strategy_id: str, request: Request):
         """Elimina una estrategia."""
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can change strategy"}, status_code=403)
         sm = get_strategy_manager()
         success = sm.delete_strategy(strategy_id)
         return {"success": success}
@@ -1979,7 +2091,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     return app
 
 
-def run_dashboard(host: str = "0.0.0.0", port: int = 8080, config_path: Optional[str] = None):
+def run_dashboard(host: Optional[str] = None, port: int = 8080, config_path: Optional[str] = None):
     """Inicia el servidor del dashboard."""
     setup_logger("web_server", console_output=True)
     try:
@@ -1990,9 +2102,10 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 8080, config_path: Optional
     
     config = load_config(config_path)
     app = create_app(config)
+    bind_host = dashboard_bind_host(host)
     
-    logger.info(f"Starting dashboard at http://{host}:{port}")
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    logger.info(f"Starting dashboard at http://{bind_host}:{port}")
+    uvicorn.run(app, host=bind_host, port=port, log_level="info")
 
 
 # Crear instancia de app para usar con uvicorn directamente (ej: uvicorn src.web_server:app)

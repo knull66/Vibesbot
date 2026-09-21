@@ -13,7 +13,7 @@ import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
@@ -480,6 +480,54 @@ def get_updater() -> Updater:
     if _updater is None:
         _updater = Updater()
     return _updater
+
+
+async def maybe_daily_update(apply: Optional[bool] = None) -> dict:
+    """Once per ~day: check GitHub and overlay if auto_update is on."""
+    from .user_settings import get_settings_manager
+
+    if apply is None:
+        apply = sys.platform == "darwin"
+    sm = get_settings_manager()
+    if not sm.settings.auto_update:
+        return {"skipped": True, "reason": "auto_update off"}
+    now = datetime.now(timezone.utc)
+    last = sm.settings.last_update_check
+    if last:
+        try:
+            prev = datetime.fromisoformat(last)
+            if prev.tzinfo is None:
+                prev = prev.replace(tzinfo=timezone.utc)
+            if now - prev < timedelta(hours=20):
+                return {"skipped": True, "reason": "checked recently"}
+        except ValueError:
+            pass
+    updater = get_updater()
+    info = await updater.check_for_updates()
+    sm.settings.last_update_check = now.isoformat()
+    sm.save()
+    result = {
+        "skipped": not info.available,
+        "available": info.available,
+        "current": info.current_version,
+        "latest": info.latest_version,
+        "applied": False,
+        "message": "",
+    }
+    if info.available and apply:
+        success, message = await updater.update()
+        result["applied"] = success
+        result["message"] = message
+        result["skipped"] = False
+        if success:
+            try:
+                from .runtime import relaunch_app
+                relaunch_app(delay=2.0)
+            except Exception as exc:
+                logger.warning(f"Relaunch after daily update failed: {exc}")
+    elif info.available:
+        result["message"] = f"Update {info.latest_version} available"
+    return result
 
 
 async def check_updates_on_startup():

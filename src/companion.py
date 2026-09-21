@@ -154,3 +154,20 @@ def get_companion() -> CompanionHub:
     if _HUB is None:
         _HUB = CompanionHub()
     return _HUB
+
+
+def dashboard_bind_host(explicit: Optional[str] = None) -> str:
+    """Loopback by default. LAN bind only when companion sharing is on."""
+    import os
+
+    if explicit:
+        return explicit
+    env = (os.getenv("VIBESBOT_HOST") or "").strip()
+    if env:
+        return env
+    try:
+        if get_companion().enabled:
+            return "0.0.0.0"
+    except Exception:
+        pass
+    return "127.0.0.1"

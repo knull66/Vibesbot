@@ -46,7 +46,10 @@ En la app (SIM y REAL comparten valores):
 - Bet amount ≥ 1.50
 - Confidence **0.50** (un 0.62 viejo se trata como 0.50)
 - Daily loss y max trades al día **sí** cortan el motor
-- El circuit breaker de `RiskManager` **no** está cableado en `_execute_trade`
+- Circuit breaker: 5 pérdidas seguidas, cooldown ~30 min
+- Settings de trading/strategy: solo el owner en el Mac
+- Bind: `127.0.0.1` (LAN `0.0.0.0` si activas companion; hay que reabrir)
+- En Mac, si auto-update está on, busca un release ~una vez al día al abrir
 
 Empieza en SIM. Pasa a REAL solo cuando el feed SIM y el book de Binance coinciden (Price to Beat = lock de Wallet, no la vela 5m local).
 

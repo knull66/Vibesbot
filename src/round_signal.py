@@ -1,5 +1,5 @@
 """Round-level signal: indicators + tape, never a naked 50/50 coin flip."""
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 MIN_CONFIRM_MOVE = 12.0
 
@@ -28,13 +28,19 @@ def combine_indicator_votes(
     bb_signal: int,
     mom_signal: int,
     tape_signal: int = 0,
+    weights: Optional[Dict[str, int]] = None,
 ) -> Tuple[str, float, str]:
     """Only a clear majority bets. Weak/coin-flip returns WAIT."""
+    w = weights or {}
+    rsi_w = max(0, int(w.get("rsi", 2)))
+    macd_w = max(0, int(w.get("macd", 2)))
+    bb_w = max(0, int(w.get("bollinger", 1)))
+    mom_w = max(0, int(w.get("momentum", 1)))
     total = (
-        int(rsi_signal) * 2
-        + int(macd_signal) * 2
-        + int(bb_signal)
-        + int(mom_signal)
+        int(rsi_signal) * rsi_w
+        + int(macd_signal) * macd_w
+        + int(bb_signal) * bb_w
+        + int(mom_signal) * mom_w
         + int(tape_signal)
     )
     if total >= 3:

@@ -56,6 +56,7 @@ data/
 trading_data.json
 user_settings.json
 binance_api_secret.enc
+trade_journal.jsonl
 
 # Models (large files)
 models/*.pkl
