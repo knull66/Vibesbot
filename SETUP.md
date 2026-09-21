@@ -1,189 +1,77 @@
-# Configuración de Vibesbot
+# Configuración de Vibesbot (Wallet Prediction)
 
-Esta guía explica cómo configurar Vibesbot para operar en producción.
+Producto: **Binance Wallet Prediction** (Predict.fun, BSC) vía SAPI oficial.  
+No es Exchange Event Contracts. Repo: [knull66/Vibesbot](https://github.com/knull66/Vibesbot).
 
-## 1. Instalación Rápida
+## 1. Instalar
 
 ```bash
-# Clonar e instalar
-git clone https://github.com/knullproject/Vibesbot.git
+git clone https://github.com/knull66/Vibesbot.git
 cd Vibesbot
-
-# Instalar como aplicación de escritorio
-python3 install.py
-```
-
-Después de instalar, puedes abrir Vibesbot desde tu menú de aplicaciones o ejecutando `python3 vibesbot.py`.
-
-## 2. Entrenar el Modelo
-
-**IMPORTANTE**: Antes de operar en vivo, debes entrenar el modelo con datos históricos.
-
-```bash
-# Entrenar con 30 días de datos (recomendado)
-python3 run_backtest.py --days 30
-
-# O con más datos para mejor precisión
-python3 run_backtest.py --days 60
-```
-
-Esto genera:
-- `models/prediction_model.pkl` - Modelo entrenado
-- `models/feature_scaler.pkl` - Escalador de features
-- `backtest_results/` - Métricas y estadísticas
-
-## 3. Configuración
-
-Crea tu archivo de configuración:
-
-```bash
-cp config.example.json config.json
-```
-
-Edita `config.json` con tus preferencias:
-
-```json
-{
-  "trading": {
-    "initial_capital": 100.0,      // Tu capital inicial en USDT
-    "base_bet_amount": 1.0,        // Apuesta base
-    "min_bet_amount": 0.5,         // Mínimo por operación
-    "max_bet_amount": 10.0,        // Máximo por operación
-    "sizing_strategy": "half_kelly" // fixed, kelly, half_kelly, percent
-  },
-  "prediction": {
-    "confidence_threshold": 0.62   // Solo operar si confianza > 62%
-  },
-  "risk": {
-    "max_daily_loss": 20.0,        // Stop loss diario
-    "circuit_breaker_consecutive_losses": 5,  // Parar tras 5 pérdidas
-    "max_trades_per_day": 100      // Límite de operaciones diarias
-  }
-}
-```
-
-## 4. Modos de Operación
-
-### Modo Dashboard (Recomendado para empezar)
-
-```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 python3 run_dashboard.py
 ```
 
-- Interfaz visual en `http://localhost:8080`
-- Control manual con botones START/PAUSE/STOP
-- **No ejecuta apuestas reales** - Modo simulación
+App Mac: descarga el release en `https://github.com/knull66/Vibesbot/releases/latest`. Después de actualizar, **Quit en el Dock** y abre de nuevo.
 
-### Modo REAL (app Mac / dashboard)
+## 2. API key (REAL)
 
-Apuestas reales: app Mac en modo REAL + API key con **Enable Prediction Trading**.
-El dashboard usa `WalletPredictionClient` (SAPI oficial).
+En Binance → API Management:
 
-## 5. Estrategias de Sizing
+1. Key **live** (desmarca Testnet en la app).
+2. Activa **Enable Prediction Trading**.
+3. Restringe a la **IP de este Mac**. Sin IP, `wallet/list` suele fallar.
+4. Solo lectura + prediction. No hace falta Spot/Futures para apostar.
 
-| Estrategia | Descripción | Riesgo |
-|------------|-------------|--------|
-| `fixed` | Monto fijo por operación | Bajo |
-| `percent` | % del capital (ej. 2%) | Bajo |
-| `half_kelly` | Kelly Criterion × 0.5 | Medio |
-| `kelly` | Kelly Criterion completo | Alto |
-| `anti_martingale` | Aumenta tras ganar | Variable |
+El secret se cifra al guardar (Keychain en Mac, archivo `binance_api_secret.enc` con permiso 0600). Si actualizas desde una versión que lo tenía en JSON plano, el primer load lo migra.
 
-**Recomendación**: Empieza con `fixed` o `half_kelly`.
+## 3. Dinero que se apuesta
 
-## 6. Gestión de Riesgo
+| Sitio | ¿Se gasta? |
+|-------|------------|
+| Prediction Account (Portfolio → Transfer In) | Sí. Ahí va el REAL. |
+| Web3 My Wallet | No. |
+| Spot / Funding / Futures | No. |
 
-### Circuit Breaker
-Se activa automáticamente tras N pérdidas consecutivas:
-```json
-{
-  "risk": {
-    "circuit_breaker_consecutive_losses": 5,
-    "circuit_breaker_cooldown_minutes": 30
-  }
-}
-```
+Mínimo **1.50 USDT** por apuesta. Pasa USDT a BNB Smart Chain y Transfer In al Prediction Account.
 
-### Filtros de Volatilidad
-Evita operar en condiciones extremas:
-```json
-{
-  "risk": {
-    "min_volatility_threshold": 0.0005,  // Muy bajo = mercado muerto
-    "max_volatility_threshold": 0.02     // Muy alto = muy riesgoso
-  }
-}
-```
+Deja el campo wallet **vacío** para gastar la account listada. No pongas una address de My Wallet si no aparece en `wallet/list`.
 
-### Límites Diarios
-```json
-{
-  "risk": {
-    "max_daily_loss": 20.0,        // Stop loss en $
-    "max_daily_loss_percent": 0.20, // O 20% del capital
-    "max_trades_per_day": 100,
-    "max_trades_per_hour": 12
-  }
-}
-```
+## 4. Settings de trading
 
-## 7. Variables de Entorno (Opcional)
+En la app (SIM y REAL comparten valores):
 
-Puedes configurar via variables de entorno:
+- Bet amount ≥ 1.50
+- Confidence **0.50** (un 0.62 viejo se trata como 0.50)
+- Daily loss y max trades al día **sí** cortan el motor
+- El circuit breaker de `RiskManager` **no** está cableado en `_execute_trade`
 
-```bash
-export VIBESBOT_CAPITAL=100
-export VIBESBOT_CONFIDENCE=0.62
-export VIBESBOT_MAX_DAILY_LOSS=20
-export VIBESBOT_TESTNET=false     # true para usar testnet
-```
+Empieza en SIM. Pasa a REAL solo cuando el feed SIM y el book de Binance coinciden (Price to Beat = lock de Wallet, no la vela 5m local).
 
-## 8. Monitoreo y Logs
+## 5. Cómo sabe si ganó
 
-Los logs se guardan en `logs/`:
-- `vibesbot_YYYY-MM-DD.log` - Log principal
-- Incluye: predicciones, trades, PnL, errores
+- **SIM**: lock (Chainlink/Wallet Price to Beat) vs mid Spot `bookTicker`.
+- **REAL**: resultado de Binance (`isWinner` / `realizedPnl`). Si Portfolio dice Lost, Stats no puede mostrar WIN.
 
-Para ver los logs en tiempo real:
-```bash
-tail -f logs/vibesbot_$(date +%Y-%m-%d).log
-```
+## 6. Problemas frecuentes
 
-## 9. Solución de Problemas
+**wallet/list vacío / -2015**  
+Enable Prediction Trading + IP de este Mac. Testnet no tiene Wallet Prediction.
 
-### Error 451 de Binance
-La API de Binance está bloqueada en tu región. Soluciones:
-- Usa un VPN
-- El dashboard funciona con datos históricos en modo simulación
+**Apuesta $1.50 con Settings en $1**  
+El mínimo de Wallet es 1.50; la app lo sube.
 
-### Modelo no cargado
-```bash
-# Entrena el modelo primero
-python3 run_backtest.py --days 30
-```
+**Muchos SKIP**  
+Es el diseño: book 38–62%, umbral ~50%, y ≥ $12 vs Price to Beat. Un 50/50 al open es suerte con fee.
 
-### Puerto en uso
-```bash
-# Usa otro puerto
-python3 run_dashboard.py --port 3000
-```
+**WIN falso vs Lost en Binance**  
+Actualiza a ≥ 1.25: el settle REAL ya no usa velas locales.
 
-### API de predicciones
-En Binance: API key con **Enable Prediction Trading**, filtro de IP, y USDT en Prediction Account (Transfer In ≥ 1.50).
+**Sigue en versión vieja tras update**  
+Quit desde el Dock. El overlay no mata el Python anterior.
 
-## 10. Advertencias
+## 7. Disclaimer
 
-⚠️ **IMPORTANTE**:
-- Nunca inviertas más de lo que puedas perder
-- Los resultados de backtest no garantizan resultados futuros
-- El modelo puede tener overfitting
-- Usa primero el modo simulación para probar
-- Binance Prediction tiene una comisión del 5%
-
-## 11. Flujo Recomendado
-
-1. **Instalar**: `python3 install.py`
-2. **Entrenar**: `python3 run_backtest.py --days 30`
-3. **Probar en Dashboard**: `python3 run_dashboard.py` (modo simulación)
-4. **Configurar**: Editar `config.json` según resultados
-5. **Operar**: app Mac en REAL (Wallet Prediction SAPI)
+Puedes perder el Prediction Account entero. Fee ~2%. No es un bot de ML mágico.

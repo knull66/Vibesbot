@@ -2,10 +2,9 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from src.user_settings import BinanceConnector, BinanceCredentials, pick_live_wallet
-from src.wallet_prediction import DEFAULT_PREDICTION_WALLET
 from src.web_server import ClientSession
 
-USER_WALLET = "0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A"
+USER_WALLET = "0xaaaabbbbccccddddeeeeffff0000111122223333"
 
 
 class LiveWalletTests(unittest.TestCase):
@@ -94,14 +93,13 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["display_wallet"], "My Wallet")
         self.assertEqual(result["display_balance"], 10.025)
         self.assertEqual(result["wallet_address"], USER_WALLET)
-        self.assertEqual(DEFAULT_PREDICTION_WALLET, USER_WALLET)
         self.assertNotIn("Spot", result["wallets"])
         self.assertNotIn("Funding", result["wallets"])
         self.assertEqual(result["wallets"], {"My Wallet": 10.025})
         self.assertTrue(result["can_trade"])
 
     async def test_unlisted_address_still_shows_my_wallet_usdt(self):
-        listed = "0xf7d411111111111111111111111111111111bb3c"
+        listed = "0xbbbbccccddddeeeeffff00001111222233334444"
         connector = BinanceConnector(BinanceCredentials(
             api_key="k",
             api_secret="s",

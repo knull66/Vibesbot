@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.26.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.27.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -317,7 +317,7 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Multi-Indicator</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.26.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.27.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -364,9 +364,9 @@
                         <p class="settings-hint">Live Binance key: leave Testnet off. Testnet keys only work with that box on.</p>
                         <div class="form-group">
                             <label for="prediction-wallet">BINANCE WALLET (BNB SMART CHAIN)</label>
-                            <input type="text" id="prediction-wallet" spellcheck="false" value="0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A">
+                            <input type="text" id="prediction-wallet" spellcheck="false" placeholder="Leave empty to use the Prediction Account">
                         </div>
-                        <p class="settings-hint">REAL bets Binance Wallet Prediction (Predict.fun). The API spends the Prediction Account from wallet/list (the 0.91 USDT Portfolio with Transfer In), not My Wallet 0x5FB045… and not Exchange Event Contracts.</p>
+                        <p class="settings-hint">REAL bets Binance Wallet Prediction (Predict.fun on BSC) via official SAPI. Leave empty: the API spends the Prediction Account from wallet/list (Portfolio → Transfer In). That is not Web3 My Wallet and not Exchange Event Contracts.</p>
                         <div class="form-group">
                             <label class="checkbox-label">
                                 <input type="checkbox" id="use-testnet">
@@ -548,7 +548,7 @@
                             <div class="update-info" style="margin-top:10px;">
                                 <div class="update-version">
                                     <span>Version</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.26.0</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.27.0</span>
                                 </div>
                                 <div class="update-version">
                                     <span>Latest</span>
@@ -667,7 +667,7 @@
                     Switching to <strong>WALLET REAL</strong>
                 </p>
                 <p style="color:var(--text-muted); font-size:10px; margin-bottom:16px;">
-                    Start spends the Binance Prediction Account (Portfolio → Transfer In / Predict.fun). My Wallet 0x5FB045… is Web3 assets and is not spent. Minimum $1.50.
+                    Start spends the Binance Prediction Account (Portfolio → Transfer In / Predict.fun). Web3 My Wallet is not spent. Minimum $1.50.
                 </p>
                 <div class="form-actions" style="justify-content:center;">
                     <button class="btn" id="btn-cancel-real">Cancel</button>
@@ -680,6 +680,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.26.0"></script>
+    <script src="/static/app.js?v=1.27.0"></script>
 </body>
 </html>

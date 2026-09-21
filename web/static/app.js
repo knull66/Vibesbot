@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.26.0';
+const APP_VERSION = '1.27.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -1249,7 +1249,7 @@ class VibesBot {
             }
             const walletEl = document.getElementById('prediction-wallet');
             if (walletEl) {
-                walletEl.value = binance.prediction_wallet || '0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A';
+                walletEl.value = binance.prediction_wallet || '';
             }
             if (statusEl && binance.configured) {
                 statusEl.textContent = 'Keys saved on this Mac';

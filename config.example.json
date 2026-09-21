@@ -11,7 +11,7 @@
     "anti_martingale_max_streak": 3
   },
   "prediction": {
-    "confidence_threshold": 0.62,
+    "confidence_threshold": 0.50,
     "min_confidence_for_high_bet": 0.70,
     "model_path": "models/prediction_model.pkl",
     "scaler_path": "models/feature_scaler.pkl",

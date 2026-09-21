@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import patch
 
 from src.wallet_prediction import (
-    DEFAULT_PREDICTION_WALLET,
     PendingWalletTrade,
     WalletPredictionClient,
     as_probability,
@@ -39,7 +38,7 @@ from src.wallet_prediction import (
     mismatch_wallet_error,
 )
 
-USER_WALLET = "0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A"
+USER_WALLET = "0xaaaabbbbccccddddeeeeffff0000111122223333"
 
 
 class WalletMathTests(unittest.TestCase):
@@ -90,11 +89,12 @@ class WalletMathTests(unittest.TestCase):
         self.assertEqual(result, "PUSH")
         self.assertAlmostEqual(pnl, -fill["fee"], places=4)
 
-    def test_pins_user_binance_wallet(self):
-        self.assertEqual(DEFAULT_PREDICTION_WALLET, USER_WALLET)
-        self.assertEqual(resolve_preferred_address(""), USER_WALLET)
+    def test_empty_preferred_does_not_pin_an_address(self):
+        self.assertEqual(resolve_preferred_address(""), "")
+        self.assertEqual(resolve_preferred_address(None), "")
+        self.assertEqual(resolve_preferred_address(USER_WALLET), USER_WALLET)
         self.assertTrue(same_address(USER_WALLET.lower(), USER_WALLET))
-        self.assertEqual(short_wallet_label(USER_WALLET), "0x5FB0…9a0A")
+        self.assertEqual(short_wallet_label(USER_WALLET), "0xaaaa…3333")
         self.assertEqual(short_wallet_label(""), "My Wallet")
 
     def test_decode_bsc_usdt_wei(self):
@@ -114,9 +114,12 @@ class WalletMathTests(unittest.TestCase):
             {"walletId": "mine", "walletAddress": USER_WALLET.lower()},
         ], USER_WALLET)
         self.assertEqual(row["walletId"], "mine")
+        self.assertIsNone(match_wallet_row([
+            {"walletId": "mine", "walletAddress": USER_WALLET},
+        ], ""))
 
     def test_pick_listed_prediction_account_when_my_wallet_absent(self):
-        listed = "0xf7d411111111111111111111111111111111bb3c"
+        listed = "0xbbbbccccddddeeeeffff00001111222233334444"
         row = pick_tradable_wallet_row([
             {"walletId": "pred", "walletAddress": listed},
         ], USER_WALLET)
@@ -290,7 +293,7 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(picked["can_trade"])
 
     async def test_spends_listed_prediction_account_when_my_wallet_absent(self):
-        listed = "0xf7d411111111111111111111111111111111bb3c"
+        listed = "0xbbbbccccddddeeeeffff00001111222233334444"
         client = WalletPredictionClient("k", "s", preferred_address=USER_WALLET)
 
         async def fake_list():
@@ -318,7 +321,7 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(picked["error"], "")
 
     async def test_quote_spends_listed_prediction_account(self):
-        listed = "0xf7d411111111111111111111111111111111bb3c"
+        listed = "0xbbbbccccddddeeeeffff00001111222233334444"
         client = WalletPredictionClient("k", "s", preferred_address=USER_WALLET)
         captured = {}
 

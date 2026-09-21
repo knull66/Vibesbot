@@ -40,7 +40,6 @@ BTC_PRICE_MIN = 1000.0
 BTC_PRICE_MAX = 1_000_000.0
 BSC_USDT = "0x55d398326f99059fF775485246999027B3197955"
 BSC_CHAIN_ID = "56"
-DEFAULT_PREDICTION_WALLET = "0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A"
 # Required by place-order-bundle even when spending the MPC Prediction Account.
 # SPOT/FUNDING is the CEX fallback type; we do not send fundTransferAmount.
 PREDICTION_ACCOUNT_TYPE = "SPOT"
@@ -72,7 +71,8 @@ def same_address(left: Any, right: Any) -> bool:
 
 
 def resolve_preferred_address(value: Any = None) -> str:
-    return normalize_evm_address(value) or DEFAULT_PREDICTION_WALLET
+    """Optional override. Empty means spend the listed Prediction Account."""
+    return normalize_evm_address(value)
 
 
 def short_wallet_label(address: str) -> str:
@@ -85,7 +85,9 @@ def short_wallet_label(address: str) -> str:
 
 
 def match_wallet_row(wallets: List[Dict[str, Any]], preferred: str) -> Optional[Dict[str, Any]]:
-    target = resolve_preferred_address(preferred)
+    target = normalize_evm_address(preferred)
+    if not target:
+        return None
     for row in wallets or []:
         if same_address(wallet_address_of(row), target):
             return row
@@ -170,11 +172,18 @@ def api_error_text(status: int, data: Any) -> str:
 def mismatch_wallet_error(preferred: str, listed: List[str], extra: str = "") -> str:
     others = [addr for addr in listed if addr and not same_address(addr, preferred)]
     shown = ", ".join(short_wallet_label(addr) for addr in others) or "none"
-    text = (
-        f"My Wallet {preferred} is not in Binance wallet/list (listed: {shown}). "
-        "Those listed addresses are Binance's auto Prediction Account, not web3 My Wallet. "
-        "REAL will not spend them."
-    )
+    pref = normalize_evm_address(preferred)
+    if pref:
+        text = (
+            f"Preferred wallet {pref} is not in Binance wallet/list (listed: {shown}). "
+            "Those listed addresses are Binance's Prediction Account, not Web3 My Wallet. "
+            "Leave the wallet field empty to spend the listed Prediction Account."
+        )
+    else:
+        text = (
+            f"No Prediction Account in Binance wallet/list (listed: {shown}). "
+            "Enable Prediction Trading on the API key and restrict it to this Mac's IP."
+        )
     extra = (extra or "").strip()
     return f"{text} {extra}".strip() if extra else text
 

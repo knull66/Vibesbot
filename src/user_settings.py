@@ -19,6 +19,7 @@ import base64
 
 import aiohttp
 
+from .secret_box import chmod_private, chmod_private_dir, load_secret, persist_secret
 from .utils.logger import get_logger
 from .wallet_prediction import clamp_bet_amount, MIN_BET_USDT, resolve_preferred_address
 
@@ -42,6 +43,7 @@ def default_settings_path(legacy_root: Optional[Path] = None) -> Path:
     else:
         folder = Path.home() / ".vibesbot"
     folder.mkdir(parents=True, exist_ok=True)
+    chmod_private_dir(folder)
     target = folder / "user_settings.json"
     if not target.exists() and legacy_root:
         old = Path(legacy_root) / "user_settings.json"
@@ -542,12 +544,17 @@ class SettingsManager:
                 data = json.load(f)
             
             # Binance
+            migrated_secret = False
             if "binance" in data:
                 b = data["binance"]
                 from .wallet_prediction import resolve_preferred_address
+                secret, migrated_secret = load_secret(
+                    self.settings_path,
+                    b.get("api_secret_encrypted", ""),
+                )
                 self.settings.binance = BinanceCredentials(
                     api_key=b.get("api_key", ""),
-                    api_secret=b.get("api_secret_encrypted", ""),
+                    api_secret=secret,
                     is_testnet=b.get("is_testnet", False),
                     prediction_wallet=resolve_preferred_address(b.get("prediction_wallet")),
                 )
@@ -588,6 +595,9 @@ class SettingsManager:
             self.settings.last_update_check = data.get("last_update_check")
             
             logger.info("Settings loaded successfully")
+            chmod_private(self.settings_path)
+            if migrated_secret:
+                self.save()
             
         except Exception as e:
             logger.error(f"Error loading settings: {e}")
@@ -595,10 +605,11 @@ class SettingsManager:
     def save(self):
         """Guarda la configuración en el archivo."""
         try:
+            secret_field = persist_secret(self.settings_path, self.settings.binance.api_secret)
             data = {
                 "binance": {
                     "api_key": self.settings.binance.api_key,
-                    "api_secret_encrypted": self.settings.binance.api_secret,
+                    "api_secret_encrypted": secret_field,
                     "is_testnet": self.settings.binance.is_testnet,
                     "prediction_wallet": self.settings.binance.prediction_wallet or "",
                 },
@@ -621,6 +632,8 @@ class SettingsManager:
             
             with open(self.settings_path, 'w') as f:
                 json.dump(data, f, indent=2)
+                f.write("\n")
+            chmod_private(self.settings_path)
             
             logger.info("Settings saved successfully")
             

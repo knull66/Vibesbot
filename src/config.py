@@ -43,7 +43,7 @@ class TradingConfig:
 class PredictionConfig:
     """Configuración del módulo de predicción."""
     
-    confidence_threshold: float = 0.62
+    confidence_threshold: float = 0.50
     min_confidence_for_high_bet: float = 0.70
     
     model_path: str = "models/prediction_model.pkl"
@@ -141,7 +141,7 @@ class Config:
             self.trading.initial_capital = float(os.getenv("VIBESBOT_CAPITAL", "100"))
             
         if os.getenv("VIBESBOT_CONFIDENCE"):
-            self.prediction.confidence_threshold = float(os.getenv("VIBESBOT_CONFIDENCE", "0.62"))
+            self.prediction.confidence_threshold = float(os.getenv("VIBESBOT_CONFIDENCE", "0.50"))
             
         if os.getenv("VIBESBOT_MAX_DAILY_LOSS"):
             self.risk.max_daily_loss = float(os.getenv("VIBESBOT_MAX_DAILY_LOSS", "20"))

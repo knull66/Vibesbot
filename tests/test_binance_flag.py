@@ -9,7 +9,6 @@ from src.user_settings import (
     effective_confidence_threshold,
     is_kept_secret,
 )
-from src.wallet_prediction import DEFAULT_PREDICTION_WALLET
 
 
 class BinanceFlagTests(unittest.TestCase):
@@ -52,7 +51,7 @@ class BinanceFlagTests(unittest.TestCase):
             again = SettingsManager(Path(tmp))
             self.assertTrue(again.settings.binance.is_configured)
             self.assertEqual(again.settings.binance.api_secret, "live-secret")
-            self.assertEqual(again.settings.binance.prediction_wallet, DEFAULT_PREDICTION_WALLET)
+            self.assertEqual(again.settings.binance.prediction_wallet, "")
 
     def test_trading_settings_apply_to_sim_and_real(self):
         with tempfile.TemporaryDirectory() as tmp:
