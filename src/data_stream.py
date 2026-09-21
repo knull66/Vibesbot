@@ -441,6 +441,18 @@ class DataStream:
     def get_candles(self, timeframe: str) -> list[Candle]:
         """Retorna las velas del timeframe especificado."""
         return list(self._candles.get(timeframe, []))
+
+    def get_latest_candle(self, timeframe: str) -> Optional[Candle]:
+        candles = self._candles.get(timeframe)
+        if not candles:
+            return None
+        return candles[-1]
+
+    def get_last_closed_candle(self, timeframe: str) -> Optional[Candle]:
+        candles = [row for row in self.get_candles(timeframe) if row.is_closed]
+        if not candles:
+            return None
+        return candles[-1]
     
     def get_candles_df(self, timeframe: str) -> pd.DataFrame:
         """Retorna las velas como DataFrame de pandas."""

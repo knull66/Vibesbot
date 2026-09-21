@@ -31,6 +31,13 @@ PREDICTION_API = "https://api.binance.com/sapi/v1/w3w/wallet/prediction"
 USDT_WEI = 10**18
 DEFAULT_FEE_BPS = 200
 DEFAULT_SLIPPAGE_BPS = 500
+MIN_BET_USDT = 1.5
+MAX_BET_USDT = 100.0
+MIN_SHARE_PRICE = 0.38
+MAX_SHARE_PRICE = 0.62
+MIN_WIN_PNL_RATIO = 0.25
+BTC_PRICE_MIN = 1000.0
+BTC_PRICE_MAX = 1_000_000.0
 BSC_USDT = "0x55d398326f99059fF775485246999027B3197955"
 BSC_CHAIN_ID = "56"
 DEFAULT_PREDICTION_WALLET = "0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A"
@@ -215,14 +222,48 @@ async def fetch_bsc_usdt(address: str) -> float:
     return 0.0
 
 
+def clamp_bet_amount(value: Any, default: float = MIN_BET_USDT) -> float:
+    """Wallet Prediction min is 1.5 USDT. Same floor for SIM and REAL."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = float(default)
+    if amount <= 0:
+        amount = float(default)
+    return min(max(amount, MIN_BET_USDT), MAX_BET_USDT)
+
+
+def normalize_share_price(value: Any, default: float = 0.5) -> float:
+    """Quote averagePrice may be 0-1, percent, or wei-scaled."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    if number > 1e6:
+        number = number / float(USDT_WEI)
+    if number > 1.0:
+        number = number / 100.0
+    if number <= 0:
+        return float(default)
+    return min(max(number, 0.01), 0.99)
+
+
+def looks_like_btc_price(value: Any) -> bool:
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return False
+    return BTC_PRICE_MIN <= price <= BTC_PRICE_MAX
+
+
 def taker_fee(stake: float, share_price: float, fee_bps: int = DEFAULT_FEE_BPS) -> float:
-    price = min(max(float(share_price), 0.01), 0.99)
+    price = normalize_share_price(share_price)
     shares = float(stake) / price
     return (fee_bps / 10000.0) * min(price, 1.0 - price) * shares
 
 
 def paper_fill(stake: float, share_price: float, fee_bps: int = DEFAULT_FEE_BPS) -> Dict[str, float]:
-    price = min(max(float(share_price), 0.01), 0.99)
+    price = normalize_share_price(share_price)
     fee = taker_fee(stake, price, fee_bps)
     cost = float(stake) + fee
     shares = float(stake) / price
@@ -234,6 +275,48 @@ def paper_fill(stake: float, share_price: float, fee_bps: int = DEFAULT_FEE_BPS)
         "win_pnl": shares - cost,
         "lose_pnl": -cost,
     }
+
+
+def fill_from_quote(
+    quote: Optional[Dict[str, Any]],
+    stake: float,
+    fallback_price: float,
+    fee_bps: int = DEFAULT_FEE_BPS,
+) -> Dict[str, float]:
+    quote = quote if isinstance(quote, dict) else {}
+    price = normalize_share_price(quote.get("averagePrice") or fallback_price, fallback_price)
+    raw_out = quote.get("amountOut") or quote.get("tokenAmount") or quote.get("shares")
+    try:
+        shares_out = float(raw_out)
+        if shares_out > 1e6:
+            shares_out = shares_out / float(USDT_WEI)
+        if shares_out > 0:
+            derived = float(stake) / shares_out
+            if 0.01 <= derived <= 0.99:
+                price = derived
+    except (TypeError, ValueError):
+        pass
+    return paper_fill(stake, price, fee_bps)
+
+
+def tradable_edge(
+    share_price: Any,
+    stake: float,
+    fee_bps: int = DEFAULT_FEE_BPS,
+) -> Dict[str, Any]:
+    """Skip 0.92 favorites / 0.03 longshots: $1.50 at 0.92 only pays ~$0.13."""
+    price = normalize_share_price(share_price)
+    fill = paper_fill(stake, price, fee_bps)
+    in_band = MIN_SHARE_PRICE <= price <= MAX_SHARE_PRICE
+    enough_payout = fill["win_pnl"] >= float(stake) * MIN_WIN_PNL_RATIO
+    ok = in_band and enough_payout
+    reason = ""
+    if not ok:
+        reason = (
+            f"odds {price * 100:.0f}% would pay ${fill['win_pnl']:.2f} on ${float(stake):.2f} "
+            f"(need a 38–62% book so the win is worth the risk)"
+        )
+    return {"ok": ok, "reason": reason, "share_price": price, **fill}
 
 
 def settle_direction(open_price: float, close_price: float) -> str:
@@ -305,6 +388,7 @@ def as_probability(value: Any, default: float = 0.5) -> float:
 
 
 def topic_start_price(topic: Dict[str, Any]) -> float:
+    """Binance 'Price to Beat' is the locked round open, never the live tick."""
     keys = (
         "startPrice",
         "openPrice",
@@ -313,9 +397,20 @@ def topic_start_price(topic: Dict[str, Any]) -> float:
         "startValue",
         "initialPrice",
         "eventStartPrice",
+        "lockPrice",
+        "lockedPrice",
+        "oraclePrice",
+        "chainlinkPrice",
+        "referencePrice",
+        "targetPrice",
+        "openOraclePrice",
+        "resolutionOpenPrice",
+        "start_price",
+        "open_price",
+        "price_to_beat",
     )
     blobs: List[Any] = [topic]
-    for nested in ("event", "metadata", "market", "stats"):
+    for nested in ("event", "metadata", "market", "stats", "oracle", "resolution", "condition"):
         row = topic.get(nested)
         if isinstance(row, dict):
             blobs.append(row)
@@ -323,13 +418,17 @@ def topic_start_price(topic: Dict[str, Any]) -> float:
         if isinstance(market, dict):
             blobs.append(market)
     for blob in blobs:
+        if not isinstance(blob, dict):
+            continue
         for key in keys:
-            raw = blob.get(key) if isinstance(blob, dict) else None
+            raw = blob.get(key)
+            if isinstance(raw, str):
+                raw = raw.replace(",", "")
             try:
                 price = float(raw)
             except (TypeError, ValueError):
                 continue
-            if price > 0:
+            if looks_like_btc_price(price):
                 return price
     return 0.0
 
@@ -387,6 +486,7 @@ class PendingWalletTrade:
     live: bool = False
     order_id: str = ""
     market_title: str = ""
+    balance_before: float = 0.0
 
 
 @dataclass
@@ -573,6 +673,15 @@ class WalletPredictionClient:
             if isinstance(quote, dict):
                 msg = str(quote.get("msg") or quote.get("message") or quote.get("error") or quote)
             return {"success": False, "error": msg or f"Quote failed HTTP {status}"}
+        quoted = fill_from_quote(quote, stake_usdt, token.get("price") or share_price)
+        edge = tradable_edge(quoted["share_price"], stake_usdt, int(topic.get("feeRateBps") or DEFAULT_FEE_BPS))
+        if not edge["ok"]:
+            return {
+                "success": False,
+                "error": f"Quote rejected: {edge['reason']}",
+                "quote": quote,
+                "share_price": quoted["share_price"],
+            }
         place_req = {
             "walletAddress": order_address,
             "walletId": wallet["walletId"],
@@ -607,7 +716,7 @@ class WalletPredictionClient:
                 msg = str(placed.get("msg") or placed.get("message") or placed)
             return {"success": False, "error": msg or f"Order failed HTTP {status}", "quote": quote}
         order_id = str(placed.get("orderId") or placed.get("data", {}).get("orderId") or "")
-        avg = float(quote.get("averagePrice") or token["price"] or share_price or 0.5)
+        fill = fill_from_quote(quote, stake_usdt, token.get("price") or share_price)
         return {
             "success": True,
             "order_id": order_id,
@@ -615,7 +724,10 @@ class WalletPredictionClient:
             "placed": placed,
             "account_type": str(wallet.get("label") or "Prediction Account"),
             "wallet_address": order_address,
-            "share_price": avg,
+            "share_price": fill["share_price"],
+            "shares": fill["shares"],
+            "fee": fill["fee"],
+            "cost": fill["cost"],
             "token": token,
             "title": topic.get("title") or "",
         }

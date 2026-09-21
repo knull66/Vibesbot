@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.18.9';
+const APP_VERSION = '1.19.0';
 
 class VibesBot {
     constructor() {
@@ -574,15 +574,6 @@ class VibesBot {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2
                 });
-            }
-        }
-        const side = String(data.signal || '').toUpperCase();
-        if ((side === 'UP' || side === 'DOWN') && this.confidenceValue) {
-            const shown = side === 'UP' ? data.prob_up : data.prob_down;
-            if (shown != null) {
-                const pct = Math.round(Number(shown) * 100);
-                if (this.confidenceFill) this.confidenceFill.style.width = pct + '%';
-                this.confidenceValue.textContent = pct + '%';
             }
         }
         
@@ -1173,11 +1164,30 @@ class VibesBot {
     // Settings
     // ═══════════════════════════════════════════════════════════
     
+    applyTradingSettings(trading) {
+        if (!trading) return;
+        const betEl = document.getElementById('bet-amount');
+        if (betEl && trading.bet_amount != null) {
+            betEl.value = Number(trading.bet_amount).toFixed(2);
+        }
+        const confEl = document.getElementById('confidence-threshold');
+        if (confEl && trading.confidence_threshold != null) {
+            confEl.value = Math.round(Number(trading.confidence_threshold) * 100);
+        }
+        const lossEl = document.getElementById('daily-loss-limit');
+        const loss = trading.max_daily_loss ?? trading.daily_loss_limit;
+        if (lossEl && loss != null) {
+            lossEl.value = Number(loss);
+        }
+    }
+
     async saveTradingSettings() {
+        const rawBet = parseFloat(document.getElementById('bet-amount')?.value || 1.5);
         const settings = {
-            bet_amount: parseFloat(document.getElementById('bet-amount')?.value || 1),
-            confidence_threshold: parseFloat(document.getElementById('confidence-threshold')?.value || 55) / 100,
-            daily_loss_limit: parseFloat(document.getElementById('daily-loss-limit')?.value || 20)
+            bet_amount: Math.max(1.5, rawBet || 1.5),
+            confidence_threshold: parseFloat(document.getElementById('confidence-threshold')?.value || 50) / 100,
+            daily_loss_limit: parseFloat(document.getElementById('daily-loss-limit')?.value || 20),
+            max_daily_loss: parseFloat(document.getElementById('daily-loss-limit')?.value || 20)
         };
         
         try {
@@ -1188,7 +1198,9 @@ class VibesBot {
             });
             
             if (response.ok) {
-                this.addLog('✓ Trading settings saved', 'info');
+                const payload = await response.json();
+                this.applyTradingSettings(payload.settings || settings);
+                this.addLog('✓ Trading settings saved for SIM and REAL', 'info');
             }
         } catch (e) {
             this.addLog('✗ Error saving settings', 'loss');
@@ -1229,14 +1241,7 @@ class VibesBot {
                 statusEl.textContent = 'Keys saved on this Mac';
                 statusEl.style.color = 'var(--up)';
             }
-            const betEl = document.getElementById('bet-amount');
-            if (betEl && data.trading && data.trading.bet_amount != null) {
-                betEl.value = data.trading.bet_amount;
-            }
-            const confEl = document.getElementById('confidence-threshold');
-            if (confEl && data.trading && data.trading.confidence_threshold != null) {
-                confEl.value = Math.round(Number(data.trading.confidence_threshold) * 100);
-            }
+            this.applyTradingSettings(data.trading);
         } catch (error) {
             // Keep empty form if settings cannot be read
         }

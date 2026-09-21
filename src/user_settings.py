@@ -20,6 +20,7 @@ import base64
 import aiohttp
 
 from .utils.logger import get_logger
+from .wallet_prediction import clamp_bet_amount, MIN_BET_USDT, resolve_preferred_address
 
 logger = get_logger("user_settings")
 
@@ -185,6 +186,7 @@ class TradingSettings:
             "symbol": self.symbol,
             "bet_amount": self.bet_amount,
             "max_daily_loss": self.max_daily_loss,
+            "daily_loss_limit": self.max_daily_loss,
             "max_trades_per_day": self.max_trades_per_day,
             "confidence_threshold": self.confidence_threshold,
             "auto_trade": self.auto_trade,
@@ -556,8 +558,8 @@ class SettingsManager:
                 self.settings.trading = TradingSettings(
                     mode=TradingMode(t.get("mode", "simulation")),
                     symbol=t.get("symbol", "BTCUSDT"),
-                    bet_amount=t.get("bet_amount", 1.0),
-                    max_daily_loss=t.get("max_daily_loss", 50.0),
+                    bet_amount=clamp_bet_amount(t.get("bet_amount", MIN_BET_USDT)),
+                    max_daily_loss=float(t.get("max_daily_loss") or t.get("daily_loss_limit") or 50.0),
                     max_trades_per_day=t.get("max_trades_per_day", 50),
                     confidence_threshold=effective_confidence_threshold(
                         t.get("confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD)
@@ -652,11 +654,25 @@ class SettingsManager:
         self.save()
     
     def update_trading_settings(self, **kwargs):
-        """Actualiza la configuración de trading."""
-        if "mode" in kwargs:
-            kwargs["mode"] = TradingMode(kwargs["mode"])
-        
+        """Actualiza la configuración de trading. SIM and REAL share these values."""
+        aliases = {"daily_loss_limit": "max_daily_loss"}
+        mapped: Dict[str, Any] = {}
         for key, value in kwargs.items():
+            mapped[aliases.get(key, key)] = value
+
+        if "mode" in mapped:
+            mapped["mode"] = TradingMode(mapped["mode"])
+        if "bet_amount" in mapped:
+            mapped["bet_amount"] = clamp_bet_amount(mapped["bet_amount"])
+        if "confidence_threshold" in mapped:
+            mapped["confidence_threshold"] = effective_confidence_threshold(mapped["confidence_threshold"])
+        if "max_daily_loss" in mapped:
+            try:
+                mapped["max_daily_loss"] = max(1.0, float(mapped["max_daily_loss"]))
+            except (TypeError, ValueError):
+                mapped.pop("max_daily_loss", None)
+
+        for key, value in mapped.items():
             if hasattr(self.settings.trading, key):
                 setattr(self.settings.trading, key, value)
         

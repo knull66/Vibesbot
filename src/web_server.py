@@ -34,10 +34,14 @@ from .companion import get_companion, is_loopback
 from .wallet_prediction import (
     PendingWalletTrade,
     WalletPredictionClient,
+    clamp_bet_amount,
+    fill_from_quote,
+    looks_like_btc_price,
     market_book,
     outcome_token,
     paper_fill,
     settle_payout,
+    tradable_edge,
 )
 
 
@@ -241,9 +245,12 @@ class DashboardBot:
         # Última predicción
         self._last_prediction = None
         self._last_prediction_confidence = 0.5
+        self._last_prediction_round = -1
         self._market_book: Dict[str, Any] = {}
         self._market_topic: Optional[Dict[str, Any]] = None
         self._market_fetched_at = 0.0
+        self._price_to_beat = 0.0
+        self._price_to_beat_round = -1
         
         # Estadísticas avanzadas
         self._equity_history = [100.0]  # Historial de capital
@@ -344,6 +351,61 @@ class DashboardBot:
         except Exception as exc:
             logger.warning(f"Wallet market book failed: {exc}")
         return self._market_book
+
+    def _five_minute_open(self) -> float:
+        if not self.data_stream:
+            return 0.0
+        candle = self.data_stream.get_latest_candle("5m")
+        if candle and looks_like_btc_price(candle.open):
+            return float(candle.open)
+        return 0.0
+
+    def _last_closed_five_minute(self) -> Optional[Any]:
+        if not self.data_stream:
+            return None
+        return self.data_stream.get_last_closed_candle("5m")
+
+    def _resolve_price_to_beat(self, book: Optional[Dict[str, Any]], round_number: int) -> float:
+        book = book or {}
+        from_book = float(book.get("price_to_beat") or 0)
+        if looks_like_btc_price(from_book):
+            self._price_to_beat = from_book
+            self._price_to_beat_round = round_number
+            return from_book
+        if self._price_to_beat_round == round_number and looks_like_btc_price(self._price_to_beat):
+            return self._price_to_beat
+        open_px = self._five_minute_open()
+        if looks_like_btc_price(open_px):
+            self._price_to_beat = open_px
+            self._price_to_beat_round = round_number
+            return open_px
+        if looks_like_btc_price(self._price_to_beat):
+            return self._price_to_beat
+        return 0.0
+
+    def _round_close_price(self) -> float:
+        closed = self._last_closed_five_minute()
+        if closed and looks_like_btc_price(closed.close):
+            return float(closed.close)
+        if self.data_stream:
+            price = self.data_stream.get_current_price()
+            if looks_like_btc_price(price):
+                return float(price)
+        return 0.0
+
+    def _today_session_stats(self, session: ClientSession) -> Dict[str, float]:
+        today = datetime.now(timezone.utc).date().isoformat()
+        pnl = 0.0
+        count = 0
+        for row in session.trades:
+            stamp = str(row.get("timestamp") or "")
+            if stamp.startswith(today):
+                try:
+                    pnl += float(row.get("pnl") or 0)
+                except (TypeError, ValueError):
+                    pass
+                count += 1
+        return {"pnl": pnl, "count": count}
     
     async def _data_loop(self):
         """Loop que siempre envía datos de mercado, incluso sin trading."""
@@ -440,15 +502,14 @@ class DashboardBot:
                 remaining = round_times["seconds_remaining"]
                 current_round = round_times.get("round_number", 0)
 
-                if remaining >= 280:
-                    await self._settle_due(current_round)
+                await self._settle_due(current_round)
                 
                 if active:
-                    if 60 <= remaining <= 90 and current_round != last_prediction_round:
-                        await self._generate_prediction(active)
+                    if 60 <= remaining <= 95 and current_round != last_prediction_round:
+                        await self._generate_prediction(active, current_round)
                         last_prediction_round = current_round
                     
-                    if 20 <= remaining <= 45 and current_round != last_trade_round:
+                    if 50 <= remaining <= 85 and current_round != last_trade_round:
                         await asyncio.gather(*[self._execute_trade(session, current_round) for session in active])
                         last_trade_round = current_round
                 
@@ -463,7 +524,7 @@ class DashboardBot:
     async def _run_loop(self):
         return
     
-    async def _generate_prediction(self, sessions: Optional[List[ClientSession]] = None):
+    async def _generate_prediction(self, sessions: Optional[List[ClientSession]] = None, current_round: int = 0):
         """Genera predicción usando múltiples estrategias."""
         import random
         
@@ -551,25 +612,21 @@ class DashboardBot:
             # Guardar predicción para el trade
             self._last_prediction = signal
             self._last_prediction_confidence = confidence
+            self._last_prediction_round = current_round
 
-            book = await self.refresh_market_book()
-            if book:
-                prob_up = float(book.get("up") or prob_up)
-                prob_down = float(book.get("down") or prob_down)
-            
-            # Price to Beat: Wallet start price, not the last tick
-            price_to_beat = float(book.get("price_to_beat") or 0) if book else 0.0
-            if price_to_beat <= 0 and self.data_stream:
-                price_to_beat = self.data_stream.get_current_price() or 0.0
-            self._price_to_beat = price_to_beat
+            round_times = calculate_round_times(5, self._time_offset)
+            round_number = int(round_times.get("round_number") or current_round)
+            book = await self.refresh_market_book(force=True)
+            binance_up = float(book.get("up") or 0.5) if book else 0.5
+            binance_down = float(book.get("down") or 0.5) if book else 0.5
+            price_to_beat = self._resolve_price_to_beat(book, round_number)
 
-            shown = prob_up if signal == "UP" else prob_down
             await self._emit_sessions(sessions, {
                 "type": "signal",
                 "signal": signal,
-                "confidence": shown,
-                "prob_up": prob_up,
-                "prob_down": prob_down,
+                "confidence": confidence,
+                "prob_up": binance_up,
+                "prob_down": binance_down,
                 "up_odds": (book or {}).get("up_odds"),
                 "down_odds": (book or {}).get("down_odds"),
                 "price_to_beat": price_to_beat
@@ -578,9 +635,11 @@ class DashboardBot:
             await self._emit_sessions(sessions, {
                 "type": "log",
                 "message": (
-                    f"SIGNAL: {signal} | Binance Up {prob_up*100:.0f}% ({float((book or {}).get('up_odds') or 2):.2f}x) "
-                    f"/ Down {prob_down*100:.0f}% ({float((book or {}).get('down_odds') or 2):.2f}x)"
+                    f"SIGNAL: {signal} {confidence*100:.0f}% | Binance Up {binance_up*100:.0f}% "
+                    f"({float((book or {}).get('up_odds') or 2):.2f}x) / Down {binance_down*100:.0f}% "
+                    f"({float((book or {}).get('down_odds') or 2):.2f}x)"
                     + (f" | {strategy_used}" if strategy_used and strategy_used != "none" else "")
+                    + (f" | beat ${price_to_beat:,.2f}" if price_to_beat else " | waiting for round open")
                 ),
                 "level": "prediction"
             })
@@ -614,6 +673,13 @@ class DashboardBot:
 
             from .user_settings import effective_confidence_threshold, get_settings_manager
             sm = get_settings_manager()
+            if self._last_prediction_round != current_round:
+                await self.manager.send_to_session(session.session_id, {
+                    "type": "log",
+                    "message": "WAITING FOR THIS ROUND'S SIGNAL",
+                    "level": "info",
+                })
+                return
             threshold = effective_confidence_threshold(sm.settings.trading.confidence_threshold)
             if confidence < threshold:
                 await self.manager.send_to_session(session.session_id, {
@@ -623,24 +689,46 @@ class DashboardBot:
                 })
                 return
 
-            amount = max(1.5, float(sm.settings.trading.bet_amount or 1.5))
-            open_price = getattr(self, "_price_to_beat", None)
-            if self.data_stream:
-                open_price = open_price or self.data_stream.get_current_price()
-            open_price = float(open_price or 0.0)
+            amount = clamp_bet_amount(sm.settings.trading.bet_amount)
+            day = self._today_session_stats(session)
+            max_loss = float(sm.settings.trading.max_daily_loss or 0)
+            if max_loss > 0 and day["pnl"] <= -max_loss:
+                await self.manager.send_to_session(session.session_id, {
+                    "type": "log",
+                    "message": f"SKIP: daily loss ${day['pnl']:.2f} hit the ${max_loss:.2f} Settings limit",
+                    "level": "info",
+                })
+                return
+            max_trades = int(sm.settings.trading.max_trades_per_day or 0)
+            if max_trades > 0 and day["count"] >= max_trades:
+                await self.manager.send_to_session(session.session_id, {
+                    "type": "log",
+                    "message": f"SKIP: {day['count']} trades already hit the daily cap",
+                    "level": "info",
+                })
+                return
+
+            book = await self.refresh_market_book(force=True)
+            open_price = self._resolve_price_to_beat(book, current_round)
             share_price = 0.50
-            book = await self.refresh_market_book()
             if book:
                 if signal == "UP":
                     share_price = float(book.get("up") or 0.5)
                 elif signal == "DOWN":
                     share_price = float(book.get("down") or 0.5)
-                if book.get("price_to_beat"):
-                    open_price = float(book["price_to_beat"])
-            fill = paper_fill(amount, share_price)
+            edge = tradable_edge(share_price, amount)
+            if not edge["ok"]:
+                await self.manager.send_to_session(session.session_id, {
+                    "type": "log",
+                    "message": f"SKIP: {signal} {edge['reason']}",
+                    "level": "info",
+                })
+                return
+            fill = paper_fill(amount, edge["share_price"])
             live = False
             order_id = ""
             market_title = "BTC 5m Wallet (paper)"
+            balance_before = 0.0
 
             if not session.simulation:
                 creds = sm.settings.binance
@@ -658,6 +746,7 @@ class DashboardBot:
                 )
                 wallet = await client.ensure_wallet(refresh=True)
                 pred_balance = float(wallet.get("usdt") or 0)
+                balance_before = pred_balance
                 if (
                     not wallet.get("can_trade")
                     or not wallet.get("walletId")
@@ -690,11 +779,22 @@ class DashboardBot:
                         "level": "loss",
                     })
                     return
+                topic_book = market_book(topic)
+                open_price = self._resolve_price_to_beat(topic_book, current_round) or open_price
                 token = outcome_token(topic, signal)
+                fee_bps = int(topic.get("feeRateBps") or 200)
                 if token:
-                    share_price = float(token.get("price") or 0.5)
-                    fill = paper_fill(amount, share_price, int(topic.get("feeRateBps") or 200))
-                placed = await client.quote_and_buy(topic, signal, amount, share_price)
+                    share_price = float(token.get("price") or share_price)
+                edge = tradable_edge(share_price, amount, fee_bps)
+                if not edge["ok"]:
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": f"SKIP: {signal} {edge['reason']}",
+                        "level": "info",
+                    })
+                    return
+                fill = paper_fill(amount, edge["share_price"], fee_bps)
+                placed = await client.quote_and_buy(topic, signal, amount, edge["share_price"])
                 if not placed.get("success"):
                     await self.manager.send_to_session(session.session_id, {
                         "type": "log",
@@ -702,10 +802,25 @@ class DashboardBot:
                         "level": "loss",
                     })
                     return
+                quote_fill = fill_from_quote(
+                    placed.get("quote") if isinstance(placed.get("quote"), dict) else {},
+                    amount,
+                    placed.get("share_price") or edge["share_price"],
+                    fee_bps,
+                )
+                live_edge = tradable_edge(quote_fill["share_price"], amount, fee_bps)
+                if not live_edge["ok"]:
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": (
+                            f"REAL filled {signal} ${amount:.2f} @ {quote_fill['share_price']:.2f} "
+                            f"but that book is lopsided — {live_edge['reason']}"
+                        ),
+                        "level": "info",
+                    })
                 live = True
                 order_id = str(placed.get("order_id") or "")
-                share_price = float(placed.get("share_price") or share_price)
-                fill = paper_fill(amount, share_price, int(topic.get("feeRateBps") or 200))
+                fill = quote_fill
                 market_title = str(placed.get("title") or topic.get("title") or "Wallet BTC 5m")
                 await self.refresh_live_balances(session)
                 await self.manager.send_to_session(session.session_id, {
@@ -731,11 +846,16 @@ class DashboardBot:
                 live=live,
                 order_id=order_id,
                 market_title=market_title,
+                balance_before=balance_before,
             )
             mode = "REAL" if live else "SIM"
+            beat = f"${open_price:,.2f}" if open_price else "unknown open"
             await self.manager.send_to_session(session.session_id, {
                 "type": "log",
-                "message": f"{mode} {signal} ${amount:.2f} @ {fill['share_price']:.2f} | fee ${fill['fee']:.3f} | settles at round close",
+                "message": (
+                    f"{mode} {signal} ${amount:.2f} @ {fill['share_price']:.2f} "
+                    f"(win ~${fill['win_pnl']:.2f}) | fee ${fill['fee']:.3f} | beat {beat}"
+                ),
                 "level": "info",
             })
         except Exception as e:
@@ -744,9 +864,7 @@ class DashboardBot:
             traceback.print_exc()
 
     async def _settle_due(self, current_round: int) -> None:
-        close_price = 0.0
-        if self.data_stream:
-            close_price = float(self.data_stream.get_current_price() or 0.0)
+        close_price = self._round_close_price()
         for session in list(self.sessions.values()):
             pending = session.pending_trade
             if not pending or pending.round_number >= current_round:
@@ -755,6 +873,19 @@ class DashboardBot:
 
     async def _settle_trade(self, session: ClientSession, pending: PendingWalletTrade, close_price: float) -> None:
         from datetime import datetime
+
+        closed = self._last_closed_five_minute()
+        if closed:
+            if not looks_like_btc_price(pending.open_price) and looks_like_btc_price(closed.open):
+                pending.open_price = float(closed.open)
+            if not looks_like_btc_price(close_price) and looks_like_btc_price(closed.close):
+                close_price = float(closed.close)
+
+        if not looks_like_btc_price(pending.open_price) or not looks_like_btc_price(close_price):
+            logger.warning(
+                f"Delay settle {pending.signal}: open={pending.open_price} close={close_price}"
+            )
+            return
 
         actual, result, pnl = settle_payout(
             pending.signal, pending.open_price, close_price, pending.shares, pending.cost
@@ -901,7 +1032,9 @@ class DashboardBot:
             "prob_down": (self._market_book or {}).get("down"),
             "up_odds": (self._market_book or {}).get("up_odds"),
             "down_odds": (self._market_book or {}).get("down_odds"),
-            "price_to_beat": (self._market_book or {}).get("price_to_beat") or getattr(self, "_price_to_beat", None),
+            "price_to_beat": self._resolve_price_to_beat(
+                self._market_book, int(round_times.get("round_number") or 0)
+            ) or None,
             "signal": self._last_prediction,
         })
         if remaining % 5 == 0:

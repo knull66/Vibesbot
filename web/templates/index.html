@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.18.9">
+    <link rel="stylesheet" href="/static/styles.css?v=1.19.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -314,7 +314,7 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Multi-Indicator</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.18.9</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.19.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -389,7 +389,7 @@
                             <label for="bet-amount">BET AMOUNT ($)</label>
                             <input type="number" id="bet-amount" value="1.50" min="1.5" step="0.1">
                         </div>
-                        <p class="settings-hint">SIM papers Predict.fun fees. REAL spends Prediction Account USDT (Binance Prediction → Portfolio → Transfer In). Minimum 1.5 USDT. My Wallet tokens are not this balance.</p>
+                        <p class="settings-hint">Applies to SIM and REAL. Wallet min is 1.50 USDT — $1 is raised to $1.50. The bot skips lopsided books (buying 92¢ favorites that only pay ~$0.13).</p>
                         <div class="form-group">
                             <label for="confidence-threshold">MIN CONFIDENCE (%)</label>
                             <input type="number" id="confidence-threshold" value="50" min="50" max="99">
@@ -545,7 +545,7 @@
                             <div class="update-info" style="margin-top:10px;">
                                 <div class="update-version">
                                     <span>Version</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.18.9</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.19.0</span>
                                 </div>
                                 <div class="update-version">
                                     <span>Latest</span>
@@ -668,6 +668,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.18.9"></script>
+    <script src="/static/app.js?v=1.19.0"></script>
 </body>
 </html>

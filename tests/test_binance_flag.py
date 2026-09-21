@@ -54,6 +54,18 @@ class BinanceFlagTests(unittest.TestCase):
             self.assertEqual(again.settings.binance.api_secret, "live-secret")
             self.assertEqual(again.settings.binance.prediction_wallet, DEFAULT_PREDICTION_WALLET)
 
+    def test_trading_settings_apply_to_sim_and_real(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = SettingsManager(Path(tmp))
+            manager.update_trading_settings(bet_amount=1.0, daily_loss_limit=12, confidence_threshold=0.55)
+            self.assertEqual(manager.settings.trading.bet_amount, 1.5)
+            self.assertEqual(manager.settings.trading.max_daily_loss, 12.0)
+            payload = manager.settings.trading.to_dict()
+            self.assertEqual(payload["daily_loss_limit"], 12.0)
+            again = SettingsManager(Path(tmp))
+            self.assertEqual(again.settings.trading.bet_amount, 1.5)
+            self.assertEqual(again.settings.trading.max_daily_loss, 12.0)
+
 
 if __name__ == "__main__":
     unittest.main()

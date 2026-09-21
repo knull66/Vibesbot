@@ -5,12 +5,16 @@ from src.wallet_prediction import (
     DEFAULT_PREDICTION_WALLET,
     WalletPredictionClient,
     as_probability,
+    clamp_bet_amount,
     decode_wei_to_usdt,
     encode_balance_of,
+    fill_from_quote,
     is_btc_short_window,
+    looks_like_btc_price,
     market_book,
     match_wallet_row,
     normalize_evm_address,
+    normalize_share_price,
     outcome_token,
     paper_fill,
     pick_active_btc_window,
@@ -22,6 +26,8 @@ from src.wallet_prediction import (
     short_wallet_label,
     spend_wallet_label,
     taker_fee,
+    topic_start_price,
+    tradable_edge,
     unwrap_prediction_payload,
     wallets_from_payload,
     api_error_text,
@@ -41,6 +47,31 @@ class WalletMathTests(unittest.TestCase):
         self.assertAlmostEqual(fill["cost"], 1.02, places=4)
         self.assertGreater(fill["win_pnl"], 0.9)
         self.assertLess(fill["lose_pnl"], -1.0)
+
+    def test_settings_stake_floor_is_wallet_min(self):
+        self.assertEqual(clamp_bet_amount(1.0), 1.5)
+        self.assertEqual(clamp_bet_amount(2.0), 2.0)
+        self.assertEqual(clamp_bet_amount("nope"), 1.5)
+
+    def test_skips_favorite_that_pays_pennies(self):
+        skip = tradable_edge(0.92, 1.5)
+        take = tradable_edge(0.50, 1.5)
+        longshot = tradable_edge(0.03, 1.5)
+        self.assertFalse(skip["ok"])
+        self.assertLess(skip["win_pnl"], 0.20)
+        self.assertTrue(take["ok"])
+        self.assertGreater(take["win_pnl"], 1.0)
+        self.assertFalse(longshot["ok"])
+
+    def test_normalize_share_price_from_percent_or_wei(self):
+        self.assertAlmostEqual(normalize_share_price(0.49), 0.49)
+        self.assertAlmostEqual(normalize_share_price(49), 0.49)
+        self.assertTrue(looks_like_btc_price(86047.04))
+        self.assertFalse(looks_like_btc_price(0.92))
+
+    def test_quote_fill_uses_amount_out(self):
+        fill = fill_from_quote({"averagePrice": 0.50, "amountOut": str(3 * 10**18)}, 1.5, 0.9)
+        self.assertAlmostEqual(fill["share_price"], 0.50, places=4)
 
     def test_settle_up_down_flat(self):
         self.assertEqual(settle_direction(100.0, 100.2), "UP")
@@ -146,6 +177,12 @@ class WalletMarketPickerTests(unittest.TestCase):
         self.assertAlmostEqual(book["up_odds"], 1 / 0.49, places=2)
         self.assertAlmostEqual(book["down_odds"], 2.0)
         self.assertAlmostEqual(book["price_to_beat"], 81613.68)
+
+    def test_price_to_beat_ignores_live_tick_and_odds(self):
+        self.assertEqual(topic_start_price({"startPrice": "0.92"}), 0.0)
+        self.assertAlmostEqual(topic_start_price({
+            "oracle": {"lockPrice": "86,047.04"},
+        }), 86047.04)
 
     def test_wallets_from_wrapped_payload(self):
         rows = wallets_from_payload({
@@ -308,6 +345,49 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["trade/get-quote"]["walletAddress"], USER_WALLET)
         self.assertEqual(result["wallet_address"], USER_WALLET)
         self.assertNotIn("accountType", captured["trade/get-quote"])
+
+    async def test_quote_rejects_lopsided_favorite(self):
+        client = WalletPredictionClient("k", "s", preferred_address=USER_WALLET)
+        captured = {}
+
+        async def fake_request(method, path, extra=None):
+            captured[path] = extra or {}
+            if path == "trade/get-quote":
+                return 200, {"quoteId": "q1", "averagePrice": 0.92}
+            if path == "trade/place-order-bundle":
+                return 200, {"orderId": "should-not-place"}
+            return 404, {}
+
+        async def fake_wallet(refresh=True):
+            return {
+                "walletId": "pred",
+                "walletAddress": USER_WALLET,
+                "orderAddress": USER_WALLET,
+                "usdt": 9.0,
+                "label": "Prediction Account",
+                "can_trade": True,
+            }
+
+        topic = {
+            "markets": [{
+                "title": "UP",
+                "outcomes": [{"name": "YES", "tokenId": "tok-up", "price": "0.92"}],
+            }],
+            "chainId": "56",
+            "title": "BTC Price 5m Up or Down?",
+        }
+
+        async def fake_usdt(address):
+            return 9.0
+
+        with patch.object(client, "_request", fake_request), \
+             patch.object(client, "ensure_wallet", fake_wallet), \
+             patch("src.wallet_prediction.fetch_bsc_usdt", fake_usdt):
+            result = await client.quote_and_buy(topic, "UP", 1.5, 0.92)
+
+        self.assertFalse(result["success"])
+        self.assertIn("92%", result["error"])
+        self.assertNotIn("trade/place-order-bundle", captured)
 
 
 class WalletErrorTextTests(unittest.TestCase):
