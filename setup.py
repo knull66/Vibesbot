@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script de configuración inicial del proyecto.
-Instala dependencias. Playwright / Chromium is not used.
+Instala dependencias de la app Mac / dashboard.
 """
 import subprocess
 import sys
@@ -13,15 +13,12 @@ def main():
     print("VIBESBOT - Setup")
     print("=" * 60)
     
-    print("\n[1/3] Instalando dependencias de Python...")
+    print("\n[1/2] Instalando dependencias de Python...")
     subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
     
-    print("\n[2/3] Playwright/Chromium omitido (Event Contracts clicker desactivado).")
-    
-    print("\n[3/3] Creando directorios necesarios...")
+    print("\n[2/2] Creando directorios necesarios...")
     os.makedirs("logs", exist_ok=True)
     os.makedirs("models", exist_ok=True)
-    os.makedirs("user_data", exist_ok=True)
     os.makedirs("data", exist_ok=True)
     os.makedirs("backtest_results", exist_ok=True)
     

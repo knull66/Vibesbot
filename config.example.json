@@ -39,11 +39,6 @@
     "orderbook_depth": 20,
     "use_testnet": false
   },
-  "browser": {
-    "user_data_dir": "./user_data",
-    "headless": false,
-    "execution_offset_seconds": 12
-  },
   "logging": {
     "log_dir": "./logs",
     "log_level": "INFO",

@@ -76,10 +76,8 @@ python3 run_dashboard.py
 
 ### Modo REAL (app Mac / dashboard)
 
-`python3 run_bot.py` está desactivado (clicker Playwright de Event Contracts).
-
 Apuestas reales: app Mac en modo REAL + API key con **Enable Prediction Trading**.
-El dashboard usa `WalletPredictionClient` (SAPI oficial), no abre Chromium.
+El dashboard usa `WalletPredictionClient` (SAPI oficial).
 
 ## 5. Estrategias de Sizing
 
@@ -137,7 +135,6 @@ Puedes configurar via variables de entorno:
 export VIBESBOT_CAPITAL=100
 export VIBESBOT_CONFIDENCE=0.62
 export VIBESBOT_MAX_DAILY_LOSS=20
-export VIBESBOT_HEADLESS=false    # true para modo sin interfaz
 export VIBESBOT_TESTNET=false     # true para usar testnet
 ```
 

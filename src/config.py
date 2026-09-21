@@ -104,36 +104,6 @@ class DataStreamConfig:
 
 
 @dataclass
-class BrowserConfig:
-    """Legacy Event Contracts clicker config. Playwright is disabled."""
-    
-    user_data_dir: str = "./user_data"
-    headless: bool = False
-    
-    binance_prediction_url: str = "https://www.binance.com/en/prediction/BTCUSDT"
-    
-    execution_offset_seconds: int = 12
-    page_load_timeout_ms: int = 30000
-    action_timeout_ms: int = 5000
-    
-    max_retries: int = 3
-    retry_delay_seconds: float = 1.0
-    
-    screenshot_on_error: bool = True
-    screenshot_dir: str = "./logs/screenshots"
-    
-    selectors: dict = field(default_factory=lambda: {
-        "up_button": '[data-testid="prediction-up-btn"]',
-        "down_button": '[data-testid="prediction-down-btn"]',
-        "amount_input": '[data-testid="prediction-amount-input"]',
-        "confirm_button": '[data-testid="prediction-confirm-btn"]',
-        "current_price": '[data-testid="current-price"]',
-        "round_timer": '[data-testid="round-timer"]',
-        "round_result": '[data-testid="round-result"]',
-    })
-
-
-@dataclass
 class LoggingConfig:
     """Configuración de logging."""
     
@@ -157,7 +127,6 @@ class Config:
     prediction: PredictionConfig = field(default_factory=PredictionConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     data_stream: DataStreamConfig = field(default_factory=DataStreamConfig)
-    browser: BrowserConfig = field(default_factory=BrowserConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     
     environment: str = "development"
@@ -176,9 +145,6 @@ class Config:
             
         if os.getenv("VIBESBOT_MAX_DAILY_LOSS"):
             self.risk.max_daily_loss = float(os.getenv("VIBESBOT_MAX_DAILY_LOSS", "20"))
-            
-        if os.getenv("VIBESBOT_HEADLESS"):
-            self.browser.headless = os.getenv("VIBESBOT_HEADLESS", "").lower() == "true"
             
         if os.getenv("VIBESBOT_ENV"):
             self.environment = os.getenv("VIBESBOT_ENV", "development")
@@ -223,12 +189,7 @@ class Config:
             for key, value in data["data_stream"].items():
                 if hasattr(config.data_stream, key):
                     setattr(config.data_stream, key, value)
-                    
-        if "browser" in data:
-            for key, value in data["browser"].items():
-                if hasattr(config.browser, key):
-                    setattr(config.browser, key, value)
-                    
+
         if "logging" in data:
             for key, value in data["logging"].items():
                 if hasattr(config.logging, key):
@@ -286,11 +247,6 @@ class Config:
                 "timeframes": self.data_stream.timeframes,
                 "orderbook_depth": self.data_stream.orderbook_depth,
                 "use_testnet": self.data_stream.use_testnet,
-            },
-            "browser": {
-                "user_data_dir": self.browser.user_data_dir,
-                "headless": self.browser.headless,
-                "execution_offset_seconds": self.browser.execution_offset_seconds,
             },
             "logging": {
                 "log_dir": self.logging.log_dir,

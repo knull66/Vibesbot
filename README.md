@@ -27,7 +27,6 @@ Bot de trading automatizado para operar en Binance Prediction (BTC/USDT 5m "Up o
 ### 🔑 Wallet Prediction API (app Mac / dashboard REAL)
 - Apuestas reales por la SAPI oficial de Binance Wallet Prediction
 - Requiere API key con **Enable Prediction Trading** y filtro de IP
-- El clicker Playwright de Event Contracts (`binance.com/prediction`) está desactivado
 
 ## Estructura del Proyecto
 
@@ -40,8 +39,7 @@ vibesbot/
 │   ├── predictor.py        # Modelo de IA y generación de features
 │   ├── risk_manager.py     # Gestión de riesgo y Kelly Criterion
 │   ├── wallet_prediction.py # Cliente SAPI Wallet Prediction (REAL)
-│   ├── browser_execution.py # Clicker Playwright desactivado
-│   ├── main.py             # CLI legado desactivado (usar la app Mac)
+│   ├── web_server.py       # Dashboard y motor REAL/SIM
 │   ├── backtest.py         # Sistema de backtesting
 │   └── utils/
 │       ├── __init__.py
@@ -49,8 +47,7 @@ vibesbot/
 │       └── helpers.py      # Funciones auxiliares
 ├── models/                  # Modelos entrenados
 ├── logs/                    # Archivos de log
-├── user_data/              # Datos de sesión del navegador
-├── data/                   # Datos históricos
+├── data/                    # Datos históricos
 ├── config.example.json     # Ejemplo de configuración
 ├── requirements.txt        # Dependencias
 └── README.md
@@ -60,7 +57,7 @@ vibesbot/
 
 ### Requisitos
 - Python 3.10+
-- Cuenta de Binance con sesión activa
+- Cuenta de Binance con API key (Enable Prediction Trading)
 
 ### Pasos
 
@@ -127,9 +124,7 @@ Opciones disponibles:
 
 ### 2. Operar en REAL (app Mac)
 
-`python3 run_bot.py` está desactivado: abría Chromium y hacía clic en Event Contracts.
-
-Para apuestas reales usa la app Mac en modo REAL con una API key de Binance que tenga **Enable Prediction Trading**. El motor llama a `WalletPredictionClient` (SAPI), no abre `binance.com/prediction`.
+Para apuestas reales usa la app Mac en modo REAL con una API key de Binance que tenga **Enable Prediction Trading**. El motor llama a `WalletPredictionClient` (SAPI).
 
 ### Variables de Entorno
 
@@ -139,7 +134,6 @@ Puedes configurar el bot mediante variables de entorno:
 export VIBESBOT_CAPITAL=100
 export VIBESBOT_CONFIDENCE=0.62
 export VIBESBOT_MAX_DAILY_LOSS=20
-export VIBESBOT_HEADLESS=true
 export VIBESBOT_TESTNET=true
 ```
 

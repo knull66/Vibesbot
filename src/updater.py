@@ -27,6 +27,15 @@ GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}"
 VERSION_FILE = "VERSION"
 CURRENT_VERSION = "1.0.0"
 
+# Overlay updates copy on top and cannot rmtree. Delete leftover Event
+# Contracts clicker files that older installs still have on disk.
+RETIRED_CLICKER_FILES = (
+    "src/browser_execution.py",
+    "src/main.py",
+    "run_bot.py",
+)
+RETIRED_CLICKER_PYC_PREFIXES = ("browser_execution", "main")
+
 
 @dataclass
 class UpdateInfo:
@@ -104,6 +113,25 @@ class Updater:
             if child.name in skip:
                 continue
             self._overlay_copy(child, dest / child.name)
+
+    def _purge_retired_clicker(self) -> None:
+        """Remove leftover Playwright clicker files from older installs."""
+        for rel in RETIRED_CLICKER_FILES:
+            path = self.app_path / rel
+            if path.is_file():
+                try:
+                    path.unlink()
+                    logger.info(f"Removed leftover {rel}")
+                except OSError as exc:
+                    logger.warning(f"Could not remove {rel}: {exc}")
+        cache = self.app_path / "src" / "__pycache__"
+        if cache.is_dir():
+            for pyc in cache.glob("*.pyc"):
+                if pyc.name.split(".")[0] in RETIRED_CLICKER_PYC_PREFIXES:
+                    try:
+                        pyc.unlink()
+                    except OSError:
+                        pass
     
     async def check_for_updates(self) -> UpdateInfo:
         """
@@ -283,7 +311,8 @@ class Updater:
                     logger.info(f"✓ Updated: {item}")
                 except Exception as e:
                     logger.error(f"Error updating {item}: {e}")
-            
+
+            self._purge_retired_clicker()
             self._save_version(new_version)
             shutil.rmtree(zip_path.parent, ignore_errors=True)
             logger.info(f"Update applied: {new_version}")
