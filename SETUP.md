@@ -67,7 +67,7 @@ Enable Prediction Trading + IP de este Mac. Testnet no tiene Wallet Prediction.
 El mínimo de Wallet es 1.50; la app lo sube.
 
 **Muchos SKIP**  
-Es el diseño: book 38–62%, umbral ~50%, y ≥ $12 vs Price to Beat. Un 50/50 al open es suerte con fee.
+Book lopsided (92¢) o sin movimiento vs Price to Beat (~$6). Un 65% DOWN sí se apuesta. Un 50/50 al open es suerte con fee.
 
 **WIN falso vs Lost en Binance**  
 Actualiza a ≥ 1.25: el settle REAL ya no usa velas locales.

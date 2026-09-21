@@ -34,9 +34,9 @@ DEFAULT_FEE_BPS = 200
 DEFAULT_SLIPPAGE_BPS = 500
 MIN_BET_USDT = 1.5
 MAX_BET_USDT = 100.0
-MIN_SHARE_PRICE = 0.38
-MAX_SHARE_PRICE = 0.62
-MIN_WIN_PNL_RATIO = 0.25
+MIN_SHARE_PRICE = 0.30
+MAX_SHARE_PRICE = 0.70
+MIN_WIN_PNL_RATIO = 0.20
 BTC_PRICE_MIN = 1000.0
 BTC_PRICE_MAX = 1_000_000.0
 BSC_USDT = "0x55d398326f99059fF775485246999027B3197955"
@@ -331,7 +331,7 @@ def tradable_edge(
     stake: float,
     fee_bps: int = DEFAULT_FEE_BPS,
 ) -> Dict[str, Any]:
-    """Skip 0.92 favorites / 0.03 longshots: $1.50 at 0.92 only pays ~$0.13."""
+    """Skip 0.90 favorites / 0.10 longshots. 65–70% books are allowed."""
     price = normalize_share_price(share_price)
     fill = paper_fill(stake, price, fee_bps)
     in_band = MIN_SHARE_PRICE <= price <= MAX_SHARE_PRICE
@@ -341,7 +341,7 @@ def tradable_edge(
     if not ok:
         reason = (
             f"{price * 100:.0f}% pays ${fill['win_pnl']:.2f} "
-            f"on ${float(stake):.2f} — need 38–62%"
+            f"on ${float(stake):.2f} — need 30–70%"
         )
     return {"ok": ok, "reason": reason, "share_price": price, **fill}
 

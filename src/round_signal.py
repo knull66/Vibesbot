@@ -1,7 +1,8 @@
 """Round-level signal: indicators + tape, never a naked 50/50 coin flip."""
 from typing import Dict, Optional, Tuple
 
-MIN_CONFIRM_MOVE = 12.0
+MIN_CONFIRM_MOVE = 6.0
+CROWD_FADE_LIMIT = 0.70
 
 
 def tape_vote(flow_imbalance: float, book_imbalance: float = 0.0) -> int:
@@ -55,14 +56,14 @@ def combine_indicator_votes(
 
 
 def crowd_agrees(signal: str, book: Dict[str, float]) -> bool:
-    """True when our side is not fighting a decided Binance book."""
+    """True unless we are fading a 70%+ favorite."""
     side = str(signal or "").upper()
     up = float(book.get("up") or 0.5)
     down = float(book.get("down") or 0.5)
     if side == "UP":
-        return up >= down
+        return down < CROWD_FADE_LIMIT
     if side == "DOWN":
-        return down >= up
+        return up < CROWD_FADE_LIMIT
     return False
 
 

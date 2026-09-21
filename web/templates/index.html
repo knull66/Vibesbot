@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.30.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.31.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -318,7 +318,7 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Live weights</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.30.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.31.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -390,7 +390,7 @@
                             <label for="bet-amount">BET AMOUNT ($)</label>
                             <input type="number" id="bet-amount" value="1.50" min="1.5" step="0.1">
                         </div>
-                        <p class="settings-hint">Applies to SIM and REAL. Wallet min is 1.50 USDT — $1 is raised to $1.50. The bot skips lopsided books (buying 92¢ favorites that only pay ~$0.13).</p>
+                        <p class="settings-hint">Applies to SIM and REAL. Wallet min is 1.50 USDT. Skips only 70¢+ favorites / 30¢ longshots and coin-flips under ~$6 vs Price to Beat.</p>
                         <div class="form-group">
                             <label for="confidence-threshold">MIN CONFIDENCE (%)</label>
                             <input type="number" id="confidence-threshold" value="50" min="50" max="99">
@@ -502,7 +502,7 @@
                         </div>
                         <div class="update-status" id="password-status"></div>
                         <h3 style="margin-top:20px;">APP</h3>
-                        <p class="settings-hint">Version <span id="current-version">v1.30.0</span>. If a new build is out, a popup asks you to update — no need to hunt in Settings.</p>
+                        <p class="settings-hint">Version <span id="current-version">v1.31.0</span>. If a new build is out, a popup asks you to update — no need to hunt in Settings.</p>
                         <div class="form-actions">
                             <button class="btn" id="btn-export-csv">CSV</button>
                             <button class="btn" id="btn-export-json">JSON</button>
@@ -556,7 +556,7 @@
             </div>
             <div class="modal-body" style="padding:16px 20px 22px;">
                 <p class="settings-hint" style="margin-bottom:12px;">
-                    <span id="update-prompt-from">v1.30.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
+                    <span id="update-prompt-from">v1.31.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
                 </p>
                 <p id="update-prompt-notes" class="settings-hint" style="margin-bottom:16px;"></p>
                 <div class="form-actions" style="justify-content:center;">
@@ -593,6 +593,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.30.0"></script>
+    <script src="/static/app.js?v=1.31.0"></script>
 </body>
 </html>
