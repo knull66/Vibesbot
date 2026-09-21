@@ -77,11 +77,14 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
                 return {
                     "wallet_id": "w1",
                     "wallet_address": USER_WALLET,
+                    "order_address": USER_WALLET,
                     "usdt": 10.025,
                     "label": "My Wallet",
                     "network": "BNB Smart Chain",
                     "can_trade": True,
                     "error": "",
+                    "my_wallet_address": USER_WALLET,
+                    "my_wallet_usdt": 10.025,
                 }
 
         with patch("src.wallet_prediction.WalletPredictionClient", FakeClient):
@@ -98,6 +101,7 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["can_trade"])
 
     async def test_unlisted_address_still_shows_my_wallet_usdt(self):
+        listed = "0xf7d411111111111111111111111111111111bb3c"
         connector = BinanceConnector(BinanceCredentials(
             api_key="k",
             api_secret="s",
@@ -111,25 +115,31 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
 
             async def fetch_prediction_wallet(self):
                 return {
-                    "wallet_id": "",
-                    "wallet_address": USER_WALLET,
-                    "usdt": 10.025,
-                    "label": "My Wallet",
+                    "wallet_id": "pred",
+                    "wallet_address": listed,
+                    "order_address": listed,
+                    "usdt": 0.91,
+                    "label": "Prediction Account",
                     "network": "BNB Smart Chain",
-                    "can_trade": False,
-                    "error": "My Wallet is not in Binance wallet/list",
+                    "can_trade": True,
+                    "error": "",
+                    "my_wallet_address": USER_WALLET,
+                    "my_wallet_usdt": 13.45,
                 }
 
         with patch("src.wallet_prediction.WalletPredictionClient", FakeClient):
             result = await connector.fetch_live_balances()
 
         self.assertTrue(result["success"])
-        self.assertEqual(result["display_wallet"], "My Wallet")
-        self.assertEqual(result["display_balance"], 10.025)
-        self.assertEqual(result["wallet_address"], USER_WALLET)
+        self.assertEqual(result["display_wallet"], "Prediction Account")
+        self.assertEqual(result["display_balance"], 0.91)
+        self.assertEqual(result["wallet_address"], listed)
+        self.assertNotEqual(result["wallet_address"], USER_WALLET)
         self.assertEqual(result["error"], "")
-        self.assertFalse(result["can_trade"])
-        self.assertIn("wallet/list", result["trade_error"])
+        self.assertTrue(result["can_trade"])
+        self.assertEqual(result["my_wallet_usdt"], 13.45)
+        self.assertEqual(result["wallets"]["Prediction Account"], 0.91)
+        self.assertEqual(result["wallets"]["My Wallet"], 13.45)
 
     async def test_signed_cex_endpoints_are_not_called(self):
         connector = BinanceConnector(BinanceCredentials(api_key="k", api_secret="s", is_testnet=False))
@@ -143,10 +153,13 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
                 return {
                     "wallet_id": "w1",
                     "wallet_address": USER_WALLET,
+                    "order_address": USER_WALLET,
                     "usdt": 10.025,
                     "label": "My Wallet",
                     "can_trade": True,
                     "error": "",
+                    "my_wallet_address": USER_WALLET,
+                    "my_wallet_usdt": 10.025,
                 }
 
         with patch.object(connector, "_signed_request", signed), \

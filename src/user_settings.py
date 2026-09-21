@@ -455,11 +455,15 @@ class BinanceConnector:
         empty = {
             "success": False,
             "wallets": {},
-            "display_wallet": "My Wallet",
+            "display_wallet": "Prediction Account",
             "display_balance": 0.0,
             "wallet_address": "",
             "network": "BNB Smart Chain",
             "error": "",
+            "can_trade": False,
+            "trade_error": "",
+            "my_wallet_address": "",
+            "my_wallet_usdt": 0.0,
         }
         if self.credentials.is_testnet:
             empty["error"] = "Testnet has no Binance Wallet Prediction. Uncheck Use Testnet."
@@ -468,7 +472,7 @@ class BinanceConnector:
             empty["error"] = "API Key and Secret are required"
             return empty
         try:
-            from .wallet_prediction import WalletPredictionClient
+            from .wallet_prediction import WalletPredictionClient, same_address
             client = WalletPredictionClient(
                 self.credentials.api_key,
                 self.credentials.api_secret,
@@ -479,20 +483,28 @@ class BinanceConnector:
             logger.warning(f"Prediction BSC read failed: {exc}")
             empty["error"] = f"Wallet API: {exc}"
             return empty
-        label = str(picked.get("label") or "My Wallet")
+        label = str(picked.get("label") or "Prediction Account")
         amount = float(picked.get("usdt") or 0)
-        address = str(picked.get("wallet_address") or "")
-        wallets = {label: amount} if address else {}
+        address = str(picked.get("order_address") or "")
+        my_wallet = str(picked.get("my_wallet_address") or "")
+        my_usdt = float(picked.get("my_wallet_usdt") or 0)
+        wallets = {}
+        if address:
+            wallets[label] = amount
+        if my_wallet and not same_address(my_wallet, address):
+            wallets["My Wallet"] = my_usdt
         return {
             "success": bool(address),
             "wallets": wallets,
-            "display_wallet": label,
-            "display_balance": amount,
+            "display_wallet": label if address else "Prediction Account",
+            "display_balance": amount if address else 0.0,
             "wallet_address": address,
             "network": "BNB Smart Chain",
-            "can_trade": bool(picked.get("can_trade")),
-            "error": "" if address else (picked.get("error") or "My Wallet address missing"),
-            "trade_error": picked.get("error") or "",
+            "can_trade": bool(picked.get("can_trade") and address),
+            "error": "" if address else (picked.get("error") or "Prediction Account missing"),
+            "trade_error": "" if picked.get("can_trade") else (picked.get("error") or ""),
+            "my_wallet_address": my_wallet,
+            "my_wallet_usdt": my_usdt,
         }
 
 
@@ -670,15 +682,17 @@ class SettingsManager:
                 preferred_address=self.settings.binance.prediction_wallet,
             )
             picked = await client.fetch_prediction_wallet()
-            if picked.get("wallet_address"):
-                trade_note = ""
-                if not picked.get("can_trade"):
-                    trade_note = " | REAL bets blocked until this address is in wallet/list"
+            if picked.get("can_trade") and picked.get("order_address"):
                 result["message"] = (
                     (result.get("message") or "Connected")
-                    + f" | My Wallet {picked.get('wallet_address')} "
-                    + f"${float(picked.get('usdt') or 0):.2f} USDT on BNB Smart Chain"
-                    + trade_note
+                    + f" | {picked.get('label')} {picked.get('order_address')} "
+                    + f"${float(picked.get('usdt') or 0):.2f} USDT (Predict.fun / Transfer In)"
+                )
+            elif picked.get("wallet_address"):
+                result["message"] = (
+                    (result.get("message") or "Connected")
+                    + " | Wallet API: "
+                    + (picked.get("error") or "Prediction Account missing from wallet/list")
                 )
             else:
                 result["message"] = (

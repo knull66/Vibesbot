@@ -8,10 +8,9 @@ A) Binance Exchange Event Contracts — binance.com/prediction
 B) Binance Wallet Prediction Markets — web3.binance.com/en/prediction
    Predict.fun markets on BNB Smart Chain. Official SAPI:
    https://api.binance.com/sapi/v1/w3w/wallet/prediction
-   Orders spend USDT on the user's My Wallet (MPC), not Spot/Funding/CeDefi.
-
-Binance also auto-creates a separate "Prediction Account". That is not
-My Wallet. This client never falls back to it.
+   Official SAPI wallet/list returns the Prediction Account (MPC), not
+   web3 My Wallet. REAL spends that listed account. My Wallet is Web3
+   assets (Send/Receive) and is not used for Predict.fun orders.
 """
 from __future__ import annotations
 
@@ -81,6 +80,27 @@ def match_wallet_row(wallets: List[Dict[str, Any]], preferred: str) -> Optional[
         if same_address(wallet_address_of(row), target):
             return row
     return None
+
+
+def pick_tradable_wallet_row(wallets: List[Dict[str, Any]], preferred: str = "") -> Optional[Dict[str, Any]]:
+    """Spend the official Prediction Account from wallet/list.
+
+    If My Wallet is registered there, use it. Otherwise use the listed
+    Prediction Account Binance created for Predict.fun.
+    """
+    matched = match_wallet_row(wallets, preferred)
+    if matched and wallet_id_of(matched) and wallet_address_of(matched):
+        return matched
+    for row in wallets or []:
+        if wallet_id_of(row) and wallet_address_of(row):
+            return row
+    return None
+
+
+def spend_wallet_label(address: str, my_wallet: str = "") -> str:
+    if same_address(address, my_wallet):
+        return "My Wallet"
+    return "Prediction Account"
 
 
 def wallet_address_of(row: Dict[str, Any]) -> str:
@@ -454,47 +474,49 @@ class WalletPredictionClient:
         return wallets
 
     async def fetch_prediction_wallet(self) -> Dict[str, Any]:
-        """Display and spend My Wallet only. Never wallets[0] / CeDefi / Prediction Account."""
-        preferred = resolve_preferred_address(self.preferred_address)
+        """Spend the listed Prediction Account. My Wallet is display-only unless listed."""
+        my_wallet = resolve_preferred_address(self.preferred_address)
         wallets = await self.list_wallets()
-        matched = match_wallet_row(wallets, preferred)
-        usdt = await fetch_bsc_usdt(preferred)
         listed = [wallet_address_of(row) for row in wallets if wallet_address_of(row)]
+        matched = pick_tradable_wallet_row(wallets, my_wallet)
+        order_address = wallet_address_of(matched) if matched else ""
         wallet_id = wallet_id_of(matched) if matched else ""
-        order_address = (wallet_address_of(matched) or preferred) if matched else ""
-        can_trade = bool(matched and wallet_id and same_address(order_address, preferred))
-        error = "" if can_trade else mismatch_wallet_error(
-            preferred, listed, self._last_wallet_list_error
-        )
+        can_trade = bool(matched and wallet_id and order_address)
+        label = spend_wallet_label(order_address, my_wallet) if order_address else "Prediction Account"
+        spend_usdt = await fetch_bsc_usdt(order_address) if order_address else 0.0
+        my_usdt = spend_usdt if same_address(order_address, my_wallet) else await fetch_bsc_usdt(my_wallet)
+        error = ""
+        if not can_trade:
+            error = self._last_wallet_list_error or mismatch_wallet_error(my_wallet, listed)
         return {
             "wallet_id": wallet_id if can_trade else "",
-            "wallet_address": preferred,
+            "wallet_address": order_address or my_wallet,
             "order_address": order_address if can_trade else "",
-            "usdt": usdt,
-            "label": "My Wallet",
+            "usdt": spend_usdt,
+            "label": label,
             "network": "BNB Smart Chain",
             "listed_wallets": listed,
             "can_trade": can_trade,
+            "my_wallet_address": my_wallet,
+            "my_wallet_usdt": my_usdt,
             "error": error,
         }
 
     async def ensure_wallet(self, refresh: bool = True) -> Dict[str, Any]:
-        cached = (
-            self._wallet.get("walletId")
-            and self._wallet.get("walletAddress")
-            and same_address(self._wallet.get("walletAddress"), resolve_preferred_address(self.preferred_address))
-        )
+        cached = self._wallet.get("walletId") and self._wallet.get("orderAddress")
         if cached and not refresh:
             return self._wallet
         picked = await self.fetch_prediction_wallet()
         can_trade = bool(picked.get("can_trade"))
+        order_address = str(picked.get("order_address") or "") if can_trade else ""
         self._wallet = {
             "walletId": str(picked.get("wallet_id") or "") if can_trade else "",
-            "walletAddress": str(picked.get("wallet_address") or ""),
-            "orderAddress": str(picked.get("order_address") or "") if can_trade else "",
+            "walletAddress": order_address or str(picked.get("wallet_address") or ""),
+            "orderAddress": order_address,
             "usdt": float(picked.get("usdt") or 0),
-            "label": str(picked.get("label") or "My Wallet"),
+            "label": str(picked.get("label") or "Prediction Account"),
             "can_trade": can_trade,
+            "my_wallet_address": str(picked.get("my_wallet_address") or ""),
             "error": str(picked.get("error") or ""),
         }
         return self._wallet
@@ -510,31 +532,28 @@ class WalletPredictionClient:
         if not token:
             return {"success": False, "error": f"No Wallet outcome token for {signal}"}
         wallet = await self.ensure_wallet(refresh=True)
-        preferred = resolve_preferred_address(self.preferred_address)
-        order_address = str(wallet.get("orderAddress") or wallet.get("walletAddress") or "")
-        if (
-            not wallet.get("can_trade")
-            or not wallet.get("walletId")
-            or not same_address(order_address, preferred)
-        ):
+        order_address = str(wallet.get("orderAddress") or "")
+        if not wallet.get("can_trade") or not wallet.get("walletId") or not order_address:
+            preferred = resolve_preferred_address(self.preferred_address)
             return {
                 "success": False,
                 "error": wallet.get("error") or self._last_wallet_list_error or mismatch_wallet_error(preferred, []),
             }
-        usdt = await fetch_bsc_usdt(preferred)
+        usdt = await fetch_bsc_usdt(order_address)
         wallet["usdt"] = usdt
         if usdt < float(stake_usdt):
             return {
                 "success": False,
                 "error": (
-                    f"My Wallet BSC USDT ${usdt:.2f} is below ${float(stake_usdt):.2f}. "
-                    f"Send USDT on BNB Smart Chain to {preferred}."
+                    f"Prediction Account USDT ${usdt:.2f} is below ${float(stake_usdt):.2f}. "
+                    "Use Transfer In on Binance Prediction → Portfolio. "
+                    "My Wallet tokens are not this balance."
                 ),
             }
         amount_in = str(int(round(float(stake_usdt) * USDT_WEI)))
         slippage = int(topic.get("slippageBps") or DEFAULT_SLIPPAGE_BPS)
         quote_req = {
-            "walletAddress": preferred,
+            "walletAddress": order_address,
             "tokenId": token["token_id"],
             "side": "BUY",
             "amountIn": amount_in,
@@ -552,7 +571,7 @@ class WalletPredictionClient:
                 msg = str(quote.get("msg") or quote.get("message") or quote.get("error") or quote)
             return {"success": False, "error": msg or f"Quote failed HTTP {status}"}
         place_req = {
-            "walletAddress": preferred,
+            "walletAddress": order_address,
             "walletId": wallet["walletId"],
             "quoteId": quote.get("quoteId"),
             "slippageBps": quote.get("slippageBps") or slippage,
@@ -585,8 +604,8 @@ class WalletPredictionClient:
             "order_id": order_id,
             "quote": quote,
             "placed": placed,
-            "account_type": "My Wallet",
-            "wallet_address": preferred,
+            "account_type": str(wallet.get("label") or "Prediction Account"),
+            "wallet_address": order_address,
             "share_price": avg,
             "token": token,
             "title": topic.get("title") or "",

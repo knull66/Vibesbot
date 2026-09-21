@@ -37,8 +37,6 @@ from .wallet_prediction import (
     market_book,
     outcome_token,
     paper_fill,
-    resolve_preferred_address,
-    same_address,
     settle_payout,
 )
 
@@ -660,17 +658,15 @@ class DashboardBot:
                 )
                 wallet = await client.ensure_wallet(refresh=True)
                 pred_balance = float(wallet.get("usdt") or 0)
-                preferred = resolve_preferred_address(creds.prediction_wallet)
                 if (
                     not wallet.get("can_trade")
                     or not wallet.get("walletId")
-                    or not same_address(wallet.get("walletAddress"), preferred)
+                    or not wallet.get("orderAddress")
                 ):
                     await self.manager.send_to_session(session.session_id, {
                         "type": "log",
                         "message": wallet.get("error") or (
-                            "REAL blocked: My Wallet is not in wallet/list. "
-                            "Will not spend Binance's auto Prediction Account."
+                            "REAL blocked: Binance wallet/list did not return a Prediction Account."
                         ),
                         "level": "loss",
                     })
@@ -679,9 +675,9 @@ class DashboardBot:
                     await self.manager.send_to_session(session.session_id, {
                         "type": "log",
                         "message": (
-                            f"My Wallet BSC USDT ${pred_balance:.2f} is below ${amount:.2f}. "
-                            "Send USDT on BNB Smart Chain to this wallet — the same one at "
-                            "web3.binance.com/en/prediction."
+                            f"Prediction Account USDT ${pred_balance:.2f} is below ${amount:.2f}. "
+                            "Use Transfer In on Binance Prediction → Portfolio. "
+                            "My Wallet tokens are not this balance."
                         ),
                         "level": "loss",
                     })
@@ -1426,9 +1422,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                             await manager.send_to(websocket, {
                                 "type": "log",
                                 "message": (
-                                    f"My Wallet ${session.live_balance:.2f} "
-                                    f"{session.live_wallet_address or session.live_wallet} on BNB Smart Chain. "
-                                    + (session.live_trade_error or "REAL bets blocked until this address is in wallet/list.")
+                                    session.live_trade_error
+                                    or "REAL blocked: no Prediction Account in wallet/list."
                                 ),
                                 "level": "loss",
                             })
@@ -1436,9 +1431,10 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                             await manager.send_to(websocket, {
                                 "type": "log",
                                 "message": (
-                                    f"Live My Wallet ${session.live_balance:.2f} "
-                                    f"{session.live_wallet_address or session.live_wallet}. "
-                                    "Start bets Predict.fun via web3.binance.com/en/prediction with this USDT only."
+                                    f"Live {session.live_wallet} ${session.live_balance:.2f} "
+                                    f"{session.live_wallet_address}. "
+                                    "This is Binance Prediction → Portfolio (Transfer In). "
+                                    "My Wallet tokens are not spent."
                                 ),
                                 "level": "info",
                             })
