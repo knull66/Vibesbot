@@ -1982,6 +1982,11 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
 def run_dashboard(host: str = "0.0.0.0", port: int = 8080, config_path: Optional[str] = None):
     """Inicia el servidor del dashboard."""
     setup_logger("web_server", console_output=True)
+    try:
+        from .updater import purge_retired_installs
+        purge_retired_installs()
+    except Exception as exc:
+        logger.warning(f"Leftover Playwright cleanup skipped: {exc}")
     
     config = load_config(config_path)
     app = create_app(config)

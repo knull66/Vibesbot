@@ -41,6 +41,11 @@ def free_port():
 
 def start_server():
     try:
+        from src.updater import purge_retired_installs
+        purge_retired_installs()
+    except Exception:
+        pass
+    try:
         from src.web_server import run_dashboard
         run_dashboard(port=8080)
     except Exception as e:

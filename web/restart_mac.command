@@ -19,6 +19,9 @@ if [ -d .git ]; then
   git pull origin main
 fi
 
+echo "Removing leftover Playwright clicker files..."
+PYTHONPATH="." python3 -c "from src.updater import purge_retired_installs; print('removed', purge_retired_installs())" 2>/dev/null || true
+
 echo "Starting Vibesbot..."
 if [ -f app_launcher.py ]; then
   python3 app_launcher.py

@@ -14,7 +14,7 @@ pip install -r requirements.txt
 python3 run_dashboard.py
 ```
 
-App Mac: descarga el release en `https://github.com/knull66/Vibesbot/releases/latest`. Después de actualizar, **Quit en el Dock** y abre de nuevo.
+App Mac: descarga el release en `https://github.com/knull66/Vibesbot/releases/latest`. Después de actualizar, **Quit en el Dock** y abre de nuevo. Al arrancar borra restos de Playwright (`run_bot.py`, etc.) que el zip overlay no puede quitar.
 
 ## 2. API key (REAL)
 

@@ -34,7 +34,7 @@ El API secret se guarda cifrado (Keychain en macOS, sidecar `chmod 0600` en el r
 
 ## App Mac (uso previsto)
 
-Actualiza desde GitHub Releases (`knull66/Vibesbot`). Tras un overlay zip: **Quit desde el Dock** y vuelve a abrir; el Python que sigue en memoria es el viejo hasta que cierras.
+Actualiza desde GitHub Releases (`knull66/Vibesbot`). Tras un overlay zip: **Quit desde el Dock** y vuelve a abrir; el Python que sigue en memoria es el viejo hasta que cierras. Al abrir, la app borra restos de Playwright (`run_bot.py`, `browser_execution.py`) en la carpeta que corre y en `~/Downloads/Vibesbot`.
 
 ```bash
 python3 run_dashboard.py

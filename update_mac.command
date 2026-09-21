@@ -30,6 +30,9 @@ fi
 git fetch origin main
 git pull origin main
 
+echo "Removing leftover Playwright clicker files..."
+PYTHONPATH="." python3 -c "from src.updater import purge_retired_installs; print('removed', purge_retired_installs())" 2>/dev/null || true
+
 echo "Building native app..."
 python3 build_simple_app.py
 
