@@ -6,6 +6,7 @@ from src.user_settings import (
     SettingsManager,
     binance_testnet_from_payload,
     describe_binance_error,
+    effective_confidence_threshold,
     is_kept_secret,
 )
 from src.wallet_prediction import DEFAULT_PREDICTION_WALLET
@@ -14,6 +15,12 @@ from src.wallet_prediction import DEFAULT_PREDICTION_WALLET
 class BinanceFlagTests(unittest.TestCase):
     def test_js_testnet_false(self):
         self.assertFalse(binance_testnet_from_payload({"testnet": False}))
+
+    def test_legacy_62_threshold_allows_61_signal(self):
+        self.assertEqual(effective_confidence_threshold(0.62), 0.50)
+        self.assertEqual(effective_confidence_threshold(None), 0.50)
+        self.assertEqual(effective_confidence_threshold(0.70), 0.70)
+        self.assertGreaterEqual(0.61, effective_confidence_threshold(0.62))
 
     def test_js_testnet_true(self):
         self.assertTrue(binance_testnet_from_payload({"testnet": True}))

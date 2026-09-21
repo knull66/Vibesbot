@@ -14,7 +14,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 import uvicorn
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -34,6 +34,7 @@ from .companion import get_companion, is_loopback
 from .wallet_prediction import (
     PendingWalletTrade,
     WalletPredictionClient,
+    market_book,
     outcome_token,
     paper_fill,
     settle_payout,
@@ -238,6 +239,9 @@ class DashboardBot:
         # Última predicción
         self._last_prediction = None
         self._last_prediction_confidence = 0.5
+        self._market_book: Dict[str, Any] = {}
+        self._market_topic: Optional[Dict[str, Any]] = None
+        self._market_fetched_at = 0.0
         
         # Estadísticas avanzadas
         self._equity_history = [100.0]  # Historial de capital
@@ -311,6 +315,31 @@ class DashboardBot:
         session.live_balance = float(result.get("display_balance") or 0)
         session.live_error = result.get("error") or ""
         session.live_fetched_at = time.time()
+
+    async def refresh_market_book(self, force: bool = False) -> Dict[str, Any]:
+        now = time.time()
+        if not force and self._market_book and now - self._market_fetched_at < 5:
+            return self._market_book
+        from .user_settings import get_settings_manager
+
+        sm = get_settings_manager()
+        creds = sm.settings.binance
+        if not creds.is_configured or creds.is_testnet:
+            return self._market_book
+        try:
+            client = WalletPredictionClient(
+                creds.api_key,
+                creds.api_secret,
+                preferred_address=creds.prediction_wallet,
+            )
+            topic = await client.find_btc_5m_market()
+            if topic:
+                self._market_topic = topic
+                self._market_book = market_book(topic)
+                self._market_fetched_at = now
+        except Exception as exc:
+            logger.warning(f"Wallet market book failed: {exc}")
+        return self._market_book
     
     async def _data_loop(self):
         """Loop que siempre envía datos de mercado, incluso sin trading."""
@@ -518,25 +547,37 @@ class DashboardBot:
             # Guardar predicción para el trade
             self._last_prediction = signal
             self._last_prediction_confidence = confidence
+
+            book = await self.refresh_market_book()
+            if book:
+                prob_up = float(book.get("up") or prob_up)
+                prob_down = float(book.get("down") or prob_down)
             
-            # Obtener precio actual como "Price to Beat"
-            price_to_beat = 80000.0
-            if self.data_stream:
-                price_to_beat = self.data_stream.get_current_price() or price_to_beat
+            # Price to Beat: Wallet start price, not the last tick
+            price_to_beat = float(book.get("price_to_beat") or 0) if book else 0.0
+            if price_to_beat <= 0 and self.data_stream:
+                price_to_beat = self.data_stream.get_current_price() or 0.0
             self._price_to_beat = price_to_beat
-            
+
+            shown = prob_up if signal == "UP" else prob_down
             await self._emit_sessions(sessions, {
                 "type": "signal",
                 "signal": signal,
-                "confidence": confidence,
+                "confidence": shown,
                 "prob_up": prob_up,
                 "prob_down": prob_down,
+                "up_odds": (book or {}).get("up_odds"),
+                "down_odds": (book or {}).get("down_odds"),
                 "price_to_beat": price_to_beat
             })
             
             await self._emit_sessions(sessions, {
                 "type": "log",
-                "message": f"SIGNAL: {signal} ({confidence*100:.1f}%) | {strategy_used}",
+                "message": (
+                    f"SIGNAL: {signal} | Binance Up {prob_up*100:.0f}% ({float((book or {}).get('up_odds') or 2):.2f}x) "
+                    f"/ Down {prob_down*100:.0f}% ({float((book or {}).get('down_odds') or 2):.2f}x)"
+                    + (f" | {strategy_used}" if strategy_used and strategy_used != "none" else "")
+                ),
                 "level": "prediction"
             })
             
@@ -567,9 +608,9 @@ class DashboardBot:
                 })
                 return
 
-            from .user_settings import get_settings_manager
+            from .user_settings import effective_confidence_threshold, get_settings_manager
             sm = get_settings_manager()
-            threshold = float(sm.settings.trading.confidence_threshold or 0.62)
+            threshold = effective_confidence_threshold(sm.settings.trading.confidence_threshold)
             if confidence < threshold:
                 await self.manager.send_to_session(session.session_id, {
                     "type": "log",
@@ -584,6 +625,14 @@ class DashboardBot:
                 open_price = open_price or self.data_stream.get_current_price()
             open_price = float(open_price or 0.0)
             share_price = 0.50
+            book = await self.refresh_market_book()
+            if book:
+                if signal == "UP":
+                    share_price = float(book.get("up") or 0.5)
+                elif signal == "DOWN":
+                    share_price = float(book.get("down") or 0.5)
+                if book.get("price_to_beat"):
+                    open_price = float(book["price_to_beat"])
             fill = paper_fill(amount, share_price)
             live = False
             order_id = ""
@@ -837,8 +886,16 @@ class DashboardBot:
                 "macd": macd,
                 "bb": bb_position,
                 "momentum": momentum
-            }
+            },
+            "prob_up": (self._market_book or {}).get("up"),
+            "prob_down": (self._market_book or {}).get("down"),
+            "up_odds": (self._market_book or {}).get("up_odds"),
+            "down_odds": (self._market_book or {}).get("down_odds"),
+            "price_to_beat": (self._market_book or {}).get("price_to_beat") or getattr(self, "_price_to_beat", None),
+            "signal": self._last_prediction,
         })
+        if remaining % 5 == 0:
+            await self.refresh_market_book()
     
     def _sessions_dir(self) -> Path:
         path = Path(__file__).parent.parent / "data" / "sessions"

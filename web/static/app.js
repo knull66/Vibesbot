@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.18.4';
+const APP_VERSION = '1.18.5';
 
 class VibesBot {
     constructor() {
@@ -557,6 +557,34 @@ class VibesBot {
         if (data.features) {
             this.updateFeatures(data.features);
         }
+        if (data.prob_up != null && this.probUp) {
+            this.probUp.textContent = (Number(data.prob_up) * 100).toFixed(1) + '%';
+        }
+        if (data.prob_down != null && this.probDown) {
+            this.probDown.textContent = (Number(data.prob_down) * 100).toFixed(1) + '%';
+        }
+        const upOddsEl = document.getElementById('prob-up-odds');
+        const downOddsEl = document.getElementById('prob-down-odds');
+        if (upOddsEl && data.up_odds) upOddsEl.textContent = Number(data.up_odds).toFixed(2) + 'x';
+        if (downOddsEl && data.down_odds) downOddsEl.textContent = Number(data.down_odds).toFixed(2) + 'x';
+        if (data.price_to_beat) {
+            this.priceToBeat = parseFloat(data.price_to_beat);
+            if (this.priceToBeatEl && this.priceToBeat) {
+                this.priceToBeatEl.textContent = '$' + this.priceToBeat.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+            }
+        }
+        const side = String(data.signal || '').toUpperCase();
+        if ((side === 'UP' || side === 'DOWN') && this.confidenceValue) {
+            const shown = side === 'UP' ? data.prob_up : data.prob_down;
+            if (shown != null) {
+                const pct = Math.round(Number(shown) * 100);
+                if (this.confidenceFill) this.confidenceFill.style.width = pct + '%';
+                this.confidenceValue.textContent = pct + '%';
+            }
+        }
         
         // Draw charts
         this.drawMiniChart();
@@ -633,9 +661,13 @@ class VibesBot {
         if (this.confidenceFill) this.confidenceFill.style.width = confPct + '%';
         if (this.confidenceValue) this.confidenceValue.textContent = confPct + '%';
         
-        // Probabilities
-        if (this.probUp) this.probUp.textContent = ((data.prob_up || 0.5) * 100).toFixed(1) + '%';
-        if (this.probDown) this.probDown.textContent = ((data.prob_down || 0.5) * 100).toFixed(1) + '%';
+        // Probabilities from Binance Wallet market
+        if (this.probUp && data.prob_up != null) this.probUp.textContent = (Number(data.prob_up) * 100).toFixed(1) + '%';
+        if (this.probDown && data.prob_down != null) this.probDown.textContent = (Number(data.prob_down) * 100).toFixed(1) + '%';
+        const upOdds = document.getElementById('prob-up-odds');
+        const downOdds = document.getElementById('prob-down-odds');
+        if (upOdds && data.up_odds) upOdds.textContent = Number(data.up_odds).toFixed(2) + 'x';
+        if (downOdds && data.down_odds) downOdds.textContent = Number(data.down_odds).toFixed(2) + 'x';
         
         // Price to Beat for this round
         if (data.price_to_beat) {
@@ -1200,6 +1232,10 @@ class VibesBot {
             const betEl = document.getElementById('bet-amount');
             if (betEl && data.trading && data.trading.bet_amount != null) {
                 betEl.value = data.trading.bet_amount;
+            }
+            const confEl = document.getElementById('confidence-threshold');
+            if (confEl && data.trading && data.trading.confidence_threshold != null) {
+                confEl.value = Math.round(Number(data.trading.confidence_threshold) * 100);
             }
         } catch (error) {
             // Keep empty form if settings cannot be read

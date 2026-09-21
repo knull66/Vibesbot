@@ -104,6 +104,23 @@ def pick_live_wallet(wallets: Dict[str, float]) -> tuple:
     return name, float(prediction[name])
 
 
+LEGACY_CONFIDENCE_THRESHOLD = 0.62
+DEFAULT_CONFIDENCE_THRESHOLD = 0.50
+
+
+def effective_confidence_threshold(value: Any) -> float:
+    """Old 62% default sat above the 61% indicator and blocked every bet."""
+    try:
+        raw = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_CONFIDENCE_THRESHOLD
+    if raw <= 0:
+        return DEFAULT_CONFIDENCE_THRESHOLD
+    if abs(raw - LEGACY_CONFIDENCE_THRESHOLD) < 1e-9:
+        return DEFAULT_CONFIDENCE_THRESHOLD
+    return min(max(raw, 0.50), 0.99)
+
+
 class TradingMode(Enum):
     """Modos de trading disponibles."""
     SIMULATION = "simulation"  # Paper trading con dinero virtual
@@ -154,7 +171,7 @@ class TradingSettings:
     bet_amount: float = 1.0  # USD por apuesta
     max_daily_loss: float = 50.0  # USD
     max_trades_per_day: int = 50
-    confidence_threshold: float = 0.62  # 62% mínimo
+    confidence_threshold: float = 0.50  # 50% — Wallet 5m is ~50/50
     auto_trade: bool = False  # Si ejecuta trades automáticamente
     
     # Configuración para modo ACTIVE
@@ -528,7 +545,9 @@ class SettingsManager:
                     bet_amount=t.get("bet_amount", 1.0),
                     max_daily_loss=t.get("max_daily_loss", 50.0),
                     max_trades_per_day=t.get("max_trades_per_day", 50),
-                    confidence_threshold=t.get("confidence_threshold", 0.62),
+                    confidence_threshold=effective_confidence_threshold(
+                        t.get("confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD)
+                    ),
                     auto_trade=t.get("auto_trade", False)
                 )
             

@@ -201,6 +201,65 @@ def pick_active_btc_window(topics: List[Any], minutes: int = 5, now_ms: Optional
     return matches[0]
 
 
+def as_probability(value: Any, default: float = 0.5) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number > 1.0:
+        number = number / 100.0
+    if number <= 0:
+        return default
+    return min(max(number, 0.01), 0.99)
+
+
+def topic_start_price(topic: Dict[str, Any]) -> float:
+    keys = (
+        "startPrice",
+        "openPrice",
+        "priceToBeat",
+        "strikePrice",
+        "startValue",
+        "initialPrice",
+        "eventStartPrice",
+    )
+    blobs: List[Any] = [topic]
+    for nested in ("event", "metadata", "market", "stats"):
+        row = topic.get(nested)
+        if isinstance(row, dict):
+            blobs.append(row)
+    for market in topic.get("markets") or []:
+        if isinstance(market, dict):
+            blobs.append(market)
+    for blob in blobs:
+        for key in keys:
+            raw = blob.get(key) if isinstance(blob, dict) else None
+            try:
+                price = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if price > 0:
+                return price
+    return 0.0
+
+
+def market_book(topic: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Binance Wallet Up/Down odds for the active BTC 5m market."""
+    topic = topic or {}
+    up = outcome_token(topic, "UP") or {}
+    down = outcome_token(topic, "DOWN") or {}
+    up_p = as_probability(up.get("price"), 0.5)
+    down_p = as_probability(down.get("price"), 0.5)
+    return {
+        "up": up_p,
+        "down": down_p,
+        "up_odds": (1.0 / up_p) if up_p else 2.0,
+        "down_odds": (1.0 / down_p) if down_p else 2.0,
+        "price_to_beat": topic_start_price(topic),
+        "title": str(topic.get("title") or "BTC Up or Down 5m"),
+    }
+
+
 def outcome_token(topic: Dict[str, Any], signal: str) -> Optional[Dict[str, Any]]:
     want = "UP" if str(signal).upper() == "UP" else "DOWN"
     markets = topic.get("markets") or []
@@ -215,7 +274,7 @@ def outcome_token(topic: Dict[str, Any], signal: str) -> Optional[Dict[str, Any]
             token_id = str(outcome.get("tokenId") or outcome.get("id") or "")
             if not token_id:
                 continue
-            price = float(outcome.get("price") or outcome.get("chance") or 0.5)
+            price = as_probability(outcome.get("price") or outcome.get("chance") or 0.5)
             if title == want and name in ("YES", want):
                 return {"token_id": token_id, "label": f"{title}:{name}", "price": price, "market": market}
             if name == want:

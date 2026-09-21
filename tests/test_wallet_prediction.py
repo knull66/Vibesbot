@@ -4,9 +4,11 @@ from unittest.mock import patch
 from src.wallet_prediction import (
     DEFAULT_PREDICTION_WALLET,
     WalletPredictionClient,
+    as_probability,
     decode_wei_to_usdt,
     encode_balance_of,
     is_btc_short_window,
+    market_book,
     match_wallet_row,
     normalize_evm_address,
     outcome_token,
@@ -109,6 +111,26 @@ class WalletMarketPickerTests(unittest.TestCase):
         down = outcome_token(topic, "DOWN")
         self.assertEqual(up["token_id"], "tok-up")
         self.assertEqual(down["token_id"], "tok-down")
+
+    def test_market_book_matches_binance_odds(self):
+        self.assertAlmostEqual(as_probability(49), 0.49)
+        topic = {
+            "title": "BTC Up or Down 5m",
+            "startPrice": "81613.68",
+            "markets": [{
+                "title": "UP",
+                "outcomes": [{"name": "YES", "tokenId": "tok-up", "price": "0.49"}],
+            }, {
+                "title": "DOWN",
+                "outcomes": [{"name": "YES", "tokenId": "tok-down", "price": "0.50"}],
+            }],
+        }
+        book = market_book(topic)
+        self.assertAlmostEqual(book["up"], 0.49)
+        self.assertAlmostEqual(book["down"], 0.50)
+        self.assertAlmostEqual(book["up_odds"], 1 / 0.49, places=2)
+        self.assertAlmostEqual(book["down_odds"], 2.0)
+        self.assertAlmostEqual(book["price_to_beat"], 81613.68)
 
 
 class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
