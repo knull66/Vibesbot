@@ -50,7 +50,7 @@ class WalletMathTests(unittest.TestCase):
         self.assertEqual(DEFAULT_PREDICTION_WALLET, USER_WALLET)
         self.assertEqual(resolve_preferred_address(""), USER_WALLET)
         self.assertTrue(same_address(USER_WALLET.lower(), USER_WALLET))
-        self.assertEqual(short_wallet_label(USER_WALLET), "0x5FB0…a0A")
+        self.assertEqual(short_wallet_label(USER_WALLET), "0x5FB0…9a0A")
         self.assertEqual(short_wallet_label(""), "My Wallet")
 
     def test_decode_bsc_usdt_wei(self):
