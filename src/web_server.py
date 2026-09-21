@@ -44,6 +44,7 @@ from .wallet_prediction import (
     paper_fill,
     pending_trade_from_dict,
     settle_payout,
+    take_profit_ready,
     tradable_edge,
 )
 
@@ -541,7 +542,13 @@ class DashboardBot:
                 current_round = round_times.get("round_number", 0)
 
                 await self._settle_due(current_round)
-                
+                if remaining >= 25:
+                    holders = [s for s in self.sessions.values() if s.pending_trade]
+                    if holders:
+                        await asyncio.gather(*[
+                            self._maybe_take_profit(session, remaining) for session in holders
+                        ])
+
                 if active:
                     # After ~1 min the open exists: join a move vs beat, not a 50/50 coin flip.
                     if 185 <= remaining <= 230 and current_round != last_prediction_round:
@@ -945,6 +952,60 @@ class DashboardBot:
             logger.error(f"Error executing trade: {e}")
             import traceback
             traceback.print_exc()
+
+    async def _maybe_take_profit(self, session: ClientSession, seconds_left: float) -> None:
+        """If the open Wallet position marked up enough, sell instead of waiting for 0/1."""
+        pending = session.pending_trade
+        if not pending:
+            return
+        book = await self.refresh_market_book()
+        mark = 0.0
+        if book:
+            if pending.signal == "UP":
+                mark = float(book.get("up") or 0)
+            elif pending.signal == "DOWN":
+                mark = float(book.get("down") or 0)
+        ok, reason, pnl = take_profit_ready(
+            pending.share_price, mark, pending.shares, pending.cost, seconds_left,
+        )
+        if not ok:
+            return
+        if pending.live:
+            from .user_settings import get_settings_manager
+            creds = get_settings_manager().settings.binance
+            if not creds.is_configured or not pending.token_id:
+                return
+            client = WalletPredictionClient(
+                creds.api_key,
+                creds.api_secret,
+                preferred_address=creds.prediction_wallet,
+            )
+            topic = {}
+            if pending.topic_id:
+                topic = await client.market_detail(pending.topic_id)
+            if not topic:
+                topic = await client.find_btc_5m_market() or {}
+            sold = await client.quote_and_sell(topic, pending.token_id, pending.shares)
+            if not sold.get("success"):
+                await self.manager.send_to_session(session.session_id, {
+                    "type": "log",
+                    "message": f"TAKE PROFIT failed: {sold.get('error') or 'sell rejected'}",
+                    "level": "info",
+                })
+                return
+            proceeds = float(sold.get("proceeds") or 0)
+            pnl = proceeds - float(pending.cost)
+            mark = float(sold.get("share_price") or mark)
+            reason = f"SOLD @ {mark:.2f} for ${proceeds:.2f}"
+        result = "WIN" if pnl >= 0 else "LOSS"
+        await self._record_settlement(
+            session,
+            pending,
+            result=result,
+            pnl=pnl,
+            exit_price=self._live_btc_price(book),
+            explanation=reason,
+        )
 
     async def _settle_due(self, current_round: int) -> None:
         for session in list(self.sessions.values()):

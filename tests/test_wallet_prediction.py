@@ -31,6 +31,7 @@ from src.wallet_prediction import (
     topic_duration_minutes,
     topic_live_price,
     topic_start_price,
+    take_profit_ready,
     tradable_edge,
     unwrap_prediction_payload,
     wallets_from_payload,
@@ -527,6 +528,54 @@ class WalletErrorTextTests(unittest.TestCase):
         )
         self.assertIn(USER_WALLET, text)
         self.assertIn("Prediction Account", text)
+
+
+class TakeProfitTests(unittest.TestCase):
+    def test_same_mark_does_not_sell(self):
+        ok, _, _ = take_profit_ready(0.50, 0.50, 3, 1.53, 90)
+        self.assertFalse(ok)
+
+    def test_sells_after_a_real_markup(self):
+        ok, reason, pnl = take_profit_ready(0.50, 0.70, 3, 1.53, 90)
+        self.assertTrue(ok)
+        self.assertGreater(pnl, 0.20)
+        self.assertIn("TAKE PROFIT", reason)
+
+    def test_too_close_to_close(self):
+        ok, _, _ = take_profit_ready(0.50, 0.80, 3, 1.53, 10)
+        self.assertFalse(ok)
+
+
+class WalletSellPathTests(unittest.IsolatedAsyncioTestCase):
+    async def test_quote_and_sell(self):
+        client = WalletPredictionClient("k", "s")
+        captured = {}
+
+        async def fake_request(method, path, extra=None):
+            captured[path] = extra or {}
+            if path == "trade/get-quote":
+                return 200, {"quoteId": "qs", "averagePrice": 0.70, "amountOut": str(int(2.1 * 10**18))}
+            if path == "trade/place-order-bundle":
+                return 200, {"orderId": "sell-1"}
+            return 404, {}
+
+        async def fake_wallet(refresh=True):
+            return {
+                "walletId": "pred",
+                "walletAddress": USER_WALLET,
+                "orderAddress": USER_WALLET,
+                "usdt": 10.0,
+                "can_trade": True,
+            }
+
+        with patch.object(client, "_request", fake_request), \
+             patch.object(client, "ensure_wallet", fake_wallet):
+            sold = await client.quote_and_sell({"marketTopicId": "t1", "chainId": "56"}, "tok-up", 3)
+
+        self.assertTrue(sold["success"])
+        self.assertEqual(sold["order_id"], "sell-1")
+        self.assertEqual(captured["trade/get-quote"]["side"], "SELL")
+        self.assertGreater(sold["proceeds"], 1.5)
 
 
 if __name__ == "__main__":

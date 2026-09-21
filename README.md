@@ -17,7 +17,7 @@ Clona el repo público: [knull66/Vibesbot](https://github.com/knull66/Vibesbot).
 - **Filtros**: modo agresivo. Book 20–82% (un DOWN 76% sí). Solo corta 88%+ y 92¢ que pagan centavos. ≥ $3 vs Price to Beat. Señal con 2 votos (RSI solo ya cuenta).
 - **Price to Beat**: lock oficial de Wallet si Binance lo manda; si no, el open de la vela 5m de Spot (etiqueta “Est. 5m open”). Sirve para no apostar un 50/50 al inicio de ronda. REAL se liquida con Binance, no con esa línea.
 - **Circuit breaker**: 5 pérdidas seguidas pausan ~30 min. Settings de pérdida diaria y máximo de trades también cortan.
-- **Journal**: cada settle se guarda en `trade_journal.jsonl` (Application Support).
+- **Take profit**: si la posición abierta se marca ≥ +8¢ y ≥ $0.20 netos (con ≥25s), vende en el book en vez de esperar el 0/1. No es un bot aparte.
 - **Updates**: popup Actualizar / Más tarde al abrir y cada ~30 min. No hay que ir a Settings.
 
 ## Bind y Settings
