@@ -72,31 +72,36 @@ def describe_binance_error(status: int, payload: dict, is_testnet: bool) -> str:
     return msg
 
 
+_CEX_WALLET_NOISE = (
+    "spot",
+    "funding",
+    "margin",
+    "future",
+    "earn",
+    "option",
+    "cedefi",
+    "copy",
+    "trading bot",
+    "cross",
+    "isolated",
+)
+
+
 def pick_live_wallet(wallets: Dict[str, float]) -> tuple:
-    """Prefer Prediction, then Funding, then Spot."""
+    """Only Prediction BSC USDT counts. CEX wallets (Spot, Funding, CeDefi) are ignored."""
     if not wallets:
-        return "Spot", 0.0
-    preferred = (
-        "wallet cedefi",
-        "cedefi",
-        "prediction",
-        "binance prediction",
-        "predict",
-        "wallet funding",
-        "funding",
-        "spot",
-        "main",
-    )
-    lowered = {name.lower(): (name, float(amount)) for name, amount in wallets.items()}
+        return "Prediction BSC", 0.0
+    prediction: Dict[str, float] = {}
     for name, amount in wallets.items():
-        lowered_name = name.lower()
-        if "predict" in lowered_name or "event contract" in lowered_name:
-            return name, float(amount)
-    for key in preferred:
-        if key in lowered:
-            return lowered[key]
-    name = max(wallets, key=lambda item: float(wallets[item]))
-    return name, float(wallets[name])
+        lowered = name.lower()
+        is_bsc = "0x" in lowered or "bsc" in lowered or "prediction" in lowered
+        if any(token in lowered for token in _CEX_WALLET_NOISE) and not is_bsc:
+            continue
+        prediction[name] = float(amount)
+    if not prediction:
+        return "Prediction BSC", 0.0
+    name = max(prediction, key=lambda item: float(prediction[item]))
+    return name, float(prediction[name])
 
 
 class TradingMode(Enum):
@@ -426,67 +431,42 @@ class BinanceConnector:
             wallets[name] = amount
 
     async def fetch_live_balances(self) -> Dict[str, Any]:
-        """Spot USDT plus any wallet balances Binance exposes (Funding, Prediction)."""
-        wallets: Dict[str, float] = {}
-        errors: List[str] = []
-
-        status, data = await self._signed_get("/api/v3/account")
-        if status == 200 and isinstance(data, dict):
-            self._merge_usdt_wallet(wallets, "Spot", data)
-        else:
-            errors.append(describe_binance_error(status, data if isinstance(data, dict) else {}, self.credentials.is_testnet))
-
-        if not self.credentials.is_testnet:
-            status, data = await self._signed_get("/sapi/v1/asset/wallet/balance", {"quoteAsset": "USDT"})
-            if status == 200 and isinstance(data, list):
-                for row in data:
-                    if not isinstance(row, dict):
-                        continue
-                    name = str(row.get("walletName") or row.get("wallet") or row.get("name") or "").strip()
-                    if not name:
-                        continue
-                    try:
-                        wallets[name] = float(row.get("balance") or 0)
-                    except (TypeError, ValueError):
-                        continue
-            elif status != 200:
-                errors.append(describe_binance_error(status, data if isinstance(data, dict) else {}, False))
-
-            status, data = await self._signed_post("/sapi/v1/asset/get-funding-asset", {"asset": "USDT"})
-            if status == 200:
-                self._merge_usdt_wallet(wallets, "Funding", data)
-            elif status != 200:
-                errors.append(describe_binance_error(status, data if isinstance(data, dict) else {}, False))
-
-            try:
-                from .wallet_prediction import WalletPredictionClient
-                client = WalletPredictionClient(self.credentials.api_key, self.credentials.api_secret)
-                pred = await client.fetch_prediction_accounts()
-                for row in pred.get("items") or []:
-                    name = str(row.get("accountType") or "").strip()
-                    if not name:
-                        continue
-                    try:
-                        wallets[f"Wallet {name}"] = float(row.get("availableBalanceDisplay") or 0)
-                    except (TypeError, ValueError):
-                        continue
-                if pred.get("wallets") and "Prediction Wallet" not in wallets and not any(
-                    "cedefi" in key.lower() or "predict" in key.lower() for key in wallets
-                ):
-                    wallets["Prediction Wallet"] = 0.0
-                if pred.get("error"):
-                    errors.append("Wallet API: " + str(pred["error"]))
-            except Exception as exc:
-                logger.warning(f"Wallet payment options failed: {exc}")
-                errors.append(f"Wallet API: {exc}")
-
-        wallet, amount = pick_live_wallet(wallets)
+        """USDT on BNB Smart Chain in Binance Wallet — not Spot, Funding, or CeDefi."""
+        empty = {
+            "success": False,
+            "wallets": {},
+            "display_wallet": "Prediction BSC",
+            "display_balance": 0.0,
+            "wallet_address": "",
+            "network": "BNB Smart Chain",
+            "error": "",
+        }
+        if self.credentials.is_testnet:
+            empty["error"] = "Testnet has no Binance Wallet Prediction. Uncheck Use Testnet."
+            return empty
+        if not self.credentials.is_configured:
+            empty["error"] = "API Key and Secret are required"
+            return empty
+        try:
+            from .wallet_prediction import WalletPredictionClient
+            client = WalletPredictionClient(self.credentials.api_key, self.credentials.api_secret)
+            picked = await client.fetch_prediction_wallet()
+        except Exception as exc:
+            logger.warning(f"Prediction BSC read failed: {exc}")
+            empty["error"] = f"Wallet API: {exc}"
+            return empty
+        label = str(picked.get("label") or "Prediction BSC")
+        amount = float(picked.get("usdt") or 0)
+        address = str(picked.get("wallet_address") or "")
+        wallets = {label: amount} if address else {}
         return {
-            "success": bool(wallets),
+            "success": bool(address),
             "wallets": wallets,
-            "display_wallet": wallet,
+            "display_wallet": label,
             "display_balance": amount,
-            "error": errors[0] if errors else "",
+            "wallet_address": address,
+            "network": "BNB Smart Chain",
+            "error": picked.get("error") or "",
         }
 
 
@@ -647,20 +627,20 @@ class SettingsManager:
                 self.settings.binance.api_key,
                 self.settings.binance.api_secret,
             )
-            pred = await client.fetch_prediction_accounts()
-            items = pred.get("items") or []
-            if items:
-                parts = []
-                for row in items:
-                    parts.append(
-                        f"{row.get('accountType')} ${float(row.get('availableBalanceDisplay') or 0):.2f}"
-                    )
-                result["message"] = (result.get("message") or "Connected") + " | Wallet: " + ", ".join(parts)
-            elif pred.get("wallets"):
-                result["message"] = (result.get("message") or "Connected") + " | Prediction Wallet linked, USDT not visible yet"
+            picked = await client.fetch_prediction_wallet()
+            if picked.get("wallet_address"):
+                result["message"] = (
+                    (result.get("message") or "Connected")
+                    + f" | Prediction BSC {picked.get('label')} "
+                    + f"${float(picked.get('usdt') or 0):.2f} USDT on BNB Smart Chain"
+                )
             else:
-                result["message"] = (result.get("message") or "Connected") + " | Wallet API: " + (pred.get("error") or "empty")
-            result["wallet"] = pred
+                result["message"] = (
+                    (result.get("message") or "Connected")
+                    + " | Wallet API: "
+                    + (picked.get("error") or "no BSC address")
+                )
+            result["wallet"] = picked
         except Exception as exc:
             result["message"] = (result.get("message") or "Connected") + f" | Wallet API error: {exc}"
         return result

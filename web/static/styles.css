@@ -808,6 +808,14 @@ body {
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
+#stat-capital-wallets {
+    letter-spacing: 0.04em;
+    text-transform: none;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
 .winrate-bar {
     height: 4px;

@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.18.2">
+    <link rel="stylesheet" href="/static/styles.css?v=1.18.3">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -312,7 +312,7 @@
                 <span class="footer-label">Strategy:</span>
                 <span id="strategy-status">Multi-Indicator</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.18.2</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.18.3</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -382,7 +382,7 @@
                             <label for="bet-amount">BET AMOUNT ($)</label>
                             <input type="number" id="bet-amount" value="1.00" min="1" step="0.1">
                         </div>
-                        <p class="settings-hint">SIM papers Wallet fees. REAL spends the Prediction Wallet (Assets → Prediction → Transfer). On-chain: USDT on BNB Smart Chain only. Minimum 1 USDT.</p>
+                        <p class="settings-hint">SIM papers Wallet fees. REAL only spends USDT in Binance Wallet on BNB Smart Chain — the same $ you see at web3.binance.com/en/prediction. Spot, Funding and CeDefi are ignored. Minimum 1 USDT.</p>
                         <div class="form-group">
                             <label for="confidence-threshold">MIN CONFIDENCE (%)</label>
                             <input type="number" id="confidence-threshold" value="55" min="50" max="99">
@@ -538,7 +538,7 @@
                             <div class="update-info" style="margin-top:10px;">
                                 <div class="update-version">
                                     <span>Version</span>
-                                    <span id="current-version" style="color:var(--accent)">v1.18.2</span>
+                                    <span id="current-version" style="color:var(--accent)">v1.18.3</span>
                                 </div>
                                 <div class="update-version">
                                     <span>Latest</span>
@@ -648,7 +648,7 @@
                     Switching to <strong>WALLET REAL</strong>
                 </p>
                 <p style="color:var(--text-muted); font-size:10px; margin-bottom:16px;">
-                    Start spends USDT from the Prediction Wallet (not Funding). Transfer first: Assets → Prediction → Transfer. If you send on-chain, use BNB Smart Chain (USDT). Minimum $1.
+                    Start spends USDT in Binance Wallet on BNB Smart Chain — the same wallet as web3.binance.com/en/prediction. Spot, Funding and CeDefi are ignored. Minimum $1.
                 </p>
                 <div class="form-actions" style="justify-content:center;">
                     <button class="btn" id="btn-cancel-real">Cancel</button>
@@ -661,6 +661,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.18.2"></script>
+    <script src="/static/app.js?v=1.18.3"></script>
 </body>
 </html>

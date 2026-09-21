@@ -18,6 +18,91 @@ PREDICTION_API = "https://api.binance.com/sapi/v1/w3w/wallet/prediction"
 USDT_WEI = 10**18
 DEFAULT_FEE_BPS = 200
 DEFAULT_SLIPPAGE_BPS = 500
+BSC_USDT = "0x55d398326f99059fF775485246999027B3197955"
+BSC_CHAIN_ID = "56"
+BSC_RPCS = (
+    "https://bsc-dataseed.binance.org/",
+    "https://bsc-dataseed1.binance.org/",
+    "https://bsc-dataseed2.binance.org/",
+)
+
+
+def normalize_evm_address(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if not text.startswith("0x") and len(text) == 40:
+        text = "0x" + text
+    if not text.startswith("0x") or len(text) != 42:
+        return ""
+    body = text[2:]
+    if any(char not in "0123456789abcdefABCDEF" for char in body):
+        return ""
+    return "0x" + body
+
+
+def short_wallet_label(address: str) -> str:
+    text = normalize_evm_address(address) or str(address or "").strip()
+    if not text:
+        return "Prediction BSC"
+    if len(text) > 12:
+        return f"{text[:6]}…{text[-4:]}"
+    return text
+
+
+def wallet_address_of(row: Dict[str, Any]) -> str:
+    for key in ("walletAddress", "address", "evmAddress", "wallet_address"):
+        address = normalize_evm_address(row.get(key))
+        if address:
+            return address
+    return ""
+
+
+def wallet_id_of(row: Dict[str, Any]) -> str:
+    return str(row.get("walletId") or row.get("id") or row.get("wallet_id") or "").strip()
+
+
+def encode_balance_of(address: str) -> str:
+    body = normalize_evm_address(address)[2:]
+    return "0x70a08231" + body.lower().rjust(64, "0")
+
+
+def decode_wei_to_usdt(hex_value: Any) -> float:
+    text = str(hex_value or "0x0").strip()
+    if text.startswith("0x"):
+        text = text[2:]
+    if not text:
+        return 0.0
+    try:
+        return int(text, 16) / float(USDT_WEI)
+    except ValueError:
+        return 0.0
+
+
+async def fetch_bsc_usdt(address: str) -> float:
+    """On-chain USDT on BNB Smart Chain — the same balance web3.binance.com/prediction shows."""
+    checksum = normalize_evm_address(address)
+    if not checksum:
+        return 0.0
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_call",
+        "params": [{"to": BSC_USDT, "data": encode_balance_of(checksum)}, "latest"],
+    }
+    timeout = aiohttp.ClientTimeout(total=8)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for rpc in BSC_RPCS:
+            try:
+                async with session.post(rpc, json=payload) as response:
+                    if response.status != 200:
+                        continue
+                    data = await response.json()
+                    if isinstance(data, dict) and data.get("result"):
+                        return decode_wei_to_usdt(data.get("result"))
+            except Exception as exc:
+                logger.warning(f"BSC USDT read failed via {rpc}: {exc}")
+    return 0.0
 
 
 def taker_fee(stake: float, share_price: float, fee_bps: int = DEFAULT_FEE_BPS) -> float:
@@ -210,33 +295,59 @@ class WalletPredictionClient:
         items = data.get("items") if isinstance(data, dict) else data
         return [row for row in (items or []) if isinstance(row, dict)]
 
-    async def fetch_prediction_accounts(self) -> Dict[str, Any]:
-        errors: List[str] = []
-        items: List[Dict[str, Any]] = []
-        seen = set()
-        for account_type in (None, "CeDefi", "FUNDING", "SPOT"):
-            extra = {"type": account_type} if account_type else None
-            status, data = await self._request("GET", "balance/payment-options", extra)
-            if status != 200:
-                if isinstance(data, dict):
-                    errors.append(str(data.get("msg") or data.get("message") or f"HTTP {status}"))
-                else:
-                    errors.append(f"HTTP {status}")
-                continue
-            rows = data.get("items") if isinstance(data, dict) else data
-            for row in rows or []:
-                if not isinstance(row, dict):
-                    continue
-                key = str(row.get("accountType") or "")
-                if key in seen:
-                    continue
-                seen.add(key)
-                items.append(row)
+    async def fetch_prediction_wallet(self) -> Dict[str, Any]:
+        """Pick the Binance Wallet with the most USDT on BNB Smart Chain."""
         wallets = await self.list_wallets()
+        if not wallets:
+            return {
+                "wallet_id": "",
+                "wallet_address": "",
+                "usdt": 0.0,
+                "label": "Prediction BSC",
+                "network": "BNB Smart Chain",
+                "error": "No Binance Wallet found. Open web3.binance.com and create My Wallet.",
+            }
+        scored: List[Dict[str, Any]] = []
+        for row in wallets:
+            address = wallet_address_of(row)
+            if not address:
+                continue
+            usdt = await fetch_bsc_usdt(address)
+            scored.append({
+                "wallet_id": wallet_id_of(row),
+                "wallet_address": address,
+                "usdt": usdt,
+                "label": short_wallet_label(address),
+                "network": "BNB Smart Chain",
+                "error": "",
+            })
+        if not scored:
+            return {
+                "wallet_id": "",
+                "wallet_address": "",
+                "usdt": 0.0,
+                "label": "Prediction BSC",
+                "network": "BNB Smart Chain",
+                "error": "Wallet list has no BNB Smart Chain address.",
+            }
+        return max(scored, key=lambda item: float(item.get("usdt") or 0))
+
+    async def fetch_prediction_accounts(self) -> Dict[str, Any]:
+        picked = await self.fetch_prediction_wallet()
+        wallets = await self.list_wallets()
+        items = []
+        if picked.get("wallet_address"):
+            items.append({
+                "accountType": "Prediction BSC",
+                "availableBalanceDisplay": picked.get("usdt") or 0.0,
+                "walletAddress": picked.get("wallet_address"),
+                "enabled": True,
+            })
         return {
             "items": items,
             "wallets": wallets,
-            "error": "" if items or wallets else (errors[0] if errors else ""),
+            "picked": picked,
+            "error": picked.get("error") or "",
         }
 
     async def list_wallets(self) -> List[Dict[str, Any]]:
@@ -246,37 +357,18 @@ class WalletPredictionClient:
         wallets = data.get("wallets") if isinstance(data, dict) else data
         return [row for row in (wallets or []) if isinstance(row, dict)]
 
-    async def ensure_wallet(self) -> Dict[str, str]:
-        if self._wallet.get("walletId") and self._wallet.get("walletAddress"):
+    async def ensure_wallet(self, refresh: bool = True) -> Dict[str, Any]:
+        cached = self._wallet.get("walletId") and self._wallet.get("walletAddress")
+        if cached and not refresh:
             return self._wallet
-        wallets = await self.list_wallets()
-        if not wallets:
-            return {}
-        first = wallets[0]
+        picked = await self.fetch_prediction_wallet()
         self._wallet = {
-            "walletId": str(first.get("walletId") or ""),
-            "walletAddress": str(first.get("walletAddress") or ""),
+            "walletId": str(picked.get("wallet_id") or ""),
+            "walletAddress": str(picked.get("wallet_address") or ""),
+            "usdt": float(picked.get("usdt") or 0),
+            "label": str(picked.get("label") or "Prediction BSC"),
         }
         return self._wallet
-
-    def _choose_account(self, options: List[Dict[str, Any]]) -> str:
-        def balance(row: Dict[str, Any]) -> float:
-            try:
-                return float(row.get("availableBalanceDisplay") or 0)
-            except (TypeError, ValueError):
-                return 0.0
-
-        enabled = [row for row in options if row.get("enabled") is not False]
-        ranked = ("CEDEFI", "PREDICTION", "WALLET", "FUNDING", "SPOT")
-        for preferred in ranked:
-            for row in enabled or options:
-                name = str(row.get("accountType") or "").upper()
-                if name == preferred and balance(row) > 0:
-                    return str(row.get("accountType"))
-        funded = [row for row in (enabled or options) if balance(row) > 0]
-        if funded:
-            return str(max(funded, key=balance).get("accountType"))
-        return "CeDefi"
 
     async def quote_and_buy(
         self,
@@ -288,11 +380,19 @@ class WalletPredictionClient:
         token = outcome_token(topic, signal)
         if not token:
             return {"success": False, "error": f"No Wallet outcome token for {signal}"}
-        wallet = await self.ensure_wallet()
-        if not wallet.get("walletId"):
+        wallet = await self.ensure_wallet(refresh=True)
+        if not wallet.get("walletId") or not wallet.get("walletAddress"):
             return {"success": False, "error": "No Binance Wallet found for Prediction Markets"}
-        options = await self.payment_options()
-        account_type = self._choose_account(options)
+        usdt = await fetch_bsc_usdt(wallet["walletAddress"])
+        wallet["usdt"] = usdt
+        if usdt < float(stake_usdt):
+            return {
+                "success": False,
+                "error": (
+                    f"Prediction BSC USDT ${usdt:.2f} is below ${float(stake_usdt):.2f}. "
+                    f"Send USDT on BNB Smart Chain to {short_wallet_label(wallet['walletAddress'])}."
+                ),
+            }
         amount_in = str(int(round(float(stake_usdt) * USDT_WEI)))
         slippage = int(topic.get("slippageBps") or DEFAULT_SLIPPAGE_BPS)
         quote_req = {
@@ -302,7 +402,7 @@ class WalletPredictionClient:
             "amountIn": amount_in,
             "orderType": "MARKET",
             "slippageBps": slippage,
-            "binanceChainId": str(topic.get("chainId") or "56"),
+            "binanceChainId": str(topic.get("chainId") or BSC_CHAIN_ID),
             "fundingSource": "MPC",
         }
         if topic.get("marketTopicId") not in (None, ""):
@@ -320,7 +420,6 @@ class WalletPredictionClient:
             "slippageBps": quote.get("slippageBps") or slippage,
             "orderType": "MARKET",
             "timeInForce": "FOK",
-            "accountType": account_type,
             "fundingSource": "MPC",
         }
         status, placed = await self._request("POST", "trade/place-order-bundle", place_req)
@@ -336,7 +435,8 @@ class WalletPredictionClient:
             "order_id": order_id,
             "quote": quote,
             "placed": placed,
-            "account_type": account_type,
+            "account_type": "Prediction BSC",
+            "wallet_address": wallet["walletAddress"],
             "share_price": avg,
             "token": token,
             "title": topic.get("title") or "",

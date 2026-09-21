@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.18.2';
+const APP_VERSION = '1.18.3';
 
 class VibesBot {
     constructor() {
@@ -660,7 +660,7 @@ class VibesBot {
         const sourceEl = document.getElementById('stat-capital-source');
         if (sourceEl) {
             if (data.live) {
-                const wallet = (data.wallet || 'BINANCE').toUpperCase();
+                const wallet = data.wallet || 'Prediction BSC';
                 sourceEl.textContent = data.live_error
                     ? (wallet + ' · LIVE · ERROR')
                     : (wallet + ' · LIVE');
@@ -669,14 +669,13 @@ class VibesBot {
             }
         }
         const walletsEl = document.getElementById('stat-capital-wallets');
-        if (!data.live && walletsEl) {
-            walletsEl.textContent = '';
-        }
-        if (data.live && data.wallets && typeof data.wallets === 'object') {
-            const parts = Object.entries(data.wallets)
-                .map(([name, amount]) => `${name} $${Number(amount || 0).toFixed(2)}`);
-            if (parts.length && walletsEl) {
-                walletsEl.textContent = parts.join(' · ');
+        if (walletsEl) {
+            if (!data.live) {
+                walletsEl.textContent = '';
+            } else {
+                const address = data.wallet_address || '';
+                const network = data.network || 'BNB Smart Chain';
+                walletsEl.textContent = address ? (address + ' · ' + network) : network;
             }
         }
         
@@ -1124,8 +1123,10 @@ class VibesBot {
                     losses: 0,
                     live: true,
                     simulation: false,
-                    wallet: data.display_wallet || 'BINANCE',
+                    wallet: data.display_wallet || 'Prediction BSC',
                     wallets: data.wallets || {},
+                    wallet_address: data.wallet_address || '',
+                    network: data.network || 'BNB Smart Chain',
                     live_error: data.error || '',
                 });
             } else if (data && data.error) {

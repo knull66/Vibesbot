@@ -121,6 +121,8 @@ class ClientSession:
     live_balance: Optional[float] = None
     live_wallet: str = ""
     live_wallets: Dict[str, float] = field(default_factory=dict)
+    live_wallet_address: str = ""
+    live_network: str = ""
     live_error: str = ""
     live_fetched_at: float = 0.0
     pending_trade: Optional[PendingWalletTrade] = None
@@ -178,6 +180,8 @@ class ClientSession:
                 "simulation": False,
                 "wallet": self.live_wallet,
                 "wallets": self.live_wallets,
+                "wallet_address": self.live_wallet_address,
+                "network": self.live_network or "BNB Smart Chain",
                 "live_error": self.live_error,
             }
         return {
@@ -301,7 +305,9 @@ class DashboardBot:
 
         result = await get_settings_manager().fetch_live_balances()
         session.live_wallets = result.get("wallets") or {}
-        session.live_wallet = result.get("display_wallet") or "Spot"
+        session.live_wallet = result.get("display_wallet") or "Prediction BSC"
+        session.live_wallet_address = result.get("wallet_address") or ""
+        session.live_network = result.get("network") or "BNB Smart Chain"
         session.live_balance = float(result.get("display_balance") or 0)
         session.live_error = result.get("error") or ""
         session.live_fetched_at = time.time()
@@ -593,18 +599,23 @@ class DashboardBot:
                     })
                     return
                 client = WalletPredictionClient(creds.api_key, creds.api_secret)
-                pred = await client.fetch_prediction_accounts()
-                pred_items = pred.get("items") or []
-                pred_balance = 0.0
-                for row in pred_items:
-                    name = str(row.get("accountType") or "").upper()
-                    if name in ("CEDEFI", "PREDICTION", "WALLET"):
-                        pred_balance = max(pred_balance, float(row.get("availableBalanceDisplay") or 0))
+                wallet = await client.ensure_wallet(refresh=True)
+                pred_balance = float(wallet.get("usdt") or 0)
+                if not wallet.get("walletAddress"):
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": "No Binance Wallet address. Open web3.binance.com and create My Wallet.",
+                        "level": "loss",
+                    })
+                    return
                 if pred_balance < amount:
                     await self.manager.send_to_session(session.session_id, {
                         "type": "log",
-                        "message": "Prediction Wallet is empty or unread. Transfer USDT via Assets → Prediction → Transfer. "
-                        + (pred.get("error") or ""),
+                        "message": (
+                            f"Prediction BSC USDT ${pred_balance:.2f} is below ${amount:.2f}. "
+                            "Send USDT on BNB Smart Chain to this wallet — the same one at "
+                            "web3.binance.com/en/prediction."
+                        ),
                         "level": "loss",
                     })
                     return
@@ -636,7 +647,11 @@ class DashboardBot:
                 await self.refresh_live_balances(session)
                 await self.manager.send_to_session(session.session_id, {
                     "type": "log",
-                    "message": f"REAL {signal} ${amount:.2f} sent to Wallet ({placed.get('account_type')}) order {order_id or 'submitted'}",
+                    "message": (
+                        f"REAL {signal} ${amount:.2f} sent from "
+                        f"{placed.get('wallet_address') or wallet.get('walletAddress')} "
+                        f"on BNB Smart Chain order {order_id or 'submitted'}"
+                    ),
                     "level": "info",
                 })
 
@@ -1333,15 +1348,13 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                                 "level": "loss",
                             })
                         else:
-                            wallets = ", ".join(
-                                f"{name} ${amount:.2f}"
-                                for name, amount in session.live_wallets.items()
-                            )
                             await manager.send_to(websocket, {
                                 "type": "log",
-                                "message": f"Live {session.live_wallet} ${session.live_balance:.2f}"
-                                + (f" ({wallets})" if wallets else "")
-                                + ". Start places Wallet BTC 5m orders.",
+                                "message": (
+                                    f"Live Prediction BSC ${session.live_balance:.2f} "
+                                    f"({session.live_wallet}). "
+                                    "Start bets web3.binance.com/en/prediction with this USDT only."
+                                ),
                                 "level": "info",
                             })
                     bot._save_session(session)

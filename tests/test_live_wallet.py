@@ -6,38 +6,47 @@ from src.web_server import ClientSession
 
 
 class LiveWalletTests(unittest.TestCase):
-    def test_prefers_prediction(self):
-        name, amount = pick_live_wallet({"Spot": 0.0, "Funding": 12.5, "Prediction": 55.91})
-        self.assertEqual(name, "Prediction")
-        self.assertEqual(amount, 55.91)
+    def test_prefers_prediction_bsc(self):
+        name, amount = pick_live_wallet({
+            "Spot": 101.23,
+            "Funding": 12.5,
+            "Wallet CeDefi": 0.91,
+            "0x1744…a0A": 10.025,
+        })
+        self.assertEqual(name, "0x1744…a0A")
+        self.assertEqual(amount, 10.025)
 
-    def test_falls_back_to_funding(self):
-        name, amount = pick_live_wallet({"Spot": 1.0, "Funding": 20.0})
-        self.assertEqual(name, "Funding")
-        self.assertEqual(amount, 20.0)
-
-    def test_falls_back_to_spot(self):
-        name, amount = pick_live_wallet({"Spot": 3.25})
-        self.assertEqual(name, "Spot")
-        self.assertEqual(amount, 3.25)
-
-    def test_empty_is_spot_zero(self):
-        name, amount = pick_live_wallet({})
-        self.assertEqual(name, "Spot")
+    def test_ignores_cex_dump(self):
+        name, amount = pick_live_wallet({"Spot": 1.0, "Funding": 20.0, "Wallet CeDefi": 0.91})
+        self.assertEqual(name, "Prediction BSC")
         self.assertEqual(amount, 0.0)
 
-    def test_event_contract_name(self):
-        name, amount = pick_live_wallet({"Spot": 0.0, "Event Contracts": 55.91})
-        self.assertEqual(name, "Event Contracts")
-        self.assertEqual(amount, 55.91)
+    def test_ignores_spot(self):
+        name, amount = pick_live_wallet({"Spot": 3.25})
+        self.assertEqual(name, "Prediction BSC")
+        self.assertEqual(amount, 0.0)
+
+    def test_empty_is_prediction_bsc_zero(self):
+        name, amount = pick_live_wallet({})
+        self.assertEqual(name, "Prediction BSC")
+        self.assertEqual(amount, 0.0)
 
     def test_real_stats_use_live_balance(self):
-        session = ClientSession(session_id="test", simulation=False, live_balance=55.91, live_wallet="Prediction")
+        session = ClientSession(
+            session_id="test",
+            simulation=False,
+            live_balance=10.025,
+            live_wallet="0x1744…a0A",
+            live_wallet_address="0x17449a0A0000000000000000000000000000a0A1",
+            live_network="BNB Smart Chain",
+        )
         payload = session.stats_payload()
         self.assertTrue(payload["live"])
         self.assertFalse(payload["simulation"])
-        self.assertEqual(payload["capital"], 55.91)
-        self.assertEqual(payload["wallet"], "Prediction")
+        self.assertEqual(payload["capital"], 10.025)
+        self.assertEqual(payload["wallet"], "0x1744…a0A")
+        self.assertEqual(payload["wallet_address"], "0x17449a0A0000000000000000000000000000a0A1")
+        self.assertEqual(payload["network"], "BNB Smart Chain")
         self.assertEqual(payload["pnl"], 0.0)
 
     def test_sim_stats_keep_virtual_capital(self):
@@ -49,29 +58,59 @@ class LiveWalletTests(unittest.TestCase):
 
 
 class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
-    async def test_merges_spot_funding_and_prefers_prediction(self):
+    async def test_reads_only_prediction_bsc(self):
         connector = BinanceConnector(BinanceCredentials(api_key="k", api_secret="s", is_testnet=False))
 
-        async def fake_request(method, path, extra=None):
-            if path == "/api/v3/account":
-                return 200, {"balances": [{"asset": "USDT", "free": "0", "locked": "0"}]}
-            if path == "/sapi/v1/asset/wallet/balance":
-                return 200, [
-                    {"walletName": "Spot", "balance": "0"},
-                    {"walletName": "Funding", "balance": "12.5"},
-                    {"walletName": "Prediction", "balance": "55.91"},
-                ]
-            if path == "/sapi/v1/asset/get-funding-asset":
-                return 200, [{"asset": "USDT", "free": "12.5", "locked": "0"}]
-            return 404, {"msg": "missing"}
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
 
-        with patch.object(connector, "_signed_request", new=AsyncMock(side_effect=fake_request)):
+            async def fetch_prediction_wallet(self):
+                return {
+                    "wallet_id": "w1",
+                    "wallet_address": "0x17449a0A0000000000000000000000000000a0A1",
+                    "usdt": 10.025,
+                    "label": "0x1744…a0A1",
+                    "network": "BNB Smart Chain",
+                    "error": "",
+                }
+
+        with patch("src.wallet_prediction.WalletPredictionClient", FakeClient):
             result = await connector.fetch_live_balances()
 
         self.assertTrue(result["success"])
-        self.assertEqual(result["display_wallet"], "Prediction")
-        self.assertEqual(result["display_balance"], 55.91)
-        self.assertEqual(result["wallets"]["Funding"], 12.5)
+        self.assertEqual(result["display_wallet"], "0x1744…a0A1")
+        self.assertEqual(result["display_balance"], 10.025)
+        self.assertEqual(result["wallet_address"], "0x17449a0A0000000000000000000000000000a0A1")
+        self.assertEqual(result["network"], "BNB Smart Chain")
+        self.assertNotIn("Spot", result["wallets"])
+        self.assertNotIn("Funding", result["wallets"])
+        self.assertNotIn("Wallet CeDefi", result["wallets"])
+        self.assertEqual(result["wallets"], {"0x1744…a0A1": 10.025})
+
+    async def test_signed_cex_endpoints_are_not_called(self):
+        connector = BinanceConnector(BinanceCredentials(api_key="k", api_secret="s", is_testnet=False))
+        signed = AsyncMock(return_value=(200, {"balances": [{"asset": "USDT", "free": "101.23"}]}))
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def fetch_prediction_wallet(self):
+                return {
+                    "wallet_id": "w1",
+                    "wallet_address": "0x17449a0A0000000000000000000000000000a0A1",
+                    "usdt": 10.025,
+                    "label": "0x1744…a0A1",
+                    "error": "",
+                }
+
+        with patch.object(connector, "_signed_request", signed), \
+             patch("src.wallet_prediction.WalletPredictionClient", FakeClient):
+            result = await connector.fetch_live_balances()
+
+        signed.assert_not_called()
+        self.assertEqual(result["display_balance"], 10.025)
 
 
 if __name__ == "__main__":
