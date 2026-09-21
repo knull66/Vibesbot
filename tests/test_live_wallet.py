@@ -2,33 +2,36 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from src.user_settings import BinanceConnector, BinanceCredentials, pick_live_wallet
+from src.wallet_prediction import DEFAULT_PREDICTION_WALLET
 from src.web_server import ClientSession
+
+USER_WALLET = "0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A"
 
 
 class LiveWalletTests(unittest.TestCase):
-    def test_prefers_prediction_bsc(self):
+    def test_prefers_my_wallet(self):
         name, amount = pick_live_wallet({
             "Spot": 101.23,
             "Funding": 12.5,
             "Wallet CeDefi": 0.91,
-            "0x1744…a0A": 10.025,
+            "My Wallet": 10.025,
         })
-        self.assertEqual(name, "0x1744…a0A")
+        self.assertEqual(name, "My Wallet")
         self.assertEqual(amount, 10.025)
 
     def test_ignores_cex_dump(self):
         name, amount = pick_live_wallet({"Spot": 1.0, "Funding": 20.0, "Wallet CeDefi": 0.91})
-        self.assertEqual(name, "Prediction BSC")
+        self.assertEqual(name, "My Wallet")
         self.assertEqual(amount, 0.0)
 
     def test_ignores_spot(self):
         name, amount = pick_live_wallet({"Spot": 3.25})
-        self.assertEqual(name, "Prediction BSC")
+        self.assertEqual(name, "My Wallet")
         self.assertEqual(amount, 0.0)
 
-    def test_empty_is_prediction_bsc_zero(self):
+    def test_empty_is_my_wallet_zero(self):
         name, amount = pick_live_wallet({})
-        self.assertEqual(name, "Prediction BSC")
+        self.assertEqual(name, "My Wallet")
         self.assertEqual(amount, 0.0)
 
     def test_real_stats_use_live_balance(self):
@@ -36,16 +39,16 @@ class LiveWalletTests(unittest.TestCase):
             session_id="test",
             simulation=False,
             live_balance=10.025,
-            live_wallet="0x1744…a0A",
-            live_wallet_address="0x17449a0A0000000000000000000000000000a0A1",
+            live_wallet="My Wallet",
+            live_wallet_address=USER_WALLET,
             live_network="BNB Smart Chain",
         )
         payload = session.stats_payload()
         self.assertTrue(payload["live"])
         self.assertFalse(payload["simulation"])
         self.assertEqual(payload["capital"], 10.025)
-        self.assertEqual(payload["wallet"], "0x1744…a0A")
-        self.assertEqual(payload["wallet_address"], "0x17449a0A0000000000000000000000000000a0A1")
+        self.assertEqual(payload["wallet"], "My Wallet")
+        self.assertEqual(payload["wallet_address"], USER_WALLET)
         self.assertEqual(payload["network"], "BNB Smart Chain")
         self.assertEqual(payload["pnl"], 0.0)
 
@@ -58,19 +61,24 @@ class LiveWalletTests(unittest.TestCase):
 
 
 class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
-    async def test_reads_only_prediction_bsc(self):
-        connector = BinanceConnector(BinanceCredentials(api_key="k", api_secret="s", is_testnet=False))
+    async def test_reads_only_pinned_my_wallet(self):
+        connector = BinanceConnector(BinanceCredentials(
+            api_key="k",
+            api_secret="s",
+            is_testnet=False,
+            prediction_wallet=USER_WALLET,
+        ))
 
         class FakeClient:
             def __init__(self, *args, **kwargs):
-                pass
+                self.preferred_address = kwargs.get("preferred_address") or args[2] if len(args) > 2 else ""
 
             async def fetch_prediction_wallet(self):
                 return {
                     "wallet_id": "w1",
-                    "wallet_address": "0x17449a0A0000000000000000000000000000a0A1",
+                    "wallet_address": USER_WALLET,
                     "usdt": 10.025,
-                    "label": "0x1744…a0A1",
+                    "label": "My Wallet",
                     "network": "BNB Smart Chain",
                     "error": "",
                 }
@@ -79,14 +87,13 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
             result = await connector.fetch_live_balances()
 
         self.assertTrue(result["success"])
-        self.assertEqual(result["display_wallet"], "0x1744…a0A1")
+        self.assertEqual(result["display_wallet"], "My Wallet")
         self.assertEqual(result["display_balance"], 10.025)
-        self.assertEqual(result["wallet_address"], "0x17449a0A0000000000000000000000000000a0A1")
-        self.assertEqual(result["network"], "BNB Smart Chain")
+        self.assertEqual(result["wallet_address"], USER_WALLET)
+        self.assertEqual(DEFAULT_PREDICTION_WALLET, USER_WALLET)
         self.assertNotIn("Spot", result["wallets"])
         self.assertNotIn("Funding", result["wallets"])
-        self.assertNotIn("Wallet CeDefi", result["wallets"])
-        self.assertEqual(result["wallets"], {"0x1744…a0A1": 10.025})
+        self.assertEqual(result["wallets"], {"My Wallet": 10.025})
 
     async def test_signed_cex_endpoints_are_not_called(self):
         connector = BinanceConnector(BinanceCredentials(api_key="k", api_secret="s", is_testnet=False))
@@ -99,9 +106,9 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
             async def fetch_prediction_wallet(self):
                 return {
                     "wallet_id": "w1",
-                    "wallet_address": "0x17449a0A0000000000000000000000000000a0A1",
+                    "wallet_address": USER_WALLET,
                     "usdt": 10.025,
-                    "label": "0x1744…a0A1",
+                    "label": "My Wallet",
                     "error": "",
                 }
 
@@ -111,6 +118,7 @@ class FetchLiveBalancesTests(unittest.IsolatedAsyncioTestCase):
 
         signed.assert_not_called()
         self.assertEqual(result["display_balance"], 10.025)
+        self.assertEqual(result["wallet_address"], USER_WALLET)
 
 
 if __name__ == "__main__":

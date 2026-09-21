@@ -8,6 +8,7 @@ from src.user_settings import (
     describe_binance_error,
     is_kept_secret,
 )
+from src.wallet_prediction import DEFAULT_PREDICTION_WALLET
 
 
 class BinanceFlagTests(unittest.TestCase):
@@ -44,6 +45,7 @@ class BinanceFlagTests(unittest.TestCase):
             again = SettingsManager(Path(tmp))
             self.assertTrue(again.settings.binance.is_configured)
             self.assertEqual(again.settings.binance.api_secret, "live-secret")
+            self.assertEqual(again.settings.binance.prediction_wallet, DEFAULT_PREDICTION_WALLET)
 
 
 if __name__ == "__main__":

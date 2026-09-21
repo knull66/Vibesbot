@@ -20,6 +20,7 @@ DEFAULT_FEE_BPS = 200
 DEFAULT_SLIPPAGE_BPS = 500
 BSC_USDT = "0x55d398326f99059fF775485246999027B3197955"
 BSC_CHAIN_ID = "56"
+DEFAULT_PREDICTION_WALLET = "0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A"
 BSC_RPCS = (
     "https://bsc-dataseed.binance.org/",
     "https://bsc-dataseed1.binance.org/",
@@ -41,13 +42,31 @@ def normalize_evm_address(value: Any) -> str:
     return "0x" + body
 
 
+def same_address(left: Any, right: Any) -> bool:
+    a = normalize_evm_address(left)
+    b = normalize_evm_address(right)
+    return bool(a) and a.lower() == b.lower()
+
+
+def resolve_preferred_address(value: Any = None) -> str:
+    return normalize_evm_address(value) or DEFAULT_PREDICTION_WALLET
+
+
 def short_wallet_label(address: str) -> str:
     text = normalize_evm_address(address) or str(address or "").strip()
     if not text:
-        return "Prediction BSC"
+        return "My Wallet"
     if len(text) > 12:
         return f"{text[:6]}…{text[-4:]}"
     return text
+
+
+def match_wallet_row(wallets: List[Dict[str, Any]], preferred: str) -> Optional[Dict[str, Any]]:
+    target = resolve_preferred_address(preferred)
+    for row in wallets or []:
+        if same_address(wallet_address_of(row), target):
+            return row
+    return None
 
 
 def wallet_address_of(row: Dict[str, Any]) -> str:
@@ -225,6 +244,7 @@ class WalletPredictionClient:
     api_key: str
     api_secret: str
     recv_window: int = 10000
+    preferred_address: str = ""
     _wallet: Dict[str, str] = field(default_factory=dict)
 
     def _signed_query(self, extra: Optional[Dict[str, Any]] = None) -> str:
@@ -296,41 +316,24 @@ class WalletPredictionClient:
         return [row for row in (items or []) if isinstance(row, dict)]
 
     async def fetch_prediction_wallet(self) -> Dict[str, Any]:
-        """Pick the Binance Wallet with the most USDT on BNB Smart Chain."""
+        """Always use the pinned Binance Wallet. Never pick another address by USDT."""
+        preferred = resolve_preferred_address(self.preferred_address)
         wallets = await self.list_wallets()
-        if not wallets:
-            return {
-                "wallet_id": "",
-                "wallet_address": "",
-                "usdt": 0.0,
-                "label": "Prediction BSC",
-                "network": "BNB Smart Chain",
-                "error": "No Binance Wallet found. Open web3.binance.com and create My Wallet.",
-            }
-        scored: List[Dict[str, Any]] = []
-        for row in wallets:
-            address = wallet_address_of(row)
-            if not address:
-                continue
-            usdt = await fetch_bsc_usdt(address)
-            scored.append({
-                "wallet_id": wallet_id_of(row),
-                "wallet_address": address,
-                "usdt": usdt,
-                "label": short_wallet_label(address),
-                "network": "BNB Smart Chain",
-                "error": "",
-            })
-        if not scored:
-            return {
-                "wallet_id": "",
-                "wallet_address": "",
-                "usdt": 0.0,
-                "label": "Prediction BSC",
-                "network": "BNB Smart Chain",
-                "error": "Wallet list has no BNB Smart Chain address.",
-            }
-        return max(scored, key=lambda item: float(item.get("usdt") or 0))
+        matched = match_wallet_row(wallets, preferred)
+        usdt = await fetch_bsc_usdt(preferred)
+        error = ""
+        if not matched and wallets:
+            error = "My Wallet is not in Binance wallet/list; reading BSC USDT on the pinned address."
+        elif not wallets and not self.api_key:
+            error = "API key required to place orders; BSC USDT is still read on-chain."
+        return {
+            "wallet_id": wallet_id_of(matched) if matched else "",
+            "wallet_address": preferred,
+            "usdt": usdt,
+            "label": "My Wallet",
+            "network": "BNB Smart Chain",
+            "error": error,
+        }
 
     async def fetch_prediction_accounts(self) -> Dict[str, Any]:
         picked = await self.fetch_prediction_wallet()
@@ -366,7 +369,7 @@ class WalletPredictionClient:
             "walletId": str(picked.get("wallet_id") or ""),
             "walletAddress": str(picked.get("wallet_address") or ""),
             "usdt": float(picked.get("usdt") or 0),
-            "label": str(picked.get("label") or "Prediction BSC"),
+            "label": str(picked.get("label") or "My Wallet"),
         }
         return self._wallet
 
@@ -435,7 +438,7 @@ class WalletPredictionClient:
             "order_id": order_id,
             "quote": quote,
             "placed": placed,
-            "account_type": "Prediction BSC",
+            "account_type": "My Wallet",
             "wallet_address": wallet["walletAddress"],
             "share_price": avg,
             "token": token,

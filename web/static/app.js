@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.18.3';
+const APP_VERSION = '1.18.4';
 
 class VibesBot {
     constructor() {
@@ -660,7 +660,7 @@ class VibesBot {
         const sourceEl = document.getElementById('stat-capital-source');
         if (sourceEl) {
             if (data.live) {
-                const wallet = data.wallet || 'Prediction BSC';
+                const wallet = data.wallet || 'My Wallet';
                 sourceEl.textContent = data.live_error
                     ? (wallet + ' · LIVE · ERROR')
                     : (wallet + ' · LIVE');
@@ -1123,7 +1123,7 @@ class VibesBot {
                     losses: 0,
                     live: true,
                     simulation: false,
-                    wallet: data.display_wallet || 'Prediction BSC',
+                    wallet: data.display_wallet || 'My Wallet',
                     wallets: data.wallets || {},
                     wallet_address: data.wallet_address || '',
                     network: data.network || 'BNB Smart Chain',
@@ -1189,6 +1189,10 @@ class VibesBot {
             if (testnetEl) {
                 testnetEl.checked = !!binance.is_testnet;
             }
+            const walletEl = document.getElementById('prediction-wallet');
+            if (walletEl) {
+                walletEl.value = binance.prediction_wallet || '0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A';
+            }
             if (statusEl && binance.configured) {
                 statusEl.textContent = 'Keys saved on this Mac';
                 statusEl.style.color = 'var(--up)';
@@ -1210,6 +1214,7 @@ class VibesBot {
             testnet,
             is_testnet: testnet,
             use_testnet: testnet,
+            prediction_wallet: document.getElementById('prediction-wallet')?.value || '',
         };
         
         try {
@@ -1244,6 +1249,7 @@ class VibesBot {
                     testnet: !!document.getElementById('use-testnet')?.checked,
                     is_testnet: !!document.getElementById('use-testnet')?.checked,
                     use_testnet: !!document.getElementById('use-testnet')?.checked,
+                    prediction_wallet: document.getElementById('prediction-wallet')?.value || '',
                 })
             });
             

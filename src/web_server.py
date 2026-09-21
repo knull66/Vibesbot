@@ -305,7 +305,7 @@ class DashboardBot:
 
         result = await get_settings_manager().fetch_live_balances()
         session.live_wallets = result.get("wallets") or {}
-        session.live_wallet = result.get("display_wallet") or "Prediction BSC"
+        session.live_wallet = result.get("display_wallet") or "My Wallet"
         session.live_wallet_address = result.get("wallet_address") or ""
         session.live_network = result.get("network") or "BNB Smart Chain"
         session.live_balance = float(result.get("display_balance") or 0)
@@ -598,13 +598,17 @@ class DashboardBot:
                         "level": "loss",
                     })
                     return
-                client = WalletPredictionClient(creds.api_key, creds.api_secret)
+                client = WalletPredictionClient(
+                    creds.api_key,
+                    creds.api_secret,
+                    preferred_address=creds.prediction_wallet,
+                )
                 wallet = await client.ensure_wallet(refresh=True)
                 pred_balance = float(wallet.get("usdt") or 0)
                 if not wallet.get("walletAddress"):
                     await self.manager.send_to_session(session.session_id, {
                         "type": "log",
-                        "message": "No Binance Wallet address. Open web3.binance.com and create My Wallet.",
+                        "message": "Pinned Binance Wallet is missing. Check My Wallet on web3.binance.com.",
                         "level": "loss",
                     })
                     return
@@ -1351,8 +1355,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                             await manager.send_to(websocket, {
                                 "type": "log",
                                 "message": (
-                                    f"Live Prediction BSC ${session.live_balance:.2f} "
-                                    f"({session.live_wallet}). "
+                                    f"Live My Wallet ${session.live_balance:.2f} "
+                                    f"{session.live_wallet_address or session.live_wallet}. "
                                     "Start bets web3.binance.com/en/prediction with this USDT only."
                                 ),
                                 "level": "info",
@@ -1395,7 +1399,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         sm.update_binance_credentials(
             api_key=data.get("api_key", ""),
             api_secret=data.get("api_secret", ""),
-            is_testnet=binance_testnet_from_payload(data)
+            is_testnet=binance_testnet_from_payload(data),
+            prediction_wallet=data.get("prediction_wallet") or data.get("wallet_address") or "",
         )
         return {"success": True}
     
@@ -1409,7 +1414,8 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         sm.update_binance_credentials(
             api_key=data.get("api_key", ""),
             api_secret=data.get("api_secret", ""),
-            is_testnet=binance_testnet_from_payload(data)
+            is_testnet=binance_testnet_from_payload(data),
+            prediction_wallet=data.get("prediction_wallet") or data.get("wallet_address") or "",
         )
         result = await sm.test_binance_connection()
         return result

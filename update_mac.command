@@ -1,5 +1,5 @@
-#!/bin/bash
-# Double-click this file on your Mac to pull v1.18.3+ and rebuild Vibesbot.app
+            #!/bin/bash
+# Double-click this file on your Mac to pull v1.18.4+ and rebuild Vibesbot.app
 set -e
 cd "$(dirname "$0")"
 

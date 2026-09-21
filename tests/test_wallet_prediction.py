@@ -2,19 +2,25 @@ import unittest
 from unittest.mock import patch
 
 from src.wallet_prediction import (
+    DEFAULT_PREDICTION_WALLET,
     WalletPredictionClient,
     decode_wei_to_usdt,
     encode_balance_of,
     is_btc_short_window,
+    match_wallet_row,
     normalize_evm_address,
     outcome_token,
     paper_fill,
     pick_active_btc_window,
+    resolve_preferred_address,
+    same_address,
     settle_direction,
     settle_payout,
     short_wallet_label,
     taker_fee,
 )
+
+USER_WALLET = "0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A"
 
 
 class WalletMathTests(unittest.TestCase):
@@ -40,26 +46,30 @@ class WalletMathTests(unittest.TestCase):
         self.assertEqual(result, "PUSH")
         self.assertAlmostEqual(pnl, -fill["fee"], places=4)
 
-    def test_short_wallet_label(self):
-        self.assertEqual(
-            short_wallet_label("0x17449a0A0000000000000000000000000000a0A1"),
-            "0x1744…a0A1",
-        )
-        self.assertEqual(short_wallet_label(""), "Prediction BSC")
+    def test_pins_user_binance_wallet(self):
+        self.assertEqual(DEFAULT_PREDICTION_WALLET, USER_WALLET)
+        self.assertEqual(resolve_preferred_address(""), USER_WALLET)
+        self.assertTrue(same_address(USER_WALLET.lower(), USER_WALLET))
+        self.assertEqual(short_wallet_label(USER_WALLET), "0x5FB0…a0A")
+        self.assertEqual(short_wallet_label(""), "My Wallet")
 
     def test_decode_bsc_usdt_wei(self):
         self.assertAlmostEqual(decode_wei_to_usdt(hex(10_025_000_000_000_000_000)), 10.025)
         self.assertEqual(decode_wei_to_usdt("0x0"), 0.0)
-        data = encode_balance_of("0x17449a0A0000000000000000000000000000a0A1")
+        data = encode_balance_of(USER_WALLET)
         self.assertTrue(data.startswith("0x70a08231"))
         self.assertEqual(len(data), 74)
 
     def test_normalize_evm_address(self):
-        self.assertEqual(
-            normalize_evm_address("17449a0A0000000000000000000000000000a0A1"),
-            "0x17449a0A0000000000000000000000000000a0A1",
-        )
+        self.assertEqual(normalize_evm_address(USER_WALLET[2:]), USER_WALLET)
         self.assertEqual(normalize_evm_address("not-an-address"), "")
+
+    def test_match_ignores_other_wallets(self):
+        row = match_wallet_row([
+            {"walletId": "other", "walletAddress": "0x1111111111111111111111111111111111111111"},
+            {"walletId": "mine", "walletAddress": USER_WALLET.lower()},
+        ], USER_WALLET)
+        self.assertEqual(row["walletId"], "mine")
 
 
 class WalletMarketPickerTests(unittest.TestCase):
@@ -102,30 +112,48 @@ class WalletMarketPickerTests(unittest.TestCase):
 
 
 class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
-    async def test_picks_wallet_with_bsc_usdt(self):
-        client = WalletPredictionClient("k", "s")
+    async def test_pins_preferred_wallet_not_richest(self):
+        client = WalletPredictionClient("k", "s", preferred_address=USER_WALLET)
 
         async def fake_list():
             return [
-                {"walletId": "1", "walletAddress": "0x1111111111111111111111111111111111111111"},
-                {"walletId": "2", "walletAddress": "0x17449a0A1111111111111111111111111111a0A1"},
+                {"walletId": "rich", "walletAddress": "0x1111111111111111111111111111111111111111"},
+                {"walletId": "mine", "walletAddress": USER_WALLET.lower()},
             ]
 
         async def fake_usdt(address):
-            if address.lower().startswith("0x1744"):
+            if same_address(address, USER_WALLET):
                 return 10.025
-            return 0.0
+            return 99.0
 
         with patch.object(client, "list_wallets", fake_list), \
              patch("src.wallet_prediction.fetch_bsc_usdt", fake_usdt):
             picked = await client.fetch_prediction_wallet()
 
         self.assertAlmostEqual(picked["usdt"], 10.025)
-        self.assertEqual(picked["wallet_id"], "2")
-        self.assertEqual(picked["network"], "BNB Smart Chain")
+        self.assertEqual(picked["wallet_id"], "mine")
+        self.assertEqual(picked["wallet_address"], USER_WALLET)
+        self.assertEqual(picked["label"], "My Wallet")
+
+    async def test_uses_pinned_address_when_not_listed(self):
+        client = WalletPredictionClient("k", "s", preferred_address=USER_WALLET)
+
+        async def fake_list():
+            return [{"walletId": "other", "walletAddress": "0x1111111111111111111111111111111111111111"}]
+
+        async def fake_usdt(address):
+            return 10.025 if same_address(address, USER_WALLET) else 0.0
+
+        with patch.object(client, "list_wallets", fake_list), \
+             patch("src.wallet_prediction.fetch_bsc_usdt", fake_usdt):
+            picked = await client.fetch_prediction_wallet()
+
+        self.assertEqual(picked["wallet_address"], USER_WALLET)
+        self.assertAlmostEqual(picked["usdt"], 10.025)
+        self.assertEqual(picked["wallet_id"], "")
 
     async def test_quote_uses_mpc_wallet_without_cex_account(self):
-        client = WalletPredictionClient("k", "s")
+        client = WalletPredictionClient("k", "s", preferred_address=USER_WALLET)
         captured = {}
 
         async def fake_request(method, path, extra=None):
@@ -139,7 +167,7 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
         async def fake_wallet(refresh=True):
             return {
                 "walletId": "w",
-                "walletAddress": "0x17449a0A0000000000000000000000000000a0A1",
+                "walletAddress": USER_WALLET,
                 "usdt": 10.0,
             }
 
@@ -151,6 +179,7 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
             "chainId": "56",
             "title": "BTC Price 5m Up or Down?",
         }
+
         async def fake_usdt(address):
             return 10.0
 
@@ -162,11 +191,9 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["success"])
         self.assertNotIn("accountType", captured["trade/place-order-bundle"])
         self.assertEqual(captured["trade/place-order-bundle"]["fundingSource"], "MPC")
-        self.assertEqual(captured["trade/get-quote"]["fundingSource"], "MPC")
-        self.assertEqual(captured["trade/get-quote"]["binanceChainId"], "56")
-        self.assertEqual(result["account_type"], "Prediction BSC")
+        self.assertEqual(captured["trade/get-quote"]["walletAddress"], USER_WALLET)
+        self.assertEqual(result["wallet_address"], USER_WALLET)
 
 
 if __name__ == "__main__":
     unittest.main()
-

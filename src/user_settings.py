@@ -90,16 +90,16 @@ _CEX_WALLET_NOISE = (
 def pick_live_wallet(wallets: Dict[str, float]) -> tuple:
     """Only Prediction BSC USDT counts. CEX wallets (Spot, Funding, CeDefi) are ignored."""
     if not wallets:
-        return "Prediction BSC", 0.0
+        return "My Wallet", 0.0
     prediction: Dict[str, float] = {}
     for name, amount in wallets.items():
         lowered = name.lower()
-        is_bsc = "0x" in lowered or "bsc" in lowered or "prediction" in lowered
+        is_bsc = "0x" in lowered or "bsc" in lowered or "prediction" in lowered or "my wallet" in lowered
         if any(token in lowered for token in _CEX_WALLET_NOISE) and not is_bsc:
             continue
         prediction[name] = float(amount)
     if not prediction:
-        return "Prediction BSC", 0.0
+        return "My Wallet", 0.0
     name = max(prediction, key=lambda item: float(prediction[item]))
     return name, float(prediction[name])
 
@@ -116,18 +116,21 @@ class BinanceCredentials:
     api_key: str = ""
     api_secret: str = ""
     is_testnet: bool = False
+    prediction_wallet: str = ""
     
     @property
     def is_configured(self) -> bool:
         return bool(self.api_key and self.api_secret)
     
     def to_dict(self) -> dict:
+        from .wallet_prediction import resolve_preferred_address
         return {
             "configured": self.is_configured,
             "api_key": self._mask_secret(self.api_key) if self.api_key else "",
             "api_secret": "",
             "has_secret": bool(self.api_secret),
-            "is_testnet": self.is_testnet
+            "is_testnet": self.is_testnet,
+            "prediction_wallet": resolve_preferred_address(self.prediction_wallet),
         }
     
     def _mask_secret(self, secret: str) -> str:
@@ -435,7 +438,7 @@ class BinanceConnector:
         empty = {
             "success": False,
             "wallets": {},
-            "display_wallet": "Prediction BSC",
+            "display_wallet": "My Wallet",
             "display_balance": 0.0,
             "wallet_address": "",
             "network": "BNB Smart Chain",
@@ -449,13 +452,17 @@ class BinanceConnector:
             return empty
         try:
             from .wallet_prediction import WalletPredictionClient
-            client = WalletPredictionClient(self.credentials.api_key, self.credentials.api_secret)
+            client = WalletPredictionClient(
+                self.credentials.api_key,
+                self.credentials.api_secret,
+                preferred_address=self.credentials.prediction_wallet,
+            )
             picked = await client.fetch_prediction_wallet()
         except Exception as exc:
             logger.warning(f"Prediction BSC read failed: {exc}")
             empty["error"] = f"Wallet API: {exc}"
             return empty
-        label = str(picked.get("label") or "Prediction BSC")
+        label = str(picked.get("label") or "My Wallet")
         amount = float(picked.get("usdt") or 0)
         address = str(picked.get("wallet_address") or "")
         wallets = {label: amount} if address else {}
@@ -504,10 +511,12 @@ class SettingsManager:
             # Binance
             if "binance" in data:
                 b = data["binance"]
+                from .wallet_prediction import resolve_preferred_address
                 self.settings.binance = BinanceCredentials(
                     api_key=b.get("api_key", ""),
-                    api_secret=b.get("api_secret_encrypted", ""),  # Guardamos encriptado
-                    is_testnet=b.get("is_testnet", False)
+                    api_secret=b.get("api_secret_encrypted", ""),
+                    is_testnet=b.get("is_testnet", False),
+                    prediction_wallet=resolve_preferred_address(b.get("prediction_wallet")),
                 )
             
             # Trading
@@ -555,7 +564,8 @@ class SettingsManager:
                 "binance": {
                     "api_key": self.settings.binance.api_key,
                     "api_secret_encrypted": self.settings.binance.api_secret,
-                    "is_testnet": self.settings.binance.is_testnet
+                    "is_testnet": self.settings.binance.is_testnet,
+                    "prediction_wallet": self.settings.binance.prediction_wallet or "",
                 },
                 "trading": self.settings.trading.to_dict(),
                 "simulation": {
@@ -582,18 +592,28 @@ class SettingsManager:
         except Exception as e:
             logger.error(f"Error saving settings: {e}")
     
-    def update_binance_credentials(self, api_key: str, api_secret: str, is_testnet: bool = False):
+    def update_binance_credentials(
+        self,
+        api_key: str,
+        api_secret: str,
+        is_testnet: bool = False,
+        prediction_wallet: str = "",
+    ):
         """Actualiza las credenciales de Binance."""
+        from .wallet_prediction import resolve_preferred_address
+
         key = (api_key or "").strip()
         secret = (api_secret or "").strip()
         if is_kept_secret(key):
             key = self.settings.binance.api_key
         if is_kept_secret(secret):
             secret = self.settings.binance.api_secret
+        wallet = resolve_preferred_address(prediction_wallet or self.settings.binance.prediction_wallet)
         self.settings.binance = BinanceCredentials(
             api_key=key,
             api_secret=secret,
-            is_testnet=is_testnet
+            is_testnet=is_testnet,
+            prediction_wallet=wallet,
         )
         self._binance_connector = None  # Reset connector
         self.save()
@@ -626,12 +646,13 @@ class SettingsManager:
             client = WalletPredictionClient(
                 self.settings.binance.api_key,
                 self.settings.binance.api_secret,
+                preferred_address=self.settings.binance.prediction_wallet,
             )
             picked = await client.fetch_prediction_wallet()
             if picked.get("wallet_address"):
                 result["message"] = (
                     (result.get("message") or "Connected")
-                    + f" | Prediction BSC {picked.get('label')} "
+                    + f" | My Wallet {picked.get('wallet_address')} "
                     + f"${float(picked.get('usdt') or 0):.2f} USDT on BNB Smart Chain"
                 )
             else:
