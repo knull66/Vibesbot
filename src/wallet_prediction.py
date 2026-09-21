@@ -313,8 +313,8 @@ def tradable_edge(
     reason = ""
     if not ok:
         reason = (
-            f"odds {price * 100:.0f}% would pay ${fill['win_pnl']:.2f} on ${float(stake):.2f} "
-            f"(need a 38–62% book so the win is worth the risk)"
+            f"{price * 100:.0f}% pays ${fill['win_pnl']:.2f} "
+            f"on ${float(stake):.2f} — need 38–62%"
         )
     return {"ok": ok, "reason": reason, "share_price": price, **fill}
 

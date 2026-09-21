@@ -28,7 +28,7 @@ from .data_stream import DataStream
 from .predictor import Predictor, Signal, ModelType
 from .risk_manager import RiskManager, RiskStatus
 from .utils.logger import setup_logger, get_logger
-from .utils.helpers import calculate_time_to_next_round, calculate_round_times
+from .round_signal import combine_indicator_votes, tape_vote
 from .auth import COOKIE_NAME, SESSION_DAYS, get_auth
 from .companion import get_companion, is_loopback
 from .wallet_prediction import (
@@ -505,11 +505,13 @@ class DashboardBot:
                 await self._settle_due(current_round)
                 
                 if active:
-                    if 60 <= remaining <= 95 and current_round != last_prediction_round:
+                    # Bet near round OPEN while the book is still ~50/50.
+                    # Late-round 96/4 books are already priced; skip band would fire anyway.
+                    if 235 <= remaining <= 275 and current_round != last_prediction_round:
                         await self._generate_prediction(active, current_round)
                         last_prediction_round = current_round
                     
-                    if 50 <= remaining <= 85 and current_round != last_trade_round:
+                    if 210 <= remaining <= 250 and current_round != last_trade_round:
                         await asyncio.gather(*[self._execute_trade(session, current_round) for session in active])
                         last_trade_round = current_round
                 
@@ -526,8 +528,6 @@ class DashboardBot:
     
     async def _generate_prediction(self, sessions: Optional[List[ClientSession]] = None, current_round: int = 0):
         """Genera predicción usando múltiples estrategias."""
-        import random
-        
         try:
             signal = "WAIT"
             confidence = 0.5
@@ -580,28 +580,18 @@ class DashboardBot:
                         # === ESTRATEGIA 4: Momentum ===
                         momentum = close.iloc[-1] - close.iloc[-5]
                         mom_signal = 1 if momentum > 0 else -1
-                        
-                        # === COMBINAR SEÑALES ===
-                        # Pesos: RSI=2, MACD=2, BB=1, Momentum=1
-                        total_signal = (rsi_signal * 2) + (macd_signal * 2) + (bb_signal * 1) + (mom_signal * 1)
-                        
-                        # Determinar señal final
-                        if total_signal >= 3:
-                            signal = "UP"
-                            confidence = 0.55 + min(0.15, abs(total_signal) * 0.02)
-                            strategy_used = "Multi-strategy (RSI+MACD+BB)"
-                        elif total_signal <= -3:
-                            signal = "DOWN"
-                            confidence = 0.55 + min(0.15, abs(total_signal) * 0.02)
-                            strategy_used = "Multi-strategy (RSI+MACD+BB)"
-                        elif rsi_signal != 0:
-                            signal = "UP" if rsi_signal > 0 else "DOWN"
-                            confidence = 0.52 + random.uniform(0, 0.10)
-                            strategy_used = f"RSI={rsi:.0f}"
-                        else:
-                            signal = "UP" if total_signal > 0 else "DOWN"
-                            confidence = 0.50 + random.uniform(0, 0.08)
-                            strategy_used = "Weak signal"
+
+                        flow = self.data_stream.calculate_trade_flow(60)
+                        book_imb = 0.0
+                        try:
+                            book_imb = float(self.data_stream.get_order_book().calculate_imbalance(5) or 0)
+                        except Exception:
+                            book_imb = 0.0
+                        tape_signal = tape_vote(float(flow.get("flow_imbalance") or 0), book_imb)
+
+                        signal, confidence, strategy_used = combine_indicator_votes(
+                            rsi_signal, macd_signal, bb_signal, mom_signal, tape_signal
+                        )
                         
                         prob_up = confidence if signal == "UP" else 1 - confidence
                         prob_down = 1 - prob_up
@@ -826,9 +816,8 @@ class DashboardBot:
                 await self.manager.send_to_session(session.session_id, {
                     "type": "log",
                     "message": (
-                        f"REAL {signal} ${amount:.2f} sent from "
-                        f"{placed.get('wallet_address') or wallet.get('walletAddress')} "
-                        f"on BNB Smart Chain order {order_id or 'submitted'}"
+                        f"REAL {signal} ${amount:.2f} submitted"
+                        + (f" · order {order_id}" if order_id else "")
                     ),
                     "level": "info",
                 })

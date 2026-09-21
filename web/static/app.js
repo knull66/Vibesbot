@@ -2,7 +2,8 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.19.0';
+const APP_VERSION = '1.20.0';
+const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
     constructor() {
@@ -16,6 +17,7 @@ class VibesBot {
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 10;
         this.soundEnabled = true;
+        this.soundVolume = 0.6;
         this.audioCtx = null;
         this.entryPrice = null;
         this.sessionId = this.getSessionId();
@@ -26,6 +28,7 @@ class VibesBot {
     
     init() {
         this.cacheElements();
+        this.loadSoundPrefs();
         this.bindEvents();
         this.startClock();
         this.loadVersion();
@@ -87,6 +90,14 @@ class VibesBot {
         
         // Mode toggle
         this.modeToggle?.addEventListener('click', () => this.toggleMode());
+
+        document.getElementById('btn-sound')?.addEventListener('click', () => this.toggleSound());
+        document.getElementById('sound-enabled')?.addEventListener('change', (e) => {
+            this.setSoundEnabled(!!e.target.checked);
+        });
+        document.getElementById('sound-volume')?.addEventListener('input', (e) => {
+            this.setSoundVolume(Number(e.target.value) / 100);
+        });
         
         // Settings
         document.getElementById('btn-settings')?.addEventListener('click', () => {
@@ -683,22 +694,9 @@ class VibesBot {
         const sourceEl = document.getElementById('stat-capital-source');
         if (sourceEl) {
             if (data.live) {
-                const wallet = data.wallet || 'My Wallet';
-                sourceEl.textContent = data.live_error
-                    ? (wallet + ' · LIVE · ERROR')
-                    : (wallet + ' · LIVE');
+                sourceEl.textContent = data.live_error ? 'LIVE · ERROR' : 'LIVE';
             } else {
                 sourceEl.textContent = 'SIMULATION';
-            }
-        }
-        const walletsEl = document.getElementById('stat-capital-wallets');
-        if (walletsEl) {
-            if (!data.live) {
-                walletsEl.textContent = '';
-            } else {
-                const address = data.wallet_address || '';
-                const network = data.network || 'BNB Smart Chain';
-                walletsEl.textContent = address ? (address + ' · ' + network) : network;
             }
         }
         
@@ -1601,20 +1599,79 @@ class VibesBot {
         }
     }
     
+    loadSoundPrefs() {
+        try {
+            const raw = localStorage.getItem(SOUND_PREFS_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (typeof parsed.enabled === 'boolean') this.soundEnabled = parsed.enabled;
+                if (typeof parsed.volume === 'number') this.soundVolume = Math.min(1, Math.max(0, parsed.volume));
+            }
+        } catch (e) {}
+        this.syncSoundUi();
+    }
+
+    persistSoundPrefs() {
+        try {
+            localStorage.setItem(SOUND_PREFS_KEY, JSON.stringify({
+                enabled: this.soundEnabled,
+                volume: this.soundVolume,
+            }));
+        } catch (e) {}
+    }
+
+    syncSoundUi() {
+        const btn = document.getElementById('btn-sound');
+        const icon = document.getElementById('sound-icon');
+        const box = document.getElementById('sound-enabled');
+        const slider = document.getElementById('sound-volume');
+        const label = document.getElementById('sound-volume-val');
+        if (btn) {
+            btn.classList.toggle('is-off', !this.soundEnabled);
+            btn.setAttribute('aria-pressed', this.soundEnabled ? 'true' : 'false');
+            btn.title = this.soundEnabled ? 'Sound on' : 'Sound off';
+        }
+        if (icon) icon.textContent = this.soundEnabled ? '♪' : '✖';
+        if (box) box.checked = this.soundEnabled;
+        if (slider) slider.value = String(Math.round(this.soundVolume * 100));
+        if (label) label.textContent = Math.round(this.soundVolume * 100) + '%';
+    }
+
+    toggleSound() {
+        this.setSoundEnabled(!this.soundEnabled);
+        if (this.soundEnabled) this.playSound('win');
+    }
+
+    setSoundEnabled(enabled) {
+        this.soundEnabled = !!enabled;
+        this.persistSoundPrefs();
+        this.syncSoundUi();
+    }
+
+    setSoundVolume(volume) {
+        this.soundVolume = Math.min(1, Math.max(0, Number(volume) || 0));
+        this.persistSoundPrefs();
+        this.syncSoundUi();
+    }
+
     // ═══════════════════════════════════════════════════════════
     // Audio
     // ═══════════════════════════════════════════════════════════
     
     playSound(type) {
-        if (!this.soundEnabled) return;
+        if (!this.soundEnabled || this.soundVolume <= 0) return;
         
         try {
             if (!this.audioCtx) {
                 this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             }
+            if (this.audioCtx.state === 'suspended') {
+                this.audioCtx.resume();
+            }
             
             const oscillator = this.audioCtx.createOscillator();
             const gainNode = this.audioCtx.createGain();
+            const level = Math.max(0.02, Math.min(0.22, this.soundVolume * 0.22));
             
             oscillator.connect(gainNode);
             gainNode.connect(this.audioCtx.destination);
@@ -1628,7 +1685,7 @@ class VibesBot {
                 oscillator.frequency.setValueAtTime(330, this.audioCtx.currentTime + 0.15);
             }
             
-            gainNode.gain.setValueAtTime(0.1, this.audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(level, this.audioCtx.currentTime);
             gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.3);
             
             oscillator.start(this.audioCtx.currentTime);
