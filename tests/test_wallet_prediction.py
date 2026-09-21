@@ -20,6 +20,8 @@ from src.wallet_prediction import (
     settle_payout,
     short_wallet_label,
     taker_fee,
+    unwrap_prediction_payload,
+    wallets_from_payload,
 )
 
 USER_WALLET = "0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A"
@@ -132,6 +134,18 @@ class WalletMarketPickerTests(unittest.TestCase):
         self.assertAlmostEqual(book["down_odds"], 2.0)
         self.assertAlmostEqual(book["price_to_beat"], 81613.68)
 
+    def test_wallets_from_wrapped_payload(self):
+        rows = wallets_from_payload({
+            "code": "000000",
+            "data": {"wallets": [{
+                "walletId": "mine",
+                "walletAddress": USER_WALLET.lower(),
+            }]},
+        })
+        self.assertEqual(rows[0]["walletId"], "mine")
+        inner = unwrap_prediction_payload({"code": 0, "data": {"quoteId": "q1"}})
+        self.assertEqual(inner["quoteId"], "q1")
+
 
 class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
     async def test_pins_preferred_wallet_not_richest(self):
@@ -154,7 +168,7 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertAlmostEqual(picked["usdt"], 10.025)
         self.assertEqual(picked["wallet_id"], "mine")
-        self.assertEqual(picked["wallet_address"], USER_WALLET)
+        self.assertTrue(same_address(picked["wallet_address"], USER_WALLET))
         self.assertEqual(picked["label"], "My Wallet")
 
     async def test_uses_pinned_address_when_not_listed(self):
@@ -170,9 +184,11 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
              patch("src.wallet_prediction.fetch_bsc_usdt", fake_usdt):
             picked = await client.fetch_prediction_wallet()
 
-        self.assertEqual(picked["wallet_address"], USER_WALLET)
-        self.assertAlmostEqual(picked["usdt"], 10.025)
-        self.assertEqual(picked["wallet_id"], "")
+        self.assertEqual(picked["wallet_id"], "other")
+        self.assertTrue(same_address(
+            picked["wallet_address"],
+            "0x1111111111111111111111111111111111111111",
+        ))
 
     async def test_quote_uses_mpc_wallet_without_cex_account(self):
         client = WalletPredictionClient("k", "s", preferred_address=USER_WALLET)

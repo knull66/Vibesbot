@@ -619,7 +619,7 @@ class DashboardBot:
                 })
                 return
 
-            amount = max(1.0, float(sm.settings.trading.bet_amount or 1.0))
+            amount = max(1.5, float(sm.settings.trading.bet_amount or 1.5))
             open_price = getattr(self, "_price_to_beat", None)
             if self.data_stream:
                 open_price = open_price or self.data_stream.get_current_price()

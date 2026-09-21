@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.18.5';
+const APP_VERSION = '1.18.6';
 
 class VibesBot {
     constructor() {
