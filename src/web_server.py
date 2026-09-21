@@ -593,6 +593,21 @@ class DashboardBot:
                     })
                     return
                 client = WalletPredictionClient(creds.api_key, creds.api_secret)
+                pred = await client.fetch_prediction_accounts()
+                pred_items = pred.get("items") or []
+                pred_balance = 0.0
+                for row in pred_items:
+                    name = str(row.get("accountType") or "").upper()
+                    if name in ("CEDEFI", "PREDICTION", "WALLET"):
+                        pred_balance = max(pred_balance, float(row.get("availableBalanceDisplay") or 0))
+                if pred_balance < amount:
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": "Prediction Wallet is empty or unread. Transfer USDT via Assets → Prediction → Transfer. "
+                        + (pred.get("error") or ""),
+                        "level": "loss",
+                    })
+                    return
                 topic = await client.find_btc_5m_market()
                 if not topic:
                     await self.manager.send_to_session(session.session_id, {

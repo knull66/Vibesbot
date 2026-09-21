@@ -7,6 +7,8 @@ y preferencias del bot.
 import asyncio
 import json
 import os
+import shutil
+import sys
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +22,34 @@ import aiohttp
 from .utils.logger import get_logger
 
 logger = get_logger("user_settings")
+
+
+def is_kept_secret(value: Optional[str]) -> bool:
+    """Empty or masked fields must not overwrite a saved key."""
+    text = (value or "").strip()
+    if not text:
+        return True
+    if set(text) <= set("*•·"):
+        return True
+    lowered = text.lower()
+    return "saved" in lowered or "leave blank" in lowered
+
+
+def default_settings_path(legacy_root: Optional[Path] = None) -> Path:
+    if sys.platform == "darwin":
+        folder = Path.home() / "Library" / "Application Support" / "Vibesbot"
+    else:
+        folder = Path.home() / ".vibesbot"
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / "user_settings.json"
+    if not target.exists() and legacy_root:
+        old = Path(legacy_root) / "user_settings.json"
+        if old.exists():
+            try:
+                shutil.copy2(old, target)
+            except OSError:
+                pass
+    return target
 
 
 def binance_testnet_from_payload(data: Optional[dict]) -> bool:
@@ -88,8 +118,10 @@ class BinanceCredentials:
     
     def to_dict(self) -> dict:
         return {
-            "api_key": self.api_key,
-            "api_secret": self._mask_secret(self.api_secret),
+            "configured": self.is_configured,
+            "api_key": self._mask_secret(self.api_key) if self.api_key else "",
+            "api_secret": "",
+            "has_secret": bool(self.api_secret),
             "is_testnet": self.is_testnet
         }
     
@@ -429,7 +461,8 @@ class BinanceConnector:
             try:
                 from .wallet_prediction import WalletPredictionClient
                 client = WalletPredictionClient(self.credentials.api_key, self.credentials.api_secret)
-                for row in await client.payment_options():
+                pred = await client.fetch_prediction_accounts()
+                for row in pred.get("items") or []:
                     name = str(row.get("accountType") or "").strip()
                     if not name:
                         continue
@@ -437,8 +470,15 @@ class BinanceConnector:
                         wallets[f"Wallet {name}"] = float(row.get("availableBalanceDisplay") or 0)
                     except (TypeError, ValueError):
                         continue
+                if pred.get("wallets") and "Prediction Wallet" not in wallets and not any(
+                    "cedefi" in key.lower() or "predict" in key.lower() for key in wallets
+                ):
+                    wallets["Prediction Wallet"] = 0.0
+                if pred.get("error"):
+                    errors.append("Wallet API: " + str(pred["error"]))
             except Exception as exc:
                 logger.warning(f"Wallet payment options failed: {exc}")
+                errors.append(f"Wallet API: {exc}")
 
         wallet, amount = pick_live_wallet(wallets)
         return {
@@ -446,7 +486,7 @@ class BinanceConnector:
             "wallets": wallets,
             "display_wallet": wallet,
             "display_balance": amount,
-            "error": errors[0] if errors and not wallets else "",
+            "error": errors[0] if errors else "",
         }
 
 
@@ -460,8 +500,12 @@ class SettingsManager:
     SETTINGS_FILE = "user_settings.json"
     
     def __init__(self, app_path: Optional[Path] = None):
-        self.app_path = app_path or Path(__file__).parent.parent
-        self.settings_path = self.app_path / self.SETTINGS_FILE
+        if app_path is not None:
+            self.app_path = Path(app_path)
+            self.settings_path = self.app_path / self.SETTINGS_FILE
+        else:
+            self.app_path = Path(__file__).parent.parent
+            self.settings_path = default_settings_path(self.app_path)
         self.settings = UserSettings()
         self._binance_connector: Optional[BinanceConnector] = None
         
@@ -560,9 +604,15 @@ class SettingsManager:
     
     def update_binance_credentials(self, api_key: str, api_secret: str, is_testnet: bool = False):
         """Actualiza las credenciales de Binance."""
+        key = (api_key or "").strip()
+        secret = (api_secret or "").strip()
+        if is_kept_secret(key):
+            key = self.settings.binance.api_key
+        if is_kept_secret(secret):
+            secret = self.settings.binance.api_secret
         self.settings.binance = BinanceCredentials(
-            api_key=api_key,
-            api_secret=api_secret,
+            api_key=key,
+            api_secret=secret,
             is_testnet=is_testnet
         )
         self._binance_connector = None  # Reset connector
@@ -588,7 +638,32 @@ class SettingsManager:
     async def test_binance_connection(self) -> Dict[str, Any]:
         """Prueba la conexión con Binance."""
         connector = self.get_binance_connector()
-        return await connector.test_connection()
+        result = await connector.test_connection()
+        if not result.get("success") or self.settings.binance.is_testnet:
+            return result
+        try:
+            from .wallet_prediction import WalletPredictionClient
+            client = WalletPredictionClient(
+                self.settings.binance.api_key,
+                self.settings.binance.api_secret,
+            )
+            pred = await client.fetch_prediction_accounts()
+            items = pred.get("items") or []
+            if items:
+                parts = []
+                for row in items:
+                    parts.append(
+                        f"{row.get('accountType')} ${float(row.get('availableBalanceDisplay') or 0):.2f}"
+                    )
+                result["message"] = (result.get("message") or "Connected") + " | Wallet: " + ", ".join(parts)
+            elif pred.get("wallets"):
+                result["message"] = (result.get("message") or "Connected") + " | Prediction Wallet linked, USDT not visible yet"
+            else:
+                result["message"] = (result.get("message") or "Connected") + " | Wallet API: " + (pred.get("error") or "empty")
+            result["wallet"] = pred
+        except Exception as exc:
+            result["message"] = (result.get("message") or "Connected") + f" | Wallet API error: {exc}"
+        return result
 
     async def fetch_live_balances(self) -> Dict[str, Any]:
         connector = self.get_binance_connector()

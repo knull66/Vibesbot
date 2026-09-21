@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.18.1';
+const APP_VERSION = '1.18.2';
 
 class VibesBot {
     constructor() {
@@ -216,6 +216,7 @@ class VibesBot {
             this.renderProfile(data);
             document.body.classList.remove('auth-wait');
             this.connect();
+            this.loadSavedSettings();
             if (this.isCompanion) {
                 document.body.classList.add('companion-mode');
                 document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
@@ -1161,6 +1162,45 @@ class VibesBot {
         }
     }
     
+    async loadSavedSettings() {
+        try {
+            const response = await fetch('/api/settings', { credentials: 'same-origin' });
+            if (!response.ok) {
+                return;
+            }
+            const data = await response.json();
+            const binance = data.binance || {};
+            const keyEl = document.getElementById('api-key');
+            const secretEl = document.getElementById('api-secret');
+            const statusEl = document.getElementById('api-status');
+            const testnetEl = document.getElementById('use-testnet');
+            if (keyEl && !keyEl.value) {
+                keyEl.placeholder = binance.configured
+                    ? ((binance.api_key || 'Key saved on this Mac') + ' — leave blank to keep')
+                    : 'Enter API Key';
+            }
+            if (secretEl) {
+                secretEl.value = '';
+                secretEl.placeholder = binance.has_secret
+                    ? 'Saved on this Mac — leave blank to keep'
+                    : 'Enter API Secret';
+            }
+            if (testnetEl) {
+                testnetEl.checked = !!binance.is_testnet;
+            }
+            if (statusEl && binance.configured) {
+                statusEl.textContent = 'Keys saved on this Mac';
+                statusEl.style.color = 'var(--up)';
+            }
+            const betEl = document.getElementById('bet-amount');
+            if (betEl && data.trading && data.trading.bet_amount != null) {
+                betEl.value = data.trading.bet_amount;
+            }
+        } catch (error) {
+            // Keep empty form if settings cannot be read
+        }
+    }
+
     async saveBinanceSettings() {
         const testnet = !!document.getElementById('use-testnet')?.checked;
         const settings = {

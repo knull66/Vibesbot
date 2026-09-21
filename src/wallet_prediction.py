@@ -202,12 +202,42 @@ class WalletPredictionClient:
         detail = await self.market_detail(picked.get("marketTopicId"))
         return detail or picked
 
-    async def payment_options(self) -> List[Dict[str, Any]]:
-        status, data = await self._request("GET", "balance/payment-options")
+    async def payment_options(self, account_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        extra = {"type": account_type} if account_type else None
+        status, data = await self._request("GET", "balance/payment-options", extra)
         if status != 200:
             return []
         items = data.get("items") if isinstance(data, dict) else data
         return [row for row in (items or []) if isinstance(row, dict)]
+
+    async def fetch_prediction_accounts(self) -> Dict[str, Any]:
+        errors: List[str] = []
+        items: List[Dict[str, Any]] = []
+        seen = set()
+        for account_type in (None, "CeDefi", "FUNDING", "SPOT"):
+            extra = {"type": account_type} if account_type else None
+            status, data = await self._request("GET", "balance/payment-options", extra)
+            if status != 200:
+                if isinstance(data, dict):
+                    errors.append(str(data.get("msg") or data.get("message") or f"HTTP {status}"))
+                else:
+                    errors.append(f"HTTP {status}")
+                continue
+            rows = data.get("items") if isinstance(data, dict) else data
+            for row in rows or []:
+                if not isinstance(row, dict):
+                    continue
+                key = str(row.get("accountType") or "")
+                if key in seen:
+                    continue
+                seen.add(key)
+                items.append(row)
+        wallets = await self.list_wallets()
+        return {
+            "items": items,
+            "wallets": wallets,
+            "error": "" if items or wallets else (errors[0] if errors else ""),
+        }
 
     async def list_wallets(self) -> List[Dict[str, Any]]:
         status, data = await self._request("GET", "wallet/list")
