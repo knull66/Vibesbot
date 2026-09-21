@@ -1,8 +1,9 @@
 """Round-level signal: indicators + tape, never a naked 50/50 coin flip."""
 from typing import Dict, Optional, Tuple
 
-MIN_CONFIRM_MOVE = 6.0
-CROWD_FADE_LIMIT = 0.70
+MIN_CONFIRM_MOVE = 3.0
+CROWD_FADE_LIMIT = 0.88
+VOTE_THRESHOLD = 2
 
 
 def tape_vote(flow_imbalance: float, book_imbalance: float = 0.0) -> int:
@@ -31,7 +32,7 @@ def combine_indicator_votes(
     tape_signal: int = 0,
     weights: Optional[Dict[str, int]] = None,
 ) -> Tuple[str, float, str]:
-    """Only a clear majority bets. Weak/coin-flip returns WAIT."""
+    """Lean majority bets. Only a true mix returns WAIT."""
     w = weights or {}
     rsi_w = max(0, int(w.get("rsi", 2)))
     macd_w = max(0, int(w.get("macd", 2)))
@@ -44,19 +45,19 @@ def combine_indicator_votes(
         + int(mom_signal) * mom_w
         + int(tape_signal)
     )
-    if total >= 3:
-        confidence = 0.55 + min(0.15, abs(total) * 0.02)
+    if total >= VOTE_THRESHOLD:
+        confidence = 0.52 + min(0.18, abs(total) * 0.02)
         label = "Multi-strategy (RSI+MACD+BB+tape)" if tape_signal else "Multi-strategy (RSI+MACD+BB)"
         return "UP", min(confidence, 0.70), label
-    if total <= -3:
-        confidence = 0.55 + min(0.15, abs(total) * 0.02)
+    if total <= -VOTE_THRESHOLD:
+        confidence = 0.52 + min(0.18, abs(total) * 0.02)
         label = "Multi-strategy (RSI+MACD+BB+tape)" if tape_signal else "Multi-strategy (RSI+MACD+BB)"
         return "DOWN", min(confidence, 0.70), label
     return "WAIT", 0.50, "No edge — waiting for a cleaner setup"
 
 
 def crowd_agrees(signal: str, book: Dict[str, float]) -> bool:
-    """True unless we are fading a 70%+ favorite."""
+    """True unless we are fading an 88%+ favorite."""
     side = str(signal or "").upper()
     up = float(book.get("up") or 0.5)
     down = float(book.get("down") or 0.5)

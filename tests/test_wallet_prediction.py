@@ -61,7 +61,7 @@ class WalletMathTests(unittest.TestCase):
         skip = tradable_edge(0.92, 1.5)
         take = tradable_edge(0.50, 1.5)
         lean = tradable_edge(0.65, 1.5)
-        crowded = tradable_edge(0.69, 1.5)
+        crowded = tradable_edge(0.76, 1.5)
         longshot = tradable_edge(0.03, 1.5)
         self.assertFalse(skip["ok"])
         self.assertLess(skip["win_pnl"], 0.20)

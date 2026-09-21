@@ -14,7 +14,7 @@ Clona el repo público: [knull66/Vibesbot](https://github.com/knull66/Vibesbot).
 - **REAL**: `get-quote` + `place-order-bundle` firmados. Gasta el **Prediction Account** de `wallet/list` (Portfolio → Transfer In), no Web3 My Wallet.
 - **Settlement REAL**: `position/settled-history` / posiciones ENDED. No inventa WIN/LOSS con velas 5m locales.
 - **Señal**: mayoría de indicadores + tape (`round_signal`). El panel Strategy ajusta esos pesos. No hay LightGBM en el camino de apuesta. Umbral ~**0.50**.
-- **Filtros**: no fadea favoritos ≥70%. ≥ $6 vs Price to Beat. Share price ~0.30–0.70 (sí apuesta un 65% DOWN; no un 92¢).
+- **Filtros**: modo agresivo. Book 20–82% (un DOWN 76% sí). Solo corta 88%+ y 92¢ que pagan centavos. ≥ $3 vs Price to Beat. Señal con 2 votos (RSI solo ya cuenta).
 - **Price to Beat**: lock oficial de Wallet si Binance lo manda; si no, el open de la vela 5m de Spot (etiqueta “Est. 5m open”). Sirve para no apostar un 50/50 al inicio de ronda. REAL se liquida con Binance, no con esa línea.
 - **Circuit breaker**: 5 pérdidas seguidas pausan ~30 min. Settings de pérdida diaria y máximo de trades también cortan.
 - **Journal**: cada settle se guarda en `trade_journal.jsonl` (Application Support).

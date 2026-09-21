@@ -7,8 +7,12 @@ class RoundSignalTests(unittest.TestCase):
     def test_majority_up_bets(self):
         signal, confidence, label = combine_indicator_votes(1, 1, 1, 1, 0)
         self.assertEqual(signal, "UP")
-        self.assertGreaterEqual(confidence, 0.55)
+        self.assertGreaterEqual(confidence, 0.52)
         self.assertIn("Multi-strategy", label)
+
+    def test_rsi_alone_is_enough(self):
+        signal, _, _ = combine_indicator_votes(1, 0, 0, 0, 0)
+        self.assertEqual(signal, "UP")
 
     def test_weak_mix_waits(self):
         signal, confidence, label = combine_indicator_votes(0, 1, 0, -1, 0)
