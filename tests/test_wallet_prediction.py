@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from src.wallet_prediction import (
     DEFAULT_PREDICTION_WALLET,
+    PendingWalletTrade,
     WalletPredictionClient,
     as_probability,
     clamp_bet_amount,
@@ -18,14 +19,17 @@ from src.wallet_prediction import (
     outcome_token,
     paper_fill,
     pick_active_btc_window,
+    pick_matching_position,
     pick_tradable_wallet_row,
     resolve_preferred_address,
     same_address,
     settle_direction,
     settle_payout,
+    settlement_from_position,
     short_wallet_label,
     spend_wallet_label,
     taker_fee,
+    topic_duration_minutes,
     topic_start_price,
     tradable_edge,
     unwrap_prediction_payload,
@@ -133,6 +137,20 @@ class WalletMarketPickerTests(unittest.TestCase):
             "symbol": "BTCUSDT",
         }))
 
+    def test_rejects_two_hour_window_even_if_btc(self):
+        now = 1_700_000_000_000
+        self.assertFalse(is_btc_short_window({
+            "slug": "bitcoin-up-or-down",
+            "title": "Bitcoin Up or Down - September 21, 3PM-5:05PM ET",
+            "symbol": "BTCUSDT",
+            "startDate": now,
+            "endDate": now + 125 * 60_000,
+        }))
+        self.assertAlmostEqual(topic_duration_minutes({
+            "startDate": now,
+            "endDate": now + 5 * 60_000,
+        }), 5.0)
+
     def test_picks_soonest_open_window(self):
         now = 1_700_000_000_000
         topics = [
@@ -195,6 +213,46 @@ class WalletMarketPickerTests(unittest.TestCase):
         self.assertEqual(rows[0]["walletId"], "mine")
         inner = unwrap_prediction_payload({"code": 0, "data": {"quoteId": "q1"}})
         self.assertEqual(inner["quoteId"], "q1")
+
+    def test_binance_loss_is_not_a_local_candle_win(self):
+        row = {
+            "tokenId": "tok-up",
+            "marketTopicId": "4229500",
+            "isWinner": False,
+            "realizedPnl": "-1.50",
+            "positionStatus": "SETTLED",
+            "marketTopicTitle": "Bitcoin Up or Down - September 21, 3PM-3:05PM ET",
+            "marketTitle": "UP",
+            "finalOutcome": "NO",
+        }
+        parsed = settlement_from_position(row, "UP", shares=2.54, cost=1.52)
+        self.assertIsNotNone(parsed)
+        self.assertTrue(parsed["ready"])
+        self.assertEqual(parsed["result"], "LOSS")
+        self.assertAlmostEqual(parsed["pnl"], -1.50, places=2)
+        self.assertEqual(parsed["source"], "binance")
+        local_win = settle_payout("UP", 86037.85, 86051.75, 2.54, 1.52)
+        self.assertEqual(local_win[1], "WIN")
+        match = pick_matching_position([row], topic_id="4229500", token_id="tok-up")
+        self.assertEqual(match["tokenId"], "tok-up")
+
+    def test_binance_win_uses_realized_pnl(self):
+        parsed = settlement_from_position({
+            "tokenId": "tok-up",
+            "isWinner": True,
+            "realizedPnl": "1.03",
+            "positionStatus": "CLAIMED",
+            "marketTitle": "UP",
+        }, "UP", shares=2.54, cost=1.52)
+        self.assertEqual(parsed["result"], "WIN")
+        self.assertAlmostEqual(parsed["pnl"], 1.03, places=2)
+
+    def test_ongoing_position_is_not_settled(self):
+        self.assertIsNone(settlement_from_position({
+            "tokenId": "tok-up",
+            "positionStatus": "ONGOING",
+            "isWinner": None,
+        }, "UP", 2.54, 1.52))
 
 
 class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
@@ -388,6 +446,58 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["success"])
         self.assertIn("92%", result["error"])
         self.assertNotIn("trade/place-order-bundle", captured)
+
+    async def test_resolve_live_result_uses_binance_loss(self):
+        client = WalletPredictionClient("k", "s")
+        client._wallet = {
+            "walletId": "pred",
+            "walletAddress": USER_WALLET,
+            "orderAddress": USER_WALLET,
+        }
+        pending = PendingWalletTrade(
+            session_id="s1",
+            round_number=1,
+            signal="UP",
+            stake=1.5,
+            open_price=86037.85,
+            share_price=0.59,
+            shares=2.54,
+            fee=0.021,
+            cost=1.52,
+            live=True,
+            order_id="26092100001905644974",
+            market_title="BTC 5m",
+            topic_id="4229500",
+            token_id="tok-up",
+            end_date_ms=1,
+        )
+
+        async def fake_settled(limit=20):
+            return [{
+                "tokenId": "tok-up",
+                "marketTopicId": "4229500",
+                "isWinner": False,
+                "realizedPnl": "-1.50",
+                "positionStatus": "SETTLED",
+                "marketTopicTitle": "Bitcoin Up or Down",
+            }]
+
+        async def fake_list(tab="ONGOING", limit=20):
+            return []
+
+        async def fake_token(token_id):
+            return {}
+
+        with patch.object(client, "settled_history", fake_settled), \
+             patch.object(client, "list_positions", fake_list), \
+             patch.object(client, "position_by_token", fake_token):
+            resolved = await client.resolve_live_result(pending)
+
+        self.assertTrue(resolved["ready"])
+        self.assertEqual(resolved["result"], "LOSS")
+        self.assertAlmostEqual(resolved["pnl"], -1.50, places=2)
+        local = settle_payout("UP", 86037.85, 86051.75, 2.54, 1.52)
+        self.assertEqual(local[1], "WIN")
 
 
 class WalletErrorTextTests(unittest.TestCase):

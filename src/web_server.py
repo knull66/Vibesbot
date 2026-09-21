@@ -41,6 +41,7 @@ from .wallet_prediction import (
     market_book,
     outcome_token,
     paper_fill,
+    pending_trade_from_dict,
     settle_payout,
     tradable_edge,
 )
@@ -853,6 +854,9 @@ class DashboardBot:
                 order_id=order_id,
                 market_title=market_title,
                 balance_before=balance_before,
+                topic_id=str(placed.get("topic_id") or topic.get("marketTopicId") or "") if live else "",
+                token_id=str((placed.get("token") or {}).get("token_id") or "") if live else "",
+                end_date_ms=int(placed.get("end_date") or topic.get("endDate") or 0) if live else 0,
             )
             mode = "REAL" if live else "SIM"
             beat = f"${open_price:,.2f}" if open_price else "unknown open"
@@ -861,9 +865,11 @@ class DashboardBot:
                 "message": (
                     f"{mode} {signal} ${amount:.2f} @ {fill['share_price']:.2f} "
                     f"(win ~${fill['win_pnl']:.2f}) | {confirm_reason} | fee ${fill['fee']:.3f} | beat {beat}"
+                    + (f" · {market_title}" if live and market_title else "")
                 ),
                 "level": "info",
             })
+            self._save_session(session)
         except Exception as e:
             logger.error(f"Error executing trade: {e}")
             import traceback
@@ -873,13 +879,64 @@ class DashboardBot:
         close_price = self._round_close_price()
         for session in list(self.sessions.values()):
             pending = session.pending_trade
-            if not pending or pending.round_number >= current_round:
+            if not pending:
                 continue
-            await self._settle_trade(session, pending, close_price)
+            if pending.live:
+                await self._settle_live_trade(session, pending)
+                continue
+            if pending.round_number >= current_round:
+                continue
+            await self._settle_paper_trade(session, pending, close_price)
 
-    async def _settle_trade(self, session: ClientSession, pending: PendingWalletTrade, close_price: float) -> None:
-        from datetime import datetime
+    async def _live_prediction_client(self, session: ClientSession) -> Optional[WalletPredictionClient]:
+        from .user_settings import get_settings_manager
 
+        creds = get_settings_manager().settings.binance
+        if not creds.is_configured:
+            return None
+        return WalletPredictionClient(
+            creds.api_key,
+            creds.api_secret,
+            preferred_address=creds.prediction_wallet,
+        )
+
+    async def _settle_live_trade(self, session: ClientSession, pending: PendingWalletTrade) -> None:
+        client = await self._live_prediction_client(session)
+        if not client:
+            return
+        try:
+            resolved = await client.resolve_live_result(pending)
+        except Exception as exc:
+            logger.warning(f"Binance settle poll failed: {exc}")
+            return
+        if not resolved.get("ready"):
+            reason = str(resolved.get("reason") or "waiting")
+            last_log = float(getattr(pending, "_last_wait_log", 0) or 0)
+            if reason != "polling" and time.time() - last_log >= 30:
+                pending._last_wait_log = time.time()
+                await self.manager.send_to_session(session.session_id, {
+                    "type": "log",
+                    "message": (
+                        f"REAL {pending.signal} waiting for Binance result"
+                        + (f" · {pending.market_title}" if pending.market_title else "")
+                    ),
+                    "level": "info",
+                })
+            return
+        result = str(resolved.get("result") or "LOSS")
+        pnl = float(resolved.get("pnl") or 0)
+        actual = str(resolved.get("actual") or "")
+        title = str(resolved.get("title") or pending.market_title or "Wallet BTC 5m")
+        await self._record_settlement(
+            session,
+            pending,
+            result=result,
+            pnl=pnl,
+            exit_price=0.0,
+            explanation=f"Binance settled {result} · {title}" + (f" · outcome {actual}" if actual else ""),
+        )
+
+    async def _settle_paper_trade(self, session: ClientSession, pending: PendingWalletTrade, close_price: float) -> None:
         closed = self._last_closed_five_minute()
         if closed:
             if not looks_like_btc_price(pending.open_price) and looks_like_btc_price(closed.open):
@@ -896,6 +953,28 @@ class DashboardBot:
         actual, result, pnl = settle_payout(
             pending.signal, pending.open_price, close_price, pending.shares, pending.cost
         )
+        if actual == "FLAT":
+            explanation = "Tie 50-50 (Chainlink rule)"
+        else:
+            explanation = f"Price {actual} [{'correct' if result == 'WIN' else 'wrong'}]"
+        await self._record_settlement(
+            session,
+            pending,
+            result=result,
+            pnl=pnl,
+            exit_price=close_price,
+            explanation=explanation,
+        )
+
+    async def _record_settlement(
+        self,
+        session: ClientSession,
+        pending: PendingWalletTrade,
+        result: str,
+        pnl: float,
+        exit_price: float,
+        explanation: str,
+    ) -> None:
         if result == "WIN":
             session.wins += 1
             session.streak = max(1, session.streak + 1) if session.streak >= 0 else 1
@@ -905,6 +984,11 @@ class DashboardBot:
         session.cumulative_pnl += pnl
         session.best_streak = max(session.best_streak, session.streak)
         session.worst_streak = min(session.worst_streak, session.streak)
+        if not session.simulation:
+            try:
+                await self.refresh_live_balances(session)
+            except Exception:
+                pass
         current_equity = (session.live_balance if (not session.simulation and session.live_balance is not None)
                           else session.initial_capital + session.cumulative_pnl)
         session.equity_history.append(current_equity)
@@ -917,38 +1001,34 @@ class DashboardBot:
             "direction": pending.signal,
             "amount": pending.stake,
             "entry_price": pending.open_price,
-            "exit_price": close_price,
+            "exit_price": exit_price,
             "pnl": pnl,
             "result": result,
             "live": pending.live,
             "fee": pending.fee,
+            "market": pending.market_title,
+            "order_id": pending.order_id,
         })
         session.pending_trade = None
-        if not session.simulation:
-            try:
-                await self.refresh_live_balances(session)
-            except Exception:
-                pass
         await self.manager.send_to_session(session.session_id, {
             "type": "trade",
             "timestamp": datetime.now().isoformat(),
             "direction": pending.signal,
             "amount": pending.stake,
             "entry_price": pending.open_price,
-            "exit_price": close_price,
+            "exit_price": exit_price,
             "confidence": self._last_prediction_confidence * 100,
             "pnl": pnl,
             "result": result,
         })
-        if actual == "FLAT":
-            explanation = "Tie 50-50 (Chainlink rule)"
-            level = "info"
-        else:
-            explanation = f"Price {actual} [{'correct' if result == 'WIN' else 'wrong'}]"
-            level = "win" if result == "WIN" else "loss"
+        level = "win" if result == "WIN" else ("info" if result == "PUSH" else "loss")
+        mode = "REAL" if pending.live else "SIM"
+        price_bit = ""
+        if looks_like_btc_price(pending.open_price) and looks_like_btc_price(exit_price):
+            price_bit = f"${pending.open_price:,.2f} -> ${exit_price:,.2f} | "
         await self.manager.send_to_session(session.session_id, {
             "type": "log",
-            "message": f"{'REAL' if pending.live else 'SIM'} {pending.signal} | ${pending.open_price:,.2f} -> ${close_price:,.2f} | {result} | {explanation} | P&L ${pnl:+.2f}",
+            "message": f"{mode} {pending.signal} | {price_bit}{result} | {explanation} | P&L ${pnl:+.2f}",
             "level": level,
         })
         await self.manager.send_to_session(session.session_id, session.stats_payload())
@@ -1077,6 +1157,7 @@ class DashboardBot:
             session.max_equity = data.get("max_equity", 100.0)
             session.initial_capital = data.get("initial_capital", 100.0)
             session.simulation = data.get("simulation", True)
+            session.pending_trade = pending_trade_from_dict(data.get("pending_trade"))
         except Exception as e:
             logger.error(f"Error loading session {session.session_id[:8]}: {e}")
     
@@ -1096,6 +1177,7 @@ class DashboardBot:
                     "max_equity": session.max_equity,
                     "initial_capital": session.initial_capital,
                     "simulation": session.simulation,
+                    "pending_trade": session.pending_trade.to_dict() if session.pending_trade else None,
                     "last_updated": datetime.now().isoformat(),
                 }, f)
         except Exception as e:
