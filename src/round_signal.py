@@ -1,5 +1,7 @@
-"""Round-level signal: indicators + BTC tape, skip coin-flips."""
+"""Round-level signal: indicators + tape, never a naked 50/50 coin flip."""
 from typing import Dict, Tuple
+
+MIN_CONFIRM_MOVE = 12.0
 
 
 def tape_vote(flow_imbalance: float, book_imbalance: float = 0.0) -> int:
@@ -56,3 +58,30 @@ def crowd_agrees(signal: str, book: Dict[str, float]) -> bool:
     if side == "DOWN":
         return down >= up
     return False
+
+
+def price_confirms(
+    signal: str,
+    current: float,
+    beat: float,
+    min_move: float = MIN_CONFIRM_MOVE,
+) -> Tuple[bool, str]:
+    """50/50 with no move vs Price to Beat is a coin flip. Join a move that already started."""
+    side = str(signal or "").upper()
+    try:
+        current_px = float(current)
+        beat_px = float(beat)
+    except (TypeError, ValueError):
+        return False, "no Price to Beat yet"
+    if current_px <= 0 or beat_px <= 0:
+        return False, "no Price to Beat yet"
+    delta = current_px - beat_px
+    if side == "UP":
+        if delta >= min_move:
+            return True, f"price {delta:+.2f} vs beat"
+        return False, f"UP needs BTC above beat by ${min_move:.0f}+ (now {delta:+.2f})"
+    if side == "DOWN":
+        if delta <= -min_move:
+            return True, f"price {delta:+.2f} vs beat"
+        return False, f"DOWN needs BTC below beat by ${min_move:.0f}+ (now {delta:+.2f})"
+    return False, "no signal"

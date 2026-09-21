@@ -1,6 +1,6 @@
 import unittest
 
-from src.round_signal import combine_indicator_votes, crowd_agrees, tape_vote
+from src.round_signal import combine_indicator_votes, crowd_agrees, price_confirms, tape_vote
 
 
 class RoundSignalTests(unittest.TestCase):
@@ -28,6 +28,19 @@ class RoundSignalTests(unittest.TestCase):
     def test_crowd_agrees_with_our_side(self):
         self.assertTrue(crowd_agrees("DOWN", {"up": 0.44, "down": 0.56}))
         self.assertFalse(crowd_agrees("DOWN", {"up": 0.96, "down": 0.04}))
+
+    def test_fifty_fifty_without_a_move_is_not_confirmed(self):
+        ok, reason = price_confirms("UP", 86000.0, 86000.0)
+        self.assertFalse(ok)
+        self.assertIn("above beat", reason)
+
+    def test_joins_a_move_already_underway(self):
+        ok, _ = price_confirms("UP", 86040.0, 86000.0)
+        self.assertTrue(ok)
+        down_ok, _ = price_confirms("DOWN", 85970.0, 86000.0)
+        self.assertTrue(down_ok)
+        fighting, _ = price_confirms("DOWN", 86040.0, 86000.0)
+        self.assertFalse(fighting)
 
 
 if __name__ == "__main__":

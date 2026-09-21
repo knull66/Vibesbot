@@ -28,7 +28,7 @@ from .data_stream import DataStream
 from .predictor import Predictor, Signal, ModelType
 from .risk_manager import RiskManager, RiskStatus
 from .utils.logger import setup_logger, get_logger
-from .round_signal import combine_indicator_votes, tape_vote
+from .round_signal import combine_indicator_votes, price_confirms, tape_vote
 from .auth import COOKIE_NAME, SESSION_DAYS, get_auth
 from .companion import get_companion, is_loopback
 from .wallet_prediction import (
@@ -505,13 +505,12 @@ class DashboardBot:
                 await self._settle_due(current_round)
                 
                 if active:
-                    # Bet near round OPEN while the book is still ~50/50.
-                    # Late-round 96/4 books are already priced; skip band would fire anyway.
-                    if 235 <= remaining <= 275 and current_round != last_prediction_round:
+                    # After ~1 min the open exists: join a move vs beat, not a 50/50 coin flip.
+                    if 185 <= remaining <= 230 and current_round != last_prediction_round:
                         await self._generate_prediction(active, current_round)
                         last_prediction_round = current_round
                     
-                    if 210 <= remaining <= 250 and current_round != last_trade_round:
+                    if 160 <= remaining <= 205 and current_round != last_trade_round:
                         await asyncio.gather(*[self._execute_trade(session, current_round) for session in active])
                         last_trade_round = current_round
                 
@@ -706,6 +705,17 @@ class DashboardBot:
                     share_price = float(book.get("up") or 0.5)
                 elif signal == "DOWN":
                     share_price = float(book.get("down") or 0.5)
+            current_px = 0.0
+            if self.data_stream:
+                current_px = float(self.data_stream.get_current_price() or 0)
+            confirmed, confirm_reason = price_confirms(signal, current_px, open_price)
+            if not confirmed:
+                await self.manager.send_to_session(session.session_id, {
+                    "type": "log",
+                    "message": f"SKIP: {confirm_reason}",
+                    "level": "info",
+                })
+                return
             edge = tradable_edge(share_price, amount)
             if not edge["ok"]:
                 await self.manager.send_to_session(session.session_id, {
@@ -843,7 +853,7 @@ class DashboardBot:
                 "type": "log",
                 "message": (
                     f"{mode} {signal} ${amount:.2f} @ {fill['share_price']:.2f} "
-                    f"(win ~${fill['win_pnl']:.2f}) | fee ${fill['fee']:.3f} | beat {beat}"
+                    f"(win ~${fill['win_pnl']:.2f}) | {confirm_reason} | fee ${fill['fee']:.3f} | beat {beat}"
                 ),
                 "level": "info",
             })

@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.20.0';
+const APP_VERSION = '1.21.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
