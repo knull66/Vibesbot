@@ -17,9 +17,6 @@ scikit-learn>=1.3.0
 lightgbm>=4.1.0
 xgboost>=2.0.0
 
-# Browser automation
-playwright>=1.40.0
-
 # Cryptocurrency exchange
 ccxt>=4.1.0
 

@@ -24,11 +24,10 @@ Bot de trading automatizado para operar en Binance Prediction (BTC/USDT 5m "Up o
 - **Filtros de Volatilidad**: Evita operar en condiciones extremas
 - **Límites Diarios**: Stop-loss y máximo de operaciones
 
-### 🌐 Automatización del Navegador
-- Playwright con contexto persistente de usuario
-- Sincronización precisa con el reloj de Binance
-- Ejecución de apuestas 10-12 segundos antes del cierre
-- Manejo robusto de errores y reintentos
+### 🔑 Wallet Prediction API (app Mac / dashboard REAL)
+- Apuestas reales por la SAPI oficial de Binance Wallet Prediction
+- Requiere API key con **Enable Prediction Trading** y filtro de IP
+- El clicker Playwright de Event Contracts (`binance.com/prediction`) está desactivado
 
 ## Estructura del Proyecto
 
@@ -40,8 +39,9 @@ vibesbot/
 │   ├── data_stream.py      # WebSocket y datos en tiempo real
 │   ├── predictor.py        # Modelo de IA y generación de features
 │   ├── risk_manager.py     # Gestión de riesgo y Kelly Criterion
-│   ├── browser_execution.py # Automatización con Playwright
-│   ├── main.py             # Orquestador principal
+│   ├── wallet_prediction.py # Cliente SAPI Wallet Prediction (REAL)
+│   ├── browser_execution.py # Clicker Playwright desactivado
+│   ├── main.py             # CLI legado desactivado (usar la app Mac)
 │   ├── backtest.py         # Sistema de backtesting
 │   └── utils/
 │       ├── __init__.py
@@ -86,7 +86,6 @@ python3 setup.py
 O manualmente:
 ```bash
 pip install -r requirements.txt
-python3 -m playwright install chromium
 ```
 
 4. **Configurar**
@@ -126,27 +125,11 @@ Opciones disponibles:
 - `--no-save-model`: No guardar el modelo entrenado
 - `-o, --output DIR`: Directorio de salida para resultados
 
-### 2. Iniciar Sesión en Binance
+### 2. Operar en REAL (app Mac)
 
-La primera vez, necesitas iniciar sesión manualmente:
+`python3 run_bot.py` está desactivado: abría Chromium y hacía clic en Event Contracts.
 
-```bash
-python3 run_bot.py
-```
-
-El navegador se abrirá. Inicia sesión en tu cuenta de Binance y navega a la página de Prediction. El bot guardará la sesión para futuros usos.
-
-### 3. Ejecutar el Bot
-
-```bash
-python3 run_bot.py
-```
-
-Opciones disponibles:
-- `-c, --config PATH`: Ruta al archivo de configuración
-- `--headless`: Ejecutar en modo sin interfaz gráfica
-- `--testnet`: Usar testnet de Binance
-- `--dry-run`: Ejecutar sin realizar apuestas reales
+Para apuestas reales usa la app Mac en modo REAL con una API key de Binance que tenga **Enable Prediction Trading**. El motor llama a `WalletPredictionClient` (SAPI), no abre `binance.com/prediction`.
 
 ### Variables de Entorno
 

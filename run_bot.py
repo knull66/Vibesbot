@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""
-Script de entrada para ejecutar el bot de trading.
-Uso: python run_bot.py [--config PATH] [--headless] [--testnet]
-"""
+"""Deprecated CLI. The Mac app is the only supported way to trade."""
 import sys
-import os
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from src.main import run_bot
-
-if __name__ == "__main__":
-    run_bot()
-python3 run_backtest.py --days 7
+print(
+    "run_bot.py is disabled.\n"
+    "It used to open Chromium (Playwright) and click binance.com/prediction.\n"
+    "That is not an official bet API.\n\n"
+    "Use the Vibesbot Mac app in REAL mode: Binance Wallet Prediction SAPI\n"
+    "with Enable Prediction Trading on your API key."
+)
+sys.exit(1)

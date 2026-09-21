@@ -105,7 +105,7 @@ class DataStreamConfig:
 
 @dataclass
 class BrowserConfig:
-    """Configuración de automatización del navegador."""
+    """Legacy Event Contracts clicker config. Playwright is disabled."""
     
     user_data_dir: str = "./user_data"
     headless: bool = False

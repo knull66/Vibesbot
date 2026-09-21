@@ -74,22 +74,12 @@ python3 run_dashboard.py
 - Control manual con botones START/PAUSE/STOP
 - **No ejecuta apuestas reales** - Modo simulación
 
-### Modo Bot Real (Con Playwright)
+### Modo REAL (app Mac / dashboard)
 
-```bash
-python3 run_bot.py
-```
+`python3 run_bot.py` está desactivado (clicker Playwright de Event Contracts).
 
-Este modo:
-1. Abre un navegador con tu sesión de Binance
-2. Navega a Binance Prediction
-3. Ejecuta apuestas automáticamente
-
-**Primera vez:**
-1. Se abrirá el navegador
-2. Inicia sesión manualmente en Binance
-3. La sesión se guardará en `user_data/`
-4. Las próximas veces no necesitas login
+Apuestas reales: app Mac en modo REAL + API key con **Enable Prediction Trading**.
+El dashboard usa `WalletPredictionClient` (SAPI oficial), no abre Chromium.
 
 ## 5. Estrategias de Sizing
 
@@ -181,12 +171,8 @@ python3 run_backtest.py --days 30
 python3 run_dashboard.py --port 3000
 ```
 
-### Sesión de Binance expirada
-Borra los datos de sesión y vuelve a iniciar:
-```bash
-rm -rf user_data/
-python3 run_bot.py  # Hará login de nuevo
-```
+### API de predicciones
+En Binance: API key con **Enable Prediction Trading**, filtro de IP, y USDT en Prediction Account (Transfer In ≥ 1.50).
 
 ## 10. Advertencias
 
@@ -203,4 +189,4 @@ python3 run_bot.py  # Hará login de nuevo
 2. **Entrenar**: `python3 run_backtest.py --days 30`
 3. **Probar en Dashboard**: `python3 run_dashboard.py` (modo simulación)
 4. **Configurar**: Editar `config.json` según resultados
-5. **Operar**: `python3 run_bot.py` (cuando estés listo)
+5. **Operar**: app Mac en REAL (Wallet Prediction SAPI)

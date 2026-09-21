@@ -12,15 +12,13 @@ import asyncio
 import signal
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
-import argparse
 
 from .config import Config, load_config
 from .data_stream import DataStream, create_data_stream
 from .predictor import Predictor, Signal, ModelType
 from .risk_manager import RiskManager, RiskStatus
-from .browser_execution import BrowserExecutor, create_browser_executor
+from .browser_execution import DISABLED, BrowserExecutor
 from .utils.logger import setup_logger, get_logger, TradingLogger
 
 
@@ -59,108 +57,13 @@ class TradingBot:
         self._shutdown_event = asyncio.Event()
     
     async def initialize(self) -> bool:
-        """
-        Inicializa todos los componentes del bot.
-        
-        Returns:
-            True si todos los componentes se inicializaron correctamente
-        """
-        self.logger.info("=" * 60)
-        self.logger.info("VIBESBOT - Binance Prediction Trading Bot")
-        self.logger.info("=" * 60)
-        
-        errors = self.config.validate()
-        if errors:
-            for error in errors:
-                self.logger.error(f"Config validation error: {error}")
-            return False
-        
-        self.logger.info("Initializing data stream...")
-        try:
-            self.data_stream = DataStream(self.config.data_stream)
-            await self.data_stream.start()
-            self.logger.info("Data stream initialized")
-        except Exception as e:
-            self.logger.error(f"Failed to initialize data stream: {e}")
-            return False
-        
-        self.logger.info("Initializing predictor...")
-        try:
-            model_type = ModelType.LIGHTGBM
-            self.predictor = Predictor(self.config.prediction, model_type)
-            
-            if not await self.predictor.initialize():
-                self.logger.warning("No pre-trained model found. Bot will need training data.")
-        except Exception as e:
-            self.logger.error(f"Failed to initialize predictor: {e}")
-            return False
-        
-        self.logger.info("Initializing risk manager...")
-        self.risk_manager = RiskManager(self.config.risk, self.config.trading)
-        self.logger.info("Risk manager initialized")
-        
-        self.logger.info("Initializing browser executor...")
-        try:
-            self.browser = BrowserExecutor(self.config.browser)
-            if not await self.browser.initialize():
-                self.logger.error("Failed to initialize browser")
-                return False
-            
-            if not await self.browser.navigate_to_prediction():
-                self.logger.warning("Could not navigate to prediction page. Manual login may be required.")
-        except Exception as e:
-            self.logger.error(f"Failed to initialize browser: {e}")
-            return False
-        
-        await asyncio.sleep(5)
-        
-        self.logger.info("=" * 60)
-        self.logger.info("All components initialized successfully!")
-        self.logger.info(f"Initial Capital: ${self.config.trading.initial_capital}")
-        self.logger.info(f"Confidence Threshold: {self.config.prediction.confidence_threshold:.0%}")
-        self.logger.info(f"Max Daily Loss: ${self.config.risk.max_daily_loss}")
-        self.logger.info("=" * 60)
-        
-        return True
+        """Playwright Event Contracts clicker is disabled. Use the Mac app."""
+        self.logger.error(DISABLED)
+        return False
     
     async def run(self) -> None:
-        """
-        Ejecuta el bucle principal de trading.
-        
-        El bot opera en ciclos sincronizados con las rondas de 5 minutos
-        de Binance Prediction, ejecutando apuestas justo antes del cierre.
-        """
-        self._running = True
-        self.logger.info("Starting trading loop...")
-        
-        while self._running:
-            try:
-                if self._paused:
-                    await asyncio.sleep(1)
-                    continue
-                
-                if not self.risk_manager.is_trading_allowed:
-                    self.logger.info("Trading not allowed. Waiting for conditions to change...")
-                    await asyncio.sleep(60)
-                    continue
-                
-                wait_time = await self.browser.wait_for_execution_window()
-                
-                if not self._running:
-                    break
-                
-                await self._execute_round()
-                
-                await asyncio.sleep(5)
-                
-            except asyncio.CancelledError:
-                self.logger.info("Trading loop cancelled")
-                break
-            except Exception as e:
-                self.logger.error(f"Error in trading loop: {e}", exc_info=True)
-                await asyncio.sleep(30)
-        
-        self.logger.info("Trading loop ended")
+        """Playwright Event Contracts clicker is disabled. Use the Mac app."""
+        self.logger.error(DISABLED)
     
     async def _execute_round(self) -> None:
         """Ejecuta el ciclo de una ronda de trading."""
@@ -316,42 +219,15 @@ async def main(config_path: Optional[str] = None) -> None:
 
 
 def run_bot():
-    """CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Vibesbot - Binance Prediction Trading Bot"
+    """CLI entry point — disabled. The Mac app is the only supported path."""
+    print(
+        "src.main.run_bot is disabled.\n"
+        "It used to open Chromium (Playwright) and click binance.com/prediction.\n"
+        "That is not an official bet API.\n\n"
+        "Use the Vibesbot Mac app in REAL mode: Binance Wallet Prediction SAPI\n"
+        "with Enable Prediction Trading on your API key."
     )
-    parser.add_argument(
-        "-c", "--config",
-        type=str,
-        help="Path to configuration file (JSON)"
-    )
-    parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="Run browser in headless mode"
-    )
-    parser.add_argument(
-        "--testnet",
-        action="store_true",
-        help="Use Binance testnet"
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Run without executing actual trades"
-    )
-    
-    args = parser.parse_args()
-    
-    if args.headless:
-        import os
-        os.environ["VIBESBOT_HEADLESS"] = "true"
-    
-    if args.testnet:
-        import os
-        os.environ["VIBESBOT_TESTNET"] = "true"
-    
-    asyncio.run(main(args.config))
+    sys.exit(1)
 
 
 if __name__ == "__main__":

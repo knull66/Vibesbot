@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script de configuración inicial del proyecto.
-Instala dependencias y configura Playwright.
+Instala dependencias. Playwright / Chromium is not used.
 """
 import subprocess
 import sys
@@ -16,8 +16,7 @@ def main():
     print("\n[1/3] Instalando dependencias de Python...")
     subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
     
-    print("\n[2/3] Instalando navegador Chromium para Playwright...")
-    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+    print("\n[2/3] Playwright/Chromium omitido (Event Contracts clicker desactivado).")
     
     print("\n[3/3] Creando directorios necesarios...")
     os.makedirs("logs", exist_ok=True)
@@ -31,9 +30,9 @@ def main():
     print("=" * 60)
     print("\nPróximos pasos:")
     print("  1. Ejecutar backtest:  python run_backtest.py --days 30")
-    print("  2. Ejecutar bot:       python run_bot.py")
+    print("  2. Abrir dashboard:    python run_dashboard.py")
     print("\nPara más opciones: python run_backtest.py --help")
-    print("                   python run_bot.py --help")
+    print("REAL bets: Vibesbot Mac app + Wallet Prediction API key.")
 
 
 if __name__ == "__main__":

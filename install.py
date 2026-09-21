@@ -55,13 +55,6 @@ def install_dependencies():
         sys.executable, "-m", "pip", "install", "-q", "pywebview"
     ])
     
-    try:
-        subprocess.run([
-            sys.executable, "-m", "playwright", "install", "chromium"
-        ], capture_output=True)
-    except:
-        pass
-    
     print("✅ Dependencias instaladas")
 
 
