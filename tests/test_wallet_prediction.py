@@ -257,6 +257,8 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["trade/get-quote"]["walletAddress"], listed)
         self.assertEqual(captured["trade/place-order-bundle"]["walletAddress"], listed)
         self.assertEqual(captured["trade/place-order-bundle"]["walletId"], "pred")
+        self.assertEqual(captured["trade/place-order-bundle"]["accountType"], "SPOT")
+        self.assertEqual(captured["trade/place-order-bundle"]["fundingSource"], "MPC")
         self.assertNotEqual(captured["trade/get-quote"]["walletAddress"], USER_WALLET)
         self.assertEqual(result["wallet_address"], listed)
 
@@ -300,8 +302,9 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
             result = await client.quote_and_buy(topic, "UP", 1.0, 0.5)
 
         self.assertTrue(result["success"])
-        self.assertNotIn("accountType", captured["trade/place-order-bundle"])
+        self.assertEqual(captured["trade/place-order-bundle"]["accountType"], "SPOT")
         self.assertEqual(captured["trade/place-order-bundle"]["fundingSource"], "MPC")
+        self.assertNotIn("fundTransferAmount", captured["trade/place-order-bundle"])
         self.assertEqual(captured["trade/get-quote"]["walletAddress"], USER_WALLET)
         self.assertEqual(result["wallet_address"], USER_WALLET)
         self.assertNotIn("accountType", captured["trade/get-quote"])

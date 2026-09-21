@@ -34,6 +34,9 @@ DEFAULT_SLIPPAGE_BPS = 500
 BSC_USDT = "0x55d398326f99059fF775485246999027B3197955"
 BSC_CHAIN_ID = "56"
 DEFAULT_PREDICTION_WALLET = "0x5FB045Ed0C5e906Ab4D60817bf022650f9749a0A"
+# Required by place-order-bundle even when spending the MPC Prediction Account.
+# SPOT/FUNDING is the CEX fallback type; we do not send fundTransferAmount.
+PREDICTION_ACCOUNT_TYPE = "SPOT"
 BSC_RPCS = (
     "https://bsc-dataseed.binance.org/",
     "https://bsc-dataseed1.binance.org/",
@@ -578,6 +581,7 @@ class WalletPredictionClient:
             "orderType": "MARKET",
             "timeInForce": "FOK",
             "fundingSource": "MPC",
+            "accountType": PREDICTION_ACCOUNT_TYPE,
         }
         status, placed = await self._request("POST", "trade/place-order-bundle", place_req)
         if status != 200 or not isinstance(placed, dict) or (
@@ -585,9 +589,14 @@ class WalletPredictionClient:
             and (placed.get("code") not in (None, 0, "0", "000000"))
         ):
             alt = {
+                "walletAddress": order_address,
+                "walletId": wallet["walletId"],
                 "quoteId": quote.get("quoteId"),
                 "slippageBps": quote.get("slippageBps") or slippage,
                 "orderType": "MARKET",
+                "timeInForce": "FOK",
+                "fundingSource": "MPC",
+                "accountType": PREDICTION_ACCOUNT_TYPE,
             }
             alt_status, alt_placed = await self._request("POST", "trade/place-order", alt)
             if alt_status == 200 and isinstance(alt_placed, dict):
