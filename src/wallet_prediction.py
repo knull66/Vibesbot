@@ -37,9 +37,12 @@ MAX_BET_USDT = 100.0
 MIN_SHARE_PRICE = 0.20
 MAX_SHARE_PRICE = 0.82
 MIN_WIN_PNL_RATIO = 0.10
-TAKE_PROFIT_MARK = 0.08
-TAKE_PROFIT_MIN_USD = 0.20
-TAKE_PROFIT_MIN_SECONDS = 25
+TAKE_PROFIT_MARK = 0.06
+TAKE_PROFIT_MIN_USD = 0.12
+TAKE_PROFIT_MIN_SECONDS = 20
+CUT_LOSS_MARK = 0.12
+CUT_LOSS_MIN_SECONDS = 40
+CUT_LOSS_MIN_SAVE = 0.25
 BTC_PRICE_MIN = 1000.0
 BTC_PRICE_MAX = 1_000_000.0
 BSC_USDT = "0x55d398326f99059fF775485246999027B3197955"
@@ -377,6 +380,42 @@ def take_profit_ready(
     if pnl < TAKE_PROFIT_MIN_USD:
         return False, f"take-profit ${pnl:.2f} < ${TAKE_PROFIT_MIN_USD:.2f}", pnl
     return True, f"TAKE PROFIT +${pnl:.2f} @ {mark_px:.2f} (in {entry_px:.2f})", pnl
+
+
+def cut_loss_ready(
+    entry: Any,
+    mark: Any,
+    shares: float,
+    cost: float,
+    seconds_left: float,
+    fee_bps: int = DEFAULT_FEE_BPS,
+) -> Tuple[bool, str, float]:
+    """Sell a position that moved hard against us, instead of riding it to $0."""
+    if float(seconds_left or 0) < CUT_LOSS_MIN_SECONDS:
+        return False, "let it settle", 0.0
+    entry_px = normalize_share_price(entry)
+    mark_px = normalize_share_price(mark)
+    if mark_px > entry_px - CUT_LOSS_MARK:
+        return False, "still in range", 0.0
+    proceeds, _fee = sell_proceeds(shares, mark_px, fee_bps)
+    pnl = proceeds - float(cost or 0)
+    full_loss = -float(cost or 0)
+    saved = pnl - full_loss
+    if saved < CUT_LOSS_MIN_SAVE:
+        return False, "cut saves too little", pnl
+    return True, f"CUT LOSS ${pnl:.2f} @ {mark_px:.2f}", pnl
+
+
+def live_equity_baseline(balance: float, pnl: float, max_equity: float) -> Optional[Tuple[float, float]]:
+    """Replace a $100 paper peak when the real wallet is much smaller."""
+    bal = float(balance or 0)
+    if bal <= 0 or not (float(max_equity or 0) >= 50 and bal < 40):
+        return None
+    peak = max(bal, bal - float(pnl or 0))
+    if peak <= 0:
+        return None
+    drawdown = max(0.0, (peak - bal) / peak * 100)
+    return peak, drawdown
 
 
 def settle_direction(open_price: float, close_price: float) -> str:

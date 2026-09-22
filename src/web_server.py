@@ -25,7 +25,7 @@ from starlette.requests import Request
 
 from .config import Config, load_config
 from .data_stream import DataStream
-from .predictor import Predictor, Signal, ModelType
+from .predictor import Predictor
 from .risk_manager import RiskManager, RiskStatus
 from .utils.logger import setup_logger, get_logger
 from .utils.helpers import calculate_round_times
@@ -41,8 +41,11 @@ from .wallet_prediction import (
     looks_like_btc_price,
     market_book,
     outcome_token,
+    cut_loss_ready,
+    live_equity_baseline,
     paper_fill,
     pending_trade_from_dict,
+    sell_proceeds,
     settle_payout,
     take_profit_ready,
     tradable_edge,
@@ -271,7 +274,6 @@ class DashboardBot:
     
     async def initialize(self) -> bool:
         """Inicializa los componentes del bot."""
-        model_loaded = False
         try:
             from .utils.helpers import sync_binance_time
             logger.info("Synchronizing time with Binance...")
@@ -286,12 +288,7 @@ class DashboardBot:
             await self.data_stream.start()
         except Exception as e:
             logger.error(f"Data stream failed: {e}")
-        try:
-            logger.info("Initializing predictor...")
-            self.predictor = Predictor(self.config.prediction, ModelType.LIGHTGBM)
-            model_loaded = await self.predictor.initialize()
-        except Exception as e:
-            logger.error(f"Predictor failed: {e}")
+        # Live bets are indicators + tape. Skip LightGBM load — it is not on this path.
         try:
             logger.info("Initializing risk manager...")
             self.risk_manager = RiskManager(self.config.risk, self.config.trading)
@@ -339,6 +336,13 @@ class DashboardBot:
         session.live_can_trade = bool(result.get("can_trade"))
         session.live_trade_error = str(result.get("trade_error") or "")
         session.live_fetched_at = time.time()
+        healed = live_equity_baseline(session.live_balance, session.cumulative_pnl, session.max_equity)
+        if healed:
+            peak, drawdown = healed
+            session.max_equity = peak
+            session.initial_capital = peak
+            session.equity_history = [peak] if abs(peak - session.live_balance) < 0.01 else [peak, session.live_balance]
+            session.max_drawdown = drawdown
 
     async def refresh_market_book(self, force: bool = False) -> Dict[str, Any]:
         now = time.time()
@@ -953,33 +957,39 @@ class DashboardBot:
             import traceback
             traceback.print_exc()
 
-    async def _maybe_take_profit(self, session: ClientSession, seconds_left: float) -> None:
-        """If the open Wallet position marked up enough, sell instead of waiting for 0/1."""
+    async def _emit_open_position(self, session: ClientSession, mark: float, seconds_left: float) -> None:
         pending = session.pending_trade
-        if not pending:
+        if not pending or mark <= 0:
+            await self.manager.send_to_session(session.session_id, {"type": "active_trade", "active": False})
             return
-        book = await self.refresh_market_book()
-        mark = 0.0
-        if book:
-            if pending.signal == "UP":
-                mark = float(book.get("up") or 0)
-            elif pending.signal == "DOWN":
-                mark = float(book.get("down") or 0)
-        ok, reason, pnl = take_profit_ready(
-            pending.share_price, mark, pending.shares, pending.cost, seconds_left,
-        )
-        if not ok:
-            return
+        proceeds, _fee = sell_proceeds(pending.shares, mark)
+        pnl = proceeds - float(pending.cost)
+        span = 300.0
+        progress = max(0.0, min(100.0, (1.0 - (float(seconds_left) / span)) * 100))
+        await self.manager.send_to_session(session.session_id, {
+            "type": "active_trade",
+            "active": True,
+            "direction": pending.signal,
+            "entry_price": pending.share_price,
+            "current_price": mark,
+            "pnl": pnl,
+            "progress": progress,
+        })
+
+    async def _exit_open_position(
+        self,
+        session: ClientSession,
+        pending: PendingWalletTrade,
+        book: Dict[str, Any],
+        mark: float,
+        reason: str,
+        pnl: float,
+        label: str,
+    ) -> bool:
         if pending.live:
-            from .user_settings import get_settings_manager
-            creds = get_settings_manager().settings.binance
-            if not creds.is_configured or not pending.token_id:
-                return
-            client = WalletPredictionClient(
-                creds.api_key,
-                creds.api_secret,
-                preferred_address=creds.prediction_wallet,
-            )
+            client = await self._live_prediction_client(session)
+            if not client or not pending.token_id:
+                return False
             topic = {}
             if pending.topic_id:
                 topic = await client.market_detail(pending.topic_id)
@@ -989,10 +999,10 @@ class DashboardBot:
             if not sold.get("success"):
                 await self.manager.send_to_session(session.session_id, {
                     "type": "log",
-                    "message": f"TAKE PROFIT failed: {sold.get('error') or 'sell rejected'}",
+                    "message": f"{label} failed: {sold.get('error') or 'sell rejected'}",
                     "level": "info",
                 })
-                return
+                return False
             proceeds = float(sold.get("proceeds") or 0)
             pnl = proceeds - float(pending.cost)
             mark = float(sold.get("share_price") or mark)
@@ -1006,6 +1016,34 @@ class DashboardBot:
             exit_price=self._live_btc_price(book),
             explanation=reason,
         )
+        await self.manager.send_to_session(session.session_id, {"type": "active_trade", "active": False})
+        return True
+
+    async def _maybe_take_profit(self, session: ClientSession, seconds_left: float) -> None:
+        """Lock a markup or cut a hard fade. Otherwise show the open mark."""
+        pending = session.pending_trade
+        if not pending:
+            return
+        book = await self.refresh_market_book()
+        mark = 0.0
+        if book:
+            if pending.signal == "UP":
+                mark = float(book.get("up") or 0)
+            elif pending.signal == "DOWN":
+                mark = float(book.get("down") or 0)
+        await self._emit_open_position(session, mark, seconds_left)
+        ok, reason, pnl = take_profit_ready(
+            pending.share_price, mark, pending.shares, pending.cost, seconds_left,
+        )
+        label = "TAKE PROFIT"
+        if not ok:
+            ok, reason, pnl = cut_loss_ready(
+                pending.share_price, mark, pending.shares, pending.cost, seconds_left,
+            )
+            label = "CUT LOSS"
+        if not ok:
+            return
+        await self._exit_open_position(session, pending, book or {}, mark, reason, pnl, label)
 
     async def _settle_due(self, current_round: int) -> None:
         for session in list(self.sessions.values()):

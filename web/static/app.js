@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.33.0';
+const APP_VERSION = '1.34.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -834,8 +834,13 @@ class VibesBot {
             this.activeTrade.style.display = 'block';
             document.getElementById('active-direction').textContent = data.direction;
             document.getElementById('active-direction').className = 'active-trade-direction ' + data.direction.toLowerCase();
-            document.getElementById('active-entry').textContent = '$' + data.entry_price?.toFixed(2);
-            document.getElementById('active-current').textContent = '$' + data.current_price?.toFixed(2);
+            const paid = Number(data.entry_price);
+            const mark = Number(data.current_price);
+            const fmt = (value) => (value > 0 && value < 2)
+                ? Math.round(value * 100) + '¢'
+                : '$' + (value || 0).toFixed(2);
+            document.getElementById('active-entry').textContent = fmt(paid);
+            document.getElementById('active-current').textContent = fmt(mark);
             
             const pnl = data.pnl || 0;
             const pnlEl = document.getElementById('active-pnl');
@@ -851,6 +856,12 @@ class VibesBot {
     
     addLog(message, level = 'info') {
         if (!this.tradeLog) return;
+        const now = Date.now();
+        if (message && message === this._lastLog && now - (this._lastLogAt || 0) < 20000) {
+            return;
+        }
+        this._lastLog = message;
+        this._lastLogAt = now;
         
         // Remove empty state
         const empty = this.tradeLog.querySelector('.log-empty');
@@ -1164,8 +1175,8 @@ class VibesBot {
             engine.textContent = label === 'indicators+tape' ? 'Indicators + tape' : label;
         }
         const strategy = document.getElementById('strategy-status');
-        if (strategy && data.signal_engine) {
-            strategy.textContent = 'Live weights';
+        if (strategy && !strategy.dataset.locked) {
+            strategy.textContent = 'Lock +6¢ · cut −12¢';
         }
         this.updateControlButtons();
     }

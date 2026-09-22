@@ -31,6 +31,8 @@ from src.wallet_prediction import (
     topic_duration_minutes,
     topic_live_price,
     topic_start_price,
+    cut_loss_ready,
+    live_equity_baseline,
     take_profit_ready,
     tradable_edge,
     unwrap_prediction_payload,
@@ -544,6 +546,23 @@ class TakeProfitTests(unittest.TestCase):
     def test_too_close_to_close(self):
         ok, _, _ = take_profit_ready(0.50, 0.80, 3, 1.53, 10)
         self.assertFalse(ok)
+
+    def test_cuts_a_hard_fade(self):
+        ok, reason, pnl = cut_loss_ready(0.60, 0.40, 2.5, 1.53, 90)
+        self.assertTrue(ok)
+        self.assertIn("CUT LOSS", reason)
+        self.assertGreater(pnl, -1.53)
+
+    def test_small_dip_is_not_a_cut(self):
+        ok, _, _ = cut_loss_ready(0.60, 0.55, 2.5, 1.53, 90)
+        self.assertFalse(ok)
+
+    def test_paper_peak_is_not_a_92_percent_crash(self):
+        healed = live_equity_baseline(7.92, -1.50, 100.0)
+        self.assertIsNotNone(healed)
+        peak, drawdown = healed
+        self.assertAlmostEqual(peak, 9.42, places=2)
+        self.assertLess(drawdown, 20)
 
 
 class WalletSellPathTests(unittest.IsolatedAsyncioTestCase):
