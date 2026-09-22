@@ -994,14 +994,19 @@ class DashboardBot:
             if pending.topic_id:
                 topic = await client.market_detail(pending.topic_id)
             if not topic:
-                topic = await client.find_btc_5m_market() or {}
+                topic = {}
+            if pending.topic_id and not topic.get("marketTopicId"):
+                topic["marketTopicId"] = pending.topic_id
             sold = await client.quote_and_sell(topic, pending.token_id, pending.shares)
             if not sold.get("success"):
-                await self.manager.send_to_session(session.session_id, {
-                    "type": "log",
-                    "message": f"{label} failed: {sold.get('error') or 'sell rejected'}",
-                    "level": "info",
-                })
+                last_fail = float(getattr(pending, "_last_sell_fail_log", 0) or 0)
+                if time.time() - last_fail >= 20:
+                    pending._last_sell_fail_log = time.time()
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": f"{label} failed: {sold.get('error') or 'sell rejected'}",
+                        "level": "loss",
+                    })
                 return False
             proceeds = float(sold.get("proceeds") or 0)
             pnl = proceeds - float(pending.cost)
@@ -1043,6 +1048,10 @@ class DashboardBot:
             label = "CUT LOSS"
         if not ok:
             return
+        last_try = float(getattr(pending, "_last_sell_try", 0) or 0)
+        if time.time() - last_try < 5:
+            return
+        pending._last_sell_try = time.time()
         await self._exit_open_position(session, pending, book or {}, mark, reason, pnl, label)
 
     async def _settle_due(self, current_round: int) -> None:
@@ -1081,7 +1090,9 @@ class DashboardBot:
         if not resolved.get("ready"):
             reason = str(resolved.get("reason") or "waiting")
             last_log = float(getattr(pending, "_last_wait_log", 0) or 0)
-            if reason != "polling" and time.time() - last_log >= 30:
+            if reason in ("polling", "market still open on Binance"):
+                return
+            if time.time() - last_log >= 30:
                 pending._last_wait_log = time.time()
                 await self.manager.send_to_session(session.session_id, {
                     "type": "log",

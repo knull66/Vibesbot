@@ -72,6 +72,9 @@ Solo corta favoritos 85¢+ / lotto 15¢ y un 50/50 plano vs el lock. Un DOWN 71�
 **WIN falso vs Lost en Binance**  
 Actualiza a ≥ 1.25: el settle REAL ya no usa velas locales.
 
+**CUT LOSS / TAKE PROFIT failed: SYSTEM_ERROR**  
+v1.35 vende shares humanas (no 3e18 wei) y el tamaño real de la posición. Tras el overlay: Quit en el Dock.
+
 **Sigue en versión vieja tras update**  
 Quit desde el Dock. El overlay no mata el Python anterior.
 

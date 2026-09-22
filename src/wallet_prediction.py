@@ -32,6 +32,8 @@ PREDICTION_API = "https://api.binance.com/sapi/v1/w3w/wallet/prediction"
 USDT_WEI = 10**18
 DEFAULT_FEE_BPS = 200
 DEFAULT_SLIPPAGE_BPS = 500
+SELL_SLIPPAGE_BPS = 1500
+SELL_FRACTION = 0.995
 MIN_BET_USDT = 1.5
 MAX_BET_USDT = 100.0
 MIN_SHARE_PRICE = 0.20
@@ -174,6 +176,85 @@ def api_error_text(status: int, data: Any) -> str:
             return f"HTTP {status} {code or ''} {msg}".strip()
         return f"HTTP {status} {str(data)[:180]}"
     return f"HTTP {status} {str(data)[:180]}"
+
+
+def quote_id_of(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("quoteId", "quote_id"):
+        value = payload.get(key)
+        if value not in (None, ""):
+            return str(value)
+    nested = payload.get("data")
+    if isinstance(nested, dict):
+        return quote_id_of(nested)
+    return ""
+
+
+def order_id_of(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("orderId", "order_id"):
+        value = payload.get(key)
+        if value not in (None, ""):
+            return str(value)
+    nested = payload.get("data")
+    if isinstance(nested, dict):
+        return order_id_of(nested)
+    return ""
+
+
+def human_share_amount(qty: float) -> str:
+    text = f"{float(qty):.8f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def sell_amount_candidates(qty: float) -> List[str]:
+    """SELL amountIn is shares. Human first — wei 3e18 is what Binance calls SYSTEM_ERROR."""
+    qty = float(qty or 0)
+    if qty <= 0:
+        return []
+    seen: set[str] = set()
+    out: List[str] = []
+    values = [qty, qty * SELL_FRACTION]
+    if qty >= 1 and abs(qty - round(qty)) < 1e-6:
+        values.append(float(int(round(qty))))
+    for value in values:
+        human = human_share_amount(value)
+        if human and human != "0" and human not in seen:
+            seen.add(human)
+            out.append(human)
+    wei = str(int(round(qty * USDT_WEI)))
+    if wei not in seen:
+        out.append(wei)
+    return out
+
+
+def shares_from_position_row(row: Any, fallback: float = 0.0) -> float:
+    if not isinstance(row, dict):
+        return float(fallback or 0)
+    for key in (
+        "availableAmount",
+        "availableShares",
+        "sellableAmount",
+        "holdAmount",
+        "tokenAmount",
+        "quantity",
+        "qty",
+        "shares",
+        "amount",
+        "balance",
+        "size",
+    ):
+        parsed = parse_usdt_amount(row.get(key))
+        if parsed and parsed > 0:
+            return parsed
+    nested = row.get("position") if isinstance(row.get("position"), dict) else None
+    if nested:
+        found = shares_from_position_row(nested, 0.0)
+        if found > 0:
+            return found
+    return float(fallback or 0)
 
 
 def mismatch_wallet_error(preferred: str, listed: List[str], extra: str = "") -> str:
@@ -1232,82 +1313,114 @@ class WalletPredictionClient:
             "end_date": int(topic.get("endDate") or 0),
         }
 
+    async def _held_shares(self, token_id: str, fallback: float) -> float:
+        token_id = str(token_id or "").strip()
+        if not token_id:
+            return float(fallback or 0)
+        try:
+            row = await self.position_by_token(token_id)
+            held = shares_from_position_row(row, 0.0)
+            if held > 0:
+                return held
+            for item in await self.list_positions("ONGOING", 40):
+                if str(item.get("tokenId") or item.get("token_id") or "") == token_id:
+                    held = shares_from_position_row(item, 0.0)
+                    if held > 0:
+                        return held
+        except Exception as exc:
+            logger.warning(f"Could not read sellable shares for {token_id}: {exc}")
+        return float(fallback or 0)
+
     async def quote_and_sell(
         self,
         topic: Dict[str, Any],
         token_id: str,
         shares: float,
     ) -> Dict[str, Any]:
-        """Market-sell outcome tokens to lock mid-round profit."""
+        """Market-sell outcome tokens. SELL amountIn is human shares, not wei."""
         token_id = str(token_id or "").strip()
         qty = float(shares or 0)
+        topic = dict(topic or {})
         if not token_id or qty <= 0:
             return {"success": False, "error": "No shares to sell"}
         wallet = await self.ensure_wallet(refresh=True)
         order_address = str(wallet.get("orderAddress") or "")
         if not wallet.get("can_trade") or not wallet.get("walletId") or not order_address:
             return {"success": False, "error": wallet.get("error") or "Prediction Account cannot sell"}
-        slippage = int(topic.get("slippageBps") or DEFAULT_SLIPPAGE_BPS)
-        amount_in = str(int(round(qty * USDT_WEI)))
-        quote_req = {
-            "walletAddress": order_address,
-            "tokenId": token_id,
-            "side": "SELL",
-            "amountIn": amount_in,
-            "orderType": "MARKET",
-            "slippageBps": slippage,
-            "binanceChainId": str(topic.get("chainId") or BSC_CHAIN_ID),
-            "fundingSource": "MPC",
-        }
-        if topic.get("marketTopicId") not in (None, ""):
-            quote_req["marketTopicId"] = topic.get("marketTopicId")
-        status, quote = await self._request("POST", "trade/get-quote", quote_req)
-        if status != 200 or not isinstance(quote, dict) or not quote.get("quoteId"):
-            quote_req["amountIn"] = f"{qty:.8f}".rstrip("0").rstrip(".")
+        held = await self._held_shares(token_id, qty)
+        if held > 0:
+            qty = min(qty, held)
+        amounts = sell_amount_candidates(qty)
+        if not amounts:
+            return {"success": False, "error": "No sellable shares on Binance yet"}
+        slippage = max(int(topic.get("slippageBps") or 0), SELL_SLIPPAGE_BPS)
+        last_error = "Sell quote failed"
+        for amount_in in amounts:
+            quote_req = {
+                "walletAddress": order_address,
+                "tokenId": token_id,
+                "side": "SELL",
+                "amountIn": amount_in,
+                "orderType": "MARKET",
+                "slippageBps": slippage,
+                "binanceChainId": str(topic.get("chainId") or BSC_CHAIN_ID),
+                "fundingSource": "MPC",
+            }
+            topic_id = topic.get("marketTopicId") or topic.get("topicId")
+            if topic_id not in (None, ""):
+                quote_req["marketTopicId"] = topic_id
             status, quote = await self._request("POST", "trade/get-quote", quote_req)
-        if status != 200 or not isinstance(quote, dict) or not quote.get("quoteId"):
-            msg = ""
+            quote_id = quote_id_of(quote)
+            if status != 200 or not quote_id:
+                last_error = api_error_text(status, quote) if quote else f"Sell quote failed HTTP {status}"
+                logger.warning(f"SELL quote amountIn={amount_in} failed: {last_error}")
+                continue
+            place_req = {
+                "walletAddress": order_address,
+                "walletId": wallet["walletId"],
+                "quoteId": quote_id,
+                "slippageBps": (quote.get("slippageBps") if isinstance(quote, dict) else None) or slippage,
+                "orderType": "MARKET",
+                "timeInForce": "FOK",
+                "fundingSource": "MPC",
+                "accountType": PREDICTION_ACCOUNT_TYPE,
+            }
+            status, placed = await self._request("POST", "trade/place-order-bundle", place_req)
+            if not order_id_of(placed):
+                status, placed = await self._request("POST", "trade/place-order", place_req)
+            order_id = order_id_of(placed)
+            if not order_id:
+                last_error = api_error_text(status, placed) if placed else f"Sell failed HTTP {status}"
+                logger.warning(f"SELL place amountIn={amount_in} failed: {last_error}")
+                continue
+            raw_out = 0
             if isinstance(quote, dict):
-                msg = str(quote.get("msg") or quote.get("message") or quote.get("error") or quote)
-            return {"success": False, "error": msg or f"Sell quote failed HTTP {status}"}
-        place_req = {
-            "walletAddress": order_address,
-            "walletId": wallet["walletId"],
-            "quoteId": quote.get("quoteId"),
-            "slippageBps": quote.get("slippageBps") or slippage,
-            "orderType": "MARKET",
-            "timeInForce": "FOK",
-            "fundingSource": "MPC",
-            "accountType": PREDICTION_ACCOUNT_TYPE,
-        }
-        status, placed = await self._request("POST", "trade/place-order-bundle", place_req)
-        if status != 200 or not isinstance(placed, dict):
-            status, placed = await self._request("POST", "trade/place-order", place_req)
-        if status != 200 or not isinstance(placed, dict):
-            msg = ""
-            if isinstance(placed, dict):
-                msg = str(placed.get("msg") or placed.get("message") or placed)
-            return {"success": False, "error": msg or f"Sell failed HTTP {status}", "quote": quote}
-        raw_out = quote.get("amountOut") or quote.get("usdtOut") or 0
-        try:
-            proceeds = float(raw_out)
-            if proceeds > 1e6:
-                proceeds = proceeds / float(USDT_WEI)
-        except (TypeError, ValueError):
-            proceeds = 0.0
-        mark = normalize_share_price(quote.get("averagePrice") or 0, 0.5)
-        if proceeds <= 0:
-            proceeds, _fee = sell_proceeds(qty, mark)
-        order_id = str(placed.get("orderId") or placed.get("data", {}).get("orderId") or "")
-        return {
-            "success": True,
-            "order_id": order_id,
-            "quote": quote,
-            "placed": placed,
-            "proceeds": proceeds,
-            "share_price": mark,
-            "shares": qty,
-        }
+                raw_out = quote.get("amountOut") or quote.get("usdtOut") or 0
+            try:
+                proceeds = float(raw_out)
+                if proceeds > 1e6:
+                    proceeds = proceeds / float(USDT_WEI)
+            except (TypeError, ValueError):
+                proceeds = 0.0
+            mark = normalize_share_price(
+                (quote.get("averagePrice") if isinstance(quote, dict) else 0) or 0,
+                0.5,
+            )
+            if proceeds <= 0:
+                proceeds, _fee = sell_proceeds(qty, mark)
+            return {
+                "success": True,
+                "order_id": order_id,
+                "quote": quote,
+                "placed": placed,
+                "proceeds": proceeds,
+                "share_price": mark,
+                "shares": qty,
+                "amount_in": amount_in,
+            }
+        return {"success": False, "error": last_error}
+
+    def _wallet_query(self, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         params = dict(extra or {})
         address = str(self._wallet.get("orderAddress") or self._wallet.get("walletAddress") or "")
         if address and "walletAddress" not in params:

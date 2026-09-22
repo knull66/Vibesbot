@@ -39,6 +39,9 @@ from src.wallet_prediction import (
     wallets_from_payload,
     api_error_text,
     mismatch_wallet_error,
+    quote_id_of,
+    sell_amount_candidates,
+    shares_from_position_row,
 )
 
 USER_WALLET = "0xaaaabbbbccccddddeeeeffff0000111122223333"
@@ -566,6 +569,29 @@ class TakeProfitTests(unittest.TestCase):
 
 
 class WalletSellPathTests(unittest.IsolatedAsyncioTestCase):
+    def test_sell_amount_is_human_shares_first(self):
+        amounts = sell_amount_candidates(3)
+        self.assertEqual(amounts[0], "3")
+        self.assertNotEqual(amounts[0], str(int(3 * 10**18)))
+        self.assertIn(str(int(3 * 10**18)), amounts)
+
+    def test_quote_id_nested(self):
+        self.assertEqual(quote_id_of({"data": {"quoteId": "q-9"}}), "q-9")
+
+    def test_shares_from_position_row(self):
+        self.assertAlmostEqual(
+            shares_from_position_row({"availableAmount": "2.54"}, 3),
+            2.54,
+        )
+        self.assertAlmostEqual(shares_from_position_row({}, 3), 3)
+
+    def test_wallet_query_keeps_address(self):
+        client = WalletPredictionClient("k", "s")
+        client._wallet = {"orderAddress": USER_WALLET, "walletId": "pred"}
+        params = client._wallet_query({"tokenId": "tok-up"})
+        self.assertEqual(params["walletAddress"], USER_WALLET)
+        self.assertEqual(params["tokenId"], "tok-up")
+
     async def test_quote_and_sell(self):
         client = WalletPredictionClient("k", "s")
         captured = {}
@@ -587,14 +613,59 @@ class WalletSellPathTests(unittest.IsolatedAsyncioTestCase):
                 "can_trade": True,
             }
 
+        async def fake_held(token_id, fallback):
+            return fallback
+
         with patch.object(client, "_request", fake_request), \
-             patch.object(client, "ensure_wallet", fake_wallet):
+             patch.object(client, "ensure_wallet", fake_wallet), \
+             patch.object(client, "_held_shares", fake_held):
             sold = await client.quote_and_sell({"marketTopicId": "t1", "chainId": "56"}, "tok-up", 3)
 
         self.assertTrue(sold["success"])
         self.assertEqual(sold["order_id"], "sell-1")
         self.assertEqual(captured["trade/get-quote"]["side"], "SELL")
+        self.assertEqual(captured["trade/get-quote"]["amountIn"], "3")
+        self.assertGreater(int(captured["trade/get-quote"]["slippageBps"]), 500)
         self.assertGreater(sold["proceeds"], 1.5)
+
+    async def test_quote_and_sell_retries_human_after_wei_style_error(self):
+        client = WalletPredictionClient("k", "s")
+        attempts = []
+
+        async def fake_request(method, path, extra=None):
+            extra = extra or {}
+            if path == "trade/get-quote":
+                attempts.append(extra.get("amountIn"))
+                if extra.get("amountIn") == "3":
+                    return 200, {"code": -1, "msg": "SYSTEM_ERROR"}
+                if extra.get("amountIn") == "2.985":
+                    return 200, {"quoteId": "qs2", "averagePrice": 0.40, "amountOut": "1.1"}
+                return 200, {"code": -1, "msg": "SYSTEM_ERROR"}
+            if path == "trade/place-order-bundle":
+                return 200, {"orderId": "sell-2"}
+            return 404, {}
+
+        async def fake_wallet(refresh=True):
+            return {
+                "walletId": "pred",
+                "walletAddress": USER_WALLET,
+                "orderAddress": USER_WALLET,
+                "usdt": 10.0,
+                "can_trade": True,
+            }
+
+        async def fake_held(token_id, fallback):
+            return fallback
+
+        with patch.object(client, "_request", fake_request), \
+             patch.object(client, "ensure_wallet", fake_wallet), \
+             patch.object(client, "_held_shares", fake_held):
+            sold = await client.quote_and_sell({"marketTopicId": "t1"}, "tok-up", 3)
+
+        self.assertTrue(sold["success"])
+        self.assertEqual(attempts[0], "3")
+        self.assertIn("2.985", attempts)
+        self.assertEqual(sold["order_id"], "sell-2")
 
 
 if __name__ == "__main__":

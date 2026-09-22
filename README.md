@@ -17,7 +17,7 @@ Clona el repo público: [knull66/Vibesbot](https://github.com/knull66/Vibesbot).
 - **Filtros**: modo agresivo. Book 20–82% (un DOWN 76% sí). Solo corta 88%+ y 92¢ que pagan centavos. ≥ $3 vs Price to Beat. Señal con 2 votos (RSI solo ya cuenta).
 - **Price to Beat**: lock oficial de Wallet si Binance lo manda; si no, el open de la vela 5m de Spot (etiqueta “Est. 5m open”). Sirve para no apostar un 50/50 al inicio de ronda. REAL se liquida con Binance, no con esa línea.
 - **Circuit breaker**: 5 pérdidas seguidas pausan ~30 min. Settings de pérdida diaria y máximo de trades también cortan.
-- **Salida**: lock si el book sube ≥ +6¢ (~$0.12). Cut si cae ≥ −12¢ y vender salva ≥ $0.25. Si no, Binance liquida. Más trades no significa perder el stake entero cada vez.
+- **Salida**: lock si el book sube ≥ +6¢ (~$0.12). Cut si cae ≥ −12¢ y vender salva ≥ $0.25. El SELL usa shares humanas (no wei) y el tamaño real de `position/token`. Si no, Binance liquida.
 - **Drawdown**: en REAL el pico es el saldo de la wallet, no los $100 de SIM. Un −$1.50 sobre ~$9 es ~16%, no 92%.
 - **Updates**: popup Actualizar / Más tarde al abrir y cada ~30 min. No hay que ir a Settings.
 
