@@ -39,12 +39,15 @@ MAX_BET_USDT = 100.0
 MIN_SHARE_PRICE = 0.20
 MAX_SHARE_PRICE = 0.82
 MIN_WIN_PNL_RATIO = 0.10
-TAKE_PROFIT_MARK = 0.06
-TAKE_PROFIT_MIN_USD = 0.12
-TAKE_PROFIT_MIN_SECONDS = 20
-CUT_LOSS_MARK = 0.12
-CUT_LOSS_MIN_SECONDS = 40
-CUT_LOSS_MIN_SAVE = 0.25
+# Mid-round scalp is -EV on 5m (second taker fee). Hold to Binance
+# unless the ticket is almost resolved.
+EXIT_MIN_HOLD_SECONDS = 75
+TAKE_PROFIT_MIN_MARK = 0.90
+TAKE_PROFIT_MIN_USD = 0.70
+TAKE_PROFIT_MIN_SECONDS = 40
+CUT_LOSS_MAX_MARK = 0.12
+CUT_LOSS_MIN_SECONDS = 45
+CUT_LOSS_MIN_SAVE = 0.20
 BTC_PRICE_MIN = 1000.0
 BTC_PRICE_MAX = 1_000_000.0
 BSC_USDT = "0x55d398326f99059fF775485246999027B3197955"
@@ -448,14 +451,17 @@ def take_profit_ready(
     cost: float,
     seconds_left: float,
     fee_bps: int = DEFAULT_FEE_BPS,
+    held_seconds: float = 0.0,
 ) -> Tuple[bool, str, float]:
-    """Sell mid-round only if the book paid us enough after a second fee."""
+    """Lock only a near-certain win. A +6¢ bounce after entry is not a win."""
+    if float(held_seconds or 0) < EXIT_MIN_HOLD_SECONDS:
+        return False, "hold after entry", 0.0
     if float(seconds_left or 0) < TAKE_PROFIT_MIN_SECONDS:
         return False, "too close to close", 0.0
     entry_px = normalize_share_price(entry)
     mark_px = normalize_share_price(mark)
-    if mark_px + 1e-9 < entry_px + TAKE_PROFIT_MARK:
-        return False, f"mark {mark_px:.2f} needs {entry_px + TAKE_PROFIT_MARK:.2f}", 0.0
+    if mark_px + 1e-9 < TAKE_PROFIT_MIN_MARK:
+        return False, f"mark {mark_px:.2f} holds under {TAKE_PROFIT_MIN_MARK:.2f}", 0.0
     proceeds, _fee = sell_proceeds(shares, mark_px, fee_bps)
     pnl = proceeds - float(cost or 0)
     if pnl < TAKE_PROFIT_MIN_USD:
@@ -470,13 +476,16 @@ def cut_loss_ready(
     cost: float,
     seconds_left: float,
     fee_bps: int = DEFAULT_FEE_BPS,
+    held_seconds: float = 0.0,
 ) -> Tuple[bool, str, float]:
-    """Sell a position that moved hard against us, instead of riding it to $0."""
+    """Dump only a dead ticket. A −12¢ dip is noise on a 5m book."""
+    if float(held_seconds or 0) < EXIT_MIN_HOLD_SECONDS:
+        return False, "hold after entry", 0.0
     if float(seconds_left or 0) < CUT_LOSS_MIN_SECONDS:
         return False, "let it settle", 0.0
     entry_px = normalize_share_price(entry)
     mark_px = normalize_share_price(mark)
-    if mark_px > entry_px - CUT_LOSS_MARK:
+    if mark_px > CUT_LOSS_MAX_MARK:
         return False, "still in range", 0.0
     proceeds, _fee = sell_proceeds(shares, mark_px, fee_bps)
     pnl = proceeds - float(cost or 0)
@@ -484,7 +493,7 @@ def cut_loss_ready(
     saved = pnl - full_loss
     if saved < CUT_LOSS_MIN_SAVE:
         return False, "cut saves too little", pnl
-    return True, f"CUT LOSS ${pnl:.2f} @ {mark_px:.2f}", pnl
+    return True, f"CUT LOSS ${pnl:.2f} @ {mark_px:.2f} (in {entry_px:.2f})", pnl
 
 
 def live_equity_baseline(balance: float, pnl: float, max_equity: float) -> Optional[Tuple[float, float]]:
@@ -1007,6 +1016,7 @@ class PendingWalletTrade:
     token_id: str = ""
     end_date_ms: int = 0
     next_poll_at: float = 0.0
+    opened_at: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -1026,6 +1036,7 @@ class PendingWalletTrade:
             "topic_id": self.topic_id,
             "token_id": self.token_id,
             "end_date_ms": self.end_date_ms,
+            "opened_at": self.opened_at,
         }
 
 
@@ -1050,6 +1061,7 @@ def pending_trade_from_dict(data: Any) -> Optional[PendingWalletTrade]:
             topic_id=str(data.get("topic_id") or ""),
             token_id=str(data.get("token_id") or ""),
             end_date_ms=int(data.get("end_date_ms") or 0),
+            opened_at=float(data.get("opened_at") or 0),
         )
     except (TypeError, ValueError):
         return None

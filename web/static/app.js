@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.35.0';
+const APP_VERSION = '1.36.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -1176,7 +1176,7 @@ class VibesBot {
         }
         const strategy = document.getElementById('strategy-status');
         if (strategy && !strategy.dataset.locked) {
-            strategy.textContent = 'Lock +6¢ · cut −12¢';
+            strategy.textContent = 'Hold to settle · 90¢ / 12¢';
         }
         this.updateControlButtons();
     }

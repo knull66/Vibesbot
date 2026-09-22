@@ -73,7 +73,10 @@ Solo corta favoritos 85¢+ / lotto 15¢ y un 50/50 plano vs el lock. Un DOWN 71�
 Actualiza a ≥ 1.25: el settle REAL ya no usa velas locales.
 
 **CUT LOSS / TAKE PROFIT failed: SYSTEM_ERROR**  
-v1.35 vende shares humanas (no 3e18 wei) y el tamaño real de la posición. Tras el overlay: Quit en el Dock.
+v1.35 vende shares humanas (no 3e18 wei). v1.36 ya no scalpea el +6¢: aguanta a Binance. Tras el overlay: Quit en el Dock.
+
+**Gana $0.10 y pierde $0.40 todo el rato**  
+Eso era el lock +6¢ / cut −12¢ vendiendo al momento de comprar. v1.36 aguanta la ronda.
 
 **Sigue en versión vieja tras update**  
 Quit desde el Dock. El overlay no mata el Python anterior.

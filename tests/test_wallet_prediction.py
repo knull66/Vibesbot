@@ -537,27 +537,43 @@ class WalletErrorTextTests(unittest.TestCase):
 
 class TakeProfitTests(unittest.TestCase):
     def test_same_mark_does_not_sell(self):
-        ok, _, _ = take_profit_ready(0.50, 0.50, 3, 1.53, 90)
+        ok, _, _ = take_profit_ready(0.50, 0.50, 3, 1.53, 90, held_seconds=90)
         self.assertFalse(ok)
 
-    def test_sells_after_a_real_markup(self):
-        ok, reason, pnl = take_profit_ready(0.50, 0.70, 3, 1.53, 90)
+    def test_six_cent_bounce_does_not_sell(self):
+        ok, _, _ = take_profit_ready(0.50, 0.56, 3, 1.53, 90, held_seconds=90)
+        self.assertFalse(ok)
+
+    def test_early_markup_does_not_sell(self):
+        ok, _, _ = take_profit_ready(0.50, 0.70, 3, 1.53, 90, held_seconds=90)
+        self.assertFalse(ok)
+
+    def test_sells_a_near_certain_lock(self):
+        ok, reason, pnl = take_profit_ready(0.50, 0.92, 3, 1.53, 90, held_seconds=90)
         self.assertTrue(ok)
-        self.assertGreater(pnl, 0.20)
+        self.assertGreater(pnl, 0.70)
         self.assertIn("TAKE PROFIT", reason)
 
-    def test_too_close_to_close(self):
-        ok, _, _ = take_profit_ready(0.50, 0.80, 3, 1.53, 10)
+    def test_does_not_sell_right_after_entry(self):
+        ok, _, _ = take_profit_ready(0.50, 0.92, 3, 1.53, 90, held_seconds=10)
         self.assertFalse(ok)
 
-    def test_cuts_a_hard_fade(self):
-        ok, reason, pnl = cut_loss_ready(0.60, 0.40, 2.5, 1.53, 90)
+    def test_too_close_to_close(self):
+        ok, _, _ = take_profit_ready(0.50, 0.92, 3, 1.53, 10, held_seconds=90)
+        self.assertFalse(ok)
+
+    def test_twelve_cent_dip_is_not_a_cut(self):
+        ok, _, _ = cut_loss_ready(0.60, 0.48, 2.5, 1.53, 90, held_seconds=90)
+        self.assertFalse(ok)
+
+    def test_cuts_only_a_dead_ticket(self):
+        ok, reason, pnl = cut_loss_ready(0.60, 0.10, 2.5, 1.53, 90, held_seconds=90)
         self.assertTrue(ok)
         self.assertIn("CUT LOSS", reason)
         self.assertGreater(pnl, -1.53)
 
     def test_small_dip_is_not_a_cut(self):
-        ok, _, _ = cut_loss_ready(0.60, 0.55, 2.5, 1.53, 90)
+        ok, _, _ = cut_loss_ready(0.60, 0.55, 2.5, 1.53, 90, held_seconds=90)
         self.assertFalse(ok)
 
     def test_paper_peak_is_not_a_92_percent_crash(self):

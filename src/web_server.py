@@ -939,6 +939,7 @@ class DashboardBot:
                 topic_id=str(placed.get("topic_id") or topic.get("marketTopicId") or "") if live else "",
                 token_id=str((placed.get("token") or {}).get("token_id") or "") if live else "",
                 end_date_ms=int(placed.get("end_date") or topic.get("endDate") or 0) if live else 0,
+                opened_at=time.time(),
             )
             mode = "REAL" if live else "SIM"
             beat = f"${open_price:,.2f}" if open_price else "unknown open"
@@ -1037,13 +1038,18 @@ class DashboardBot:
             elif pending.signal == "DOWN":
                 mark = float(book.get("down") or 0)
         await self._emit_open_position(session, mark, seconds_left)
+        held = 0.0
+        if pending.opened_at:
+            held = max(0.0, time.time() - float(pending.opened_at))
         ok, reason, pnl = take_profit_ready(
             pending.share_price, mark, pending.shares, pending.cost, seconds_left,
+            held_seconds=held,
         )
         label = "TAKE PROFIT"
         if not ok:
             ok, reason, pnl = cut_loss_ready(
                 pending.share_price, mark, pending.shares, pending.cost, seconds_left,
+                held_seconds=held,
             )
             label = "CUT LOSS"
         if not ok:
