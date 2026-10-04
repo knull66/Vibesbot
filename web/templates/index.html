@@ -24,9 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.40.0">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css?v=1.41.0">
 </head>
 <body class="auth-wait" data-view="signal">
     <div class="restart-banner" id="restart-banner">
@@ -334,7 +332,7 @@
                 <span class="footer-label">Exit:</span>
                 <span id="strategy-status">Hold to settle · 90¢ / 12¢</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.40.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.41.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -346,235 +344,262 @@
         </nav>
     </div>
 
-    <!-- Settings Modal -->
-    <div class="modal" id="settings-modal">
+    <div class="modal prefs" id="settings-modal">
         <div class="modal-backdrop"></div>
-        <div class="modal-content">
-            <div class="modal-header">
-                <span class="modal-title">Settings</span>
-                <button class="modal-close" id="modal-close">×</button>
-            </div>
-            <div class="modal-body">
-                <div class="settings-tabs">
-                    <button class="settings-tab active" data-panel="binance">API</button>
-                    <button class="settings-tab" data-panel="trading">Trading</button>
-                    <button class="settings-tab" data-panel="account">Account</button>
-                </div>
+        <div class="modal-content prefs-window">
+            <aside class="prefs-sidebar">
+                <div class="prefs-sidebar-title">Settings</div>
+                <button class="settings-tab active" data-panel="binance" type="button">
+                    <span class="prefs-ico ico-api" aria-hidden="true"></span>
+                    <span class="prefs-tab-label">API</span>
+                </button>
+                <button class="settings-tab" data-panel="trading" type="button">
+                    <span class="prefs-ico ico-trading" aria-hidden="true"></span>
+                    <span class="prefs-tab-label">Trading</span>
+                </button>
+                <button class="settings-tab" data-panel="signal" type="button">
+                    <span class="prefs-ico ico-signal" aria-hidden="true"></span>
+                    <span class="prefs-tab-label">Signal</span>
+                </button>
+                <button class="settings-tab" data-panel="account" type="button">
+                    <span class="prefs-ico ico-account" aria-hidden="true"></span>
+                    <span class="prefs-tab-label">Account</span>
+                </button>
+                <button class="settings-tab" data-panel="app" type="button">
+                    <span class="prefs-ico ico-app" aria-hidden="true"></span>
+                    <span class="prefs-tab-label">App</span>
+                </button>
+            </aside>
+            <div class="prefs-main">
+                <header class="prefs-toolbar">
+                    <span class="modal-title" id="prefs-title">API</span>
+                    <button class="btn btn-done" id="modal-close" type="button">Done</button>
+                </header>
+                <div class="prefs-body">
 
-                <!-- Binance Panel -->
                 <div class="settings-panel active" id="panel-binance">
-                    <div class="settings-section">
-                        <h3>API Configuration</h3>
-                        <p class="settings-hint">Enter your Binance API credentials.</p>
-                        
-                        <div class="form-group">
-                            <label for="api-key">API Key</label>
-                            <input type="text" id="api-key" placeholder="Enter API Key">
+                    <h3 class="pref-section">Binance</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <label for="api-key">API key</label>
+                            <input type="text" id="api-key" placeholder="Live key" autocomplete="off">
                         </div>
-                        <div class="form-group">
-                            <label for="api-secret">API Secret</label>
-                            <input type="password" id="api-secret" placeholder="Enter API Secret">
+                        <div class="pref-row">
+                            <label for="api-secret">Secret</label>
+                            <input type="password" id="api-secret" placeholder="Stored in Keychain" autocomplete="off">
                         </div>
-                        <p class="settings-hint">Live Binance key: leave Testnet off. Testnet keys only work with that box on.</p>
-                        <div class="form-group">
-                            <label for="prediction-wallet">BINANCE WALLET (BNB SMART CHAIN)</label>
-                            <input type="text" id="prediction-wallet" spellcheck="false" placeholder="Leave empty to use the Prediction Account">
+                        <div class="pref-row">
+                            <label for="use-testnet">Testnet</label>
+                            <input type="checkbox" id="use-testnet">
                         </div>
-                        <p class="settings-hint">REAL bets Binance Wallet Prediction (Predict.fun on BSC) via official SAPI. Leave empty: the API spends the Prediction Account from wallet/list (Portfolio → Transfer In). That is not Web3 My Wallet and not Exchange Event Contracts.</p>
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="use-testnet">
-                                Use Testnet
-                            </label>
-                        </div>
-                        
-                        <div class="form-actions">
-                            <button class="btn btn-primary" id="btn-test-api">Test</button>
-                            <button class="btn" id="btn-save-binance">Save</button>
-                        </div>
-                        
-                        <div class="connection-status" id="api-status"></div>
                     </div>
+                    <p class="pref-foot">Leave Testnet off. Enable Prediction Trading and lock the key to this Mac IP.</p>
+                    <h3 class="pref-section">Wallet</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <label for="prediction-wallet">Address</label>
+                            <input type="text" id="prediction-wallet" spellcheck="false" placeholder="Empty = Prediction Account">
+                        </div>
+                    </div>
+                    <p class="pref-foot">Spends Prediction → Portfolio (Transfer In), not Web3 My Wallet.</p>
+                    <div class="form-actions">
+                        <button class="btn" id="btn-test-api" type="button">Test</button>
+                        <button class="btn btn-primary" id="btn-save-binance" type="button">Save</button>
+                    </div>
+                    <div class="connection-status" id="api-status"></div>
                 </div>
 
-                <!-- Trading Panel -->
                 <div class="settings-panel" id="panel-trading">
-                    <div class="settings-section">
-                        <h3>TRADING PARAMETERS</h3>
-                        
-                        <div class="form-group">
-                            <label for="stake-mode">STAKE MODE</label>
+                    <h3 class="pref-section">Size</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <label for="stake-mode">Stake</label>
                             <select id="stake-mode">
-                                <option value="percent">Percent of capital (safer)</option>
+                                <option value="percent">Percent of book</option>
                                 <option value="fixed">Fixed USDT</option>
                             </select>
                         </div>
-                        <div class="form-group">
-                            <label for="bet-percent">STAKE % OF BOOK</label>
+                        <div class="pref-row">
+                            <label for="bet-percent">Percent</label>
                             <input type="text" id="bet-percent" inputmode="decimal" value="3" autocomplete="off">
                         </div>
-                        <div class="form-group">
-                            <label for="bet-amount">FIXED AMOUNT ($)</label>
+                        <div class="pref-row">
+                            <label for="bet-amount">Fixed $</label>
                             <input type="text" id="bet-amount" inputmode="decimal" value="1.50" autocomplete="off">
                         </div>
-                        <p class="settings-hint">Default is 3% of the live Prediction Account (or SIM book). Wallet min is $1.50 — if 3% is below that, the bot skips instead of betting 15%+ of a $10 book. Cap is 8% per ticket. Type any size you want in Fixed.</p>
-                        <div class="form-group">
-                            <label for="confidence-threshold">MIN CONFIDENCE (%)</label>
+                    </div>
+                    <p class="pref-foot">Wallet min $1.50. If 3% is below that, skip. Cap 8% per ticket.</p>
+                    <h3 class="pref-section">Risk</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <label for="confidence-threshold">Min confidence</label>
                             <input type="number" id="confidence-threshold" value="50" min="50" max="99">
                         </div>
-                        <div class="form-group">
-                            <label for="daily-loss-pct">DAILY STOP (%)</label>
+                        <div class="pref-row">
+                            <label for="daily-loss-pct">Daily stop %</label>
                             <input type="text" id="daily-loss-pct" inputmode="decimal" value="20" autocomplete="off">
                         </div>
-                        <div class="form-group">
-                            <label for="daily-loss-limit">DAILY STOP ($)</label>
+                        <div class="pref-row">
+                            <label for="daily-loss-limit">Daily stop $</label>
                             <input type="text" id="daily-loss-limit" inputmode="decimal" value="5" autocomplete="off">
                         </div>
-                        <p class="settings-hint">Hits either stop → Pause. 20% of a $10 day-start is $2. Three losses in a row also pause ~30 min.</p>
-                        
-                        <div class="sim-stats" style="margin-top:16px;">
-                            <div class="sim-stat">
-                                <div class="sim-stat-label">BALANCE</div>
-                                <div class="sim-stat-value" id="sim-balance">$100</div>
-                            </div>
-                            <div class="sim-stat">
-                                <div class="sim-stat-label">P&L</div>
-                                <div class="sim-stat-value" id="sim-pnl">$0</div>
-                            </div>
-                            <div class="sim-stat">
-                                <div class="sim-stat-label">TRADES</div>
-                                <div class="sim-stat-value" id="sim-trades">0</div>
-                            </div>
+                    </div>
+                    <p class="pref-foot">Either stop → Pause. Three losses also pause ~30 min.</p>
+                    <h3 class="pref-section">Simulation</h3>
+                    <div class="sim-stats">
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">SIM</div>
+                            <div class="sim-stat-value" id="sim-balance">$100</div>
                         </div>
-                        
-                        <h3 style="margin-top:20px;">LIVE SIGNAL</h3>
-                        <p class="settings-hint">Pesos del voto RSI / MACD / Bollinger / momentum + tape. Se aplican al guardar. No es LightGBM.</p>
-                        <div class="form-group">
-                            <label for="strategy-select">PRESET</label>
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">P&L</div>
+                            <div class="sim-stat-value" id="sim-pnl">$0</div>
+                        </div>
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">Trades</div>
+                            <div class="sim-stat-value" id="sim-trades">0</div>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="btn-save-trading" type="button">Save</button>
+                        <button class="btn btn-danger" id="btn-reset-sim" type="button">Reset SIM</button>
+                    </div>
+                </div>
+
+                <div class="settings-panel" id="panel-signal">
+                    <h3 class="pref-section">Model</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <label for="strategy-select">Preset</label>
                             <select id="strategy-select">
                                 <option value="default">Balanced</option>
                                 <option value="conservative">Conservative</option>
                                 <option value="aggressive">Aggressive</option>
-                                <option value="rsi_focused">RSI Focused</option>
-                                <option value="macd_focused">MACD Focused</option>
+                                <option value="rsi_focused">RSI</option>
+                                <option value="macd_focused">MACD</option>
                             </select>
                         </div>
-                        <div class="form-group">
-                            <label>RSI: <span id="rsi-weight-val">2</span></label>
-                            <input type="range" id="rsi-weight" min="0" max="3" value="2" style="width:100%">
+                    </div>
+                    <h3 class="pref-section">Weights</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <label for="rsi-weight">RSI <span id="rsi-weight-val">2</span></label>
+                            <input type="range" id="rsi-weight" min="0" max="3" value="2">
                         </div>
-                        <div class="form-group">
-                            <label>MACD: <span id="macd-weight-val">2</span></label>
-                            <input type="range" id="macd-weight" min="0" max="3" value="2" style="width:100%">
+                        <div class="pref-row">
+                            <label for="macd-weight">MACD <span id="macd-weight-val">2</span></label>
+                            <input type="range" id="macd-weight" min="0" max="3" value="2">
                         </div>
-                        <div class="form-group">
-                            <label>BOLLINGER: <span id="bb-weight-val">1</span></label>
-                            <input type="range" id="bb-weight" min="0" max="3" value="1" style="width:100%">
+                        <div class="pref-row">
+                            <label for="bb-weight">Bollinger <span id="bb-weight-val">1</span></label>
+                            <input type="range" id="bb-weight" min="0" max="3" value="1">
                         </div>
-                        <div class="form-group">
-                            <label>MOMENTUM: <span id="mom-weight-val">1</span></label>
-                            <input type="range" id="mom-weight" min="0" max="3" value="1" style="width:100%">
+                        <div class="pref-row">
+                            <label for="mom-weight">Momentum <span id="mom-weight-val">1</span></label>
+                            <input type="range" id="mom-weight" min="0" max="3" value="1">
                         </div>
-                        <div class="form-actions">
-                            <button class="btn btn-primary" id="btn-save-trading">SAVE</button>
-                            <button class="btn" id="btn-save-strategy">APPLY WEIGHTS</button>
-                            <button class="btn btn-danger" id="btn-reset-sim">RESET SIM</button>
-                        </div>
+                    </div>
+                    <p class="pref-foot">Votes only. Not LightGBM. Does not change stake.</p>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="btn-save-strategy" type="button">Apply</button>
                     </div>
                 </div>
 
                 <div class="settings-panel" id="panel-account">
-                    <div class="settings-section">
-                        <div class="profile-hero">
-                            <div class="user-avatar lg" id="profile-avatar">VB</div>
-                            <div>
-                                <div class="profile-name" id="profile-name">Guest</div>
-                                <p class="settings-hint" id="account-role" style="margin-bottom:0;">Signed in</p>
-                            </div>
+                    <h3 class="pref-section">Profile</h3>
+                    <div class="profile-hero">
+                        <div class="user-avatar lg" id="profile-avatar">VB</div>
+                        <div>
+                            <div class="profile-name" id="profile-name">Guest</div>
+                            <p class="pref-foot" id="account-role" style="margin:0">Signed in</p>
                         </div>
-                        <div class="profile-stats">
-                            <div class="sim-stat">
-                                <div class="sim-stat-label">CAPITAL</div>
-                                <div class="sim-stat-value" id="profile-capital">$100.00</div>
-                            </div>
-                            <div class="sim-stat">
-                                <div class="sim-stat-label">P&L</div>
-                                <div class="sim-stat-value" id="profile-pnl">$0.00</div>
-                            </div>
-                            <div class="sim-stat">
-                                <div class="sim-stat-label">TRADES</div>
-                                <div class="sim-stat-value" id="profile-trades">0</div>
-                            </div>
-                            <div class="sim-stat">
-                                <div class="sim-stat-label">WIN RATE</div>
-                                <div class="sim-stat-value" id="profile-winrate">0%</div>
-                            </div>
+                    </div>
+                    <div class="sim-stats">
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">Capital</div>
+                            <div class="sim-stat-value" id="profile-capital">$100.00</div>
                         </div>
-                        <h3>SOUND</h3>
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="sound-enabled" checked>
-                            Sound
-                        </label>
-                        <div class="form-group" style="margin-top:12px;">
-                            <label for="sound-volume">VOLUME <span id="sound-volume-val">60%</span></label>
-                            <input type="range" id="sound-volume" min="0" max="100" value="60">
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">P&L</div>
+                            <div class="sim-stat-value" id="profile-pnl">$0.00</div>
                         </div>
-                        <h3>PASSWORD</h3>
-                        <div class="form-group">
-                            <label for="current-password">CURRENT PASSWORD</label>
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">Trades</div>
+                            <div class="sim-stat-value" id="profile-trades">0</div>
+                        </div>
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">Win rate</div>
+                            <div class="sim-stat-value" id="profile-winrate">0%</div>
+                        </div>
+                    </div>
+                    <h3 class="pref-section">Password</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <label for="current-password">Current</label>
                             <input type="password" id="current-password">
                         </div>
-                        <div class="form-group">
-                            <label for="new-password">NEW PASSWORD</label>
+                        <div class="pref-row">
+                            <label for="new-password">New</label>
                             <input type="password" id="new-password" minlength="8">
                         </div>
-                        <div class="form-actions">
-                            <button class="btn btn-primary" id="btn-change-password">CHANGE PASSWORD</button>
-                            <a class="btn btn-logout" id="btn-logout-settings" href="/static/lobby.html">Sign out</a>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="btn-change-password" type="button">Change password</button>
+                        <a class="btn btn-logout" id="btn-logout-settings" href="/static/lobby.html">Sign out</a>
+                    </div>
+                    <div class="update-status" id="password-status"></div>
+                </div>
+
+                <div class="settings-panel" id="panel-app">
+                    <h3 class="pref-section">Sound</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <label for="sound-enabled">Alerts</label>
+                            <input type="checkbox" id="sound-enabled" checked>
                         </div>
-                        <div class="update-status" id="password-status"></div>
-                        <h3 style="margin-top:20px;">APP</h3>
-                        <p class="settings-hint">Version <span id="current-version">v1.40.0</span>. If a new build is out, a popup asks you to update — no need to hunt in Settings.</p>
-                        <div class="form-actions">
-                            <button class="btn" id="btn-export-csv">CSV</button>
-                            <button class="btn" id="btn-export-json">JSON</button>
+                        <div class="pref-row">
+                            <label for="sound-volume">Volume <span id="sound-volume-val">60%</span></label>
+                            <input type="range" id="sound-volume" min="0" max="100" value="60">
                         </div>
                     </div>
-                    <div class="settings-section" id="owner-account-tools" style="display:none; margin-top:18px;">
-                        <h3>INVITES</h3>
-                        <p class="settings-hint">Share a code so someone else can create an account. Registration stays closed by default.</p>
+                    <h3 class="pref-section">Data</h3>
+                    <p class="pref-foot">Version <span id="current-version">v1.41.0</span>. Updates pop up on their own.</p>
+                    <div class="form-actions">
+                        <button class="btn" id="btn-export-csv" type="button">Export CSV</button>
+                        <button class="btn" id="btn-export-json" type="button">Export JSON</button>
+                    </div>
+                    <div id="owner-account-tools" style="display:none;">
+                        <h3 class="pref-section">Sharing</h3>
+                        <div class="pref-group">
+                            <div class="pref-row">
+                                <label for="open-registration">Open registration</label>
+                                <input type="checkbox" id="open-registration">
+                            </div>
+                            <div class="pref-row">
+                                <label for="companion-enabled">Phone companion</label>
+                                <input type="checkbox" id="companion-enabled">
+                            </div>
+                        </div>
+                        <p class="pref-foot">Companion is LAN only. Same Wi-Fi as this Mac.</p>
                         <div class="form-actions">
-                            <button class="btn btn-primary" id="btn-create-invite">NEW INVITE</button>
+                            <button class="btn btn-primary" id="btn-create-invite" type="button">New invite</button>
                         </div>
                         <div id="invite-list" class="invite-list"></div>
-                        <div class="form-group" style="margin-top:16px;">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="open-registration">
-                                Open registration (not recommended)
-                            </label>
-                        </div>
-                        <h3 style="margin-top:16px;">USERS</h3>
                         <div id="users-list" class="users-list"></div>
-                        <h3 style="margin-top:20px;">COMPANION</h3>
-                        <p class="settings-hint">Phone is a remote for this Mac. Same Wi-Fi only. The bot does not run in the cloud.</p>
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="companion-enabled">
-                                Enable phone companion
-                            </label>
-                        </div>
                         <div id="companion-details" style="display:none;">
-                            <div class="sim-stat" style="margin-bottom:12px;">
-                                <div class="sim-stat-label">PAIRING CODE</div>
-                                <div class="sim-stat-value" id="companion-pin">------</div>
+                            <div class="pref-group">
+                                <div class="pref-row">
+                                    <span class="pref-static-label">Pairing code</span>
+                                    <span class="sim-stat-value" id="companion-pin">------</span>
+                                </div>
                             </div>
-                            <div class="settings-hint" id="companion-urls">No LAN URL</div>
+                            <p class="pref-foot" id="companion-urls">No LAN URL</p>
                             <div class="form-actions">
-                                <button class="btn" id="btn-refresh-pin">NEW CODE</button>
+                                <button class="btn" id="btn-refresh-pin" type="button">New code</button>
                             </div>
                         </div>
                     </div>
-                    </div>
+                </div>
                 </div>
             </div>
         </div>
@@ -588,7 +613,7 @@
             </div>
             <div class="modal-body" style="padding:16px 20px 22px;">
                 <p class="settings-hint" style="margin-bottom:12px;">
-                    <span id="update-prompt-from">v1.40.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
+                    <span id="update-prompt-from">v1.41.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
                 </p>
                 <p id="update-prompt-notes" class="settings-hint" style="margin-bottom:16px;"></p>
                 <div class="form-actions" style="justify-content:center;">
@@ -625,6 +650,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.40.0"></script>
+    <script src="/static/app.js?v=1.41.0"></script>
 </body>
 </html>

@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.40.0';
+const APP_VERSION = '1.41.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -31,9 +31,11 @@ class VibesBot {
         this.loadSoundPrefs();
         this.bindEvents();
         this.lockBrowserChrome();
+        this.bindSettingsChrome();
         this.startClock();
         this.loadVersion();
         this.requireAccount();
+        window.__vbOpenSettings = (panel) => this.openSettings(panel);
     }
     
     cacheElements() {
@@ -116,31 +118,7 @@ class VibesBot {
             this.setSoundVolume(Number(e.target.value) / 100);
         });
         
-        // Settings
-        document.getElementById('btn-settings')?.addEventListener('click', () => {
-            document.getElementById('settings-modal')?.classList.add('active');
-        });
-        
-        document.getElementById('modal-close')?.addEventListener('click', () => {
-            document.getElementById('settings-modal')?.classList.remove('active');
-        });
-        
-        document.querySelector('.modal-backdrop')?.addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal-backdrop')) {
-                document.getElementById('settings-modal')?.classList.remove('active');
-            }
-        });
-        
-        // Settings tabs
-        document.querySelectorAll('.settings-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
-                tab.classList.add('active');
-                const panel = document.getElementById('panel-' + tab.dataset.panel);
-                panel?.classList.add('active');
-            });
-        });
+        document.getElementById('btn-settings')?.addEventListener('click', () => this.openSettings());
         
         // Content tabs
         document.querySelectorAll('.tab').forEach(tab => {
@@ -254,8 +232,7 @@ class VibesBot {
             window.setInterval(() => this.checkUpdates({prompt: true}), 30 * 60 * 1000);
             if (this.isCompanion) {
                 document.body.classList.add('companion-mode');
-                document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
-                document.querySelector('.settings-tab[data-panel="trading"]')?.style.setProperty('display', 'none');
+                this.hideSettingsTabs(['binance', 'trading', 'signal']);
                 document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
                 const ownerTools = document.getElementById('owner-account-tools');
                 if (ownerTools) ownerTools.style.display = 'none';
@@ -265,8 +242,7 @@ class VibesBot {
                 this.loadOwnerTools();
                 this.loadCompanionInfo();
             } else {
-                document.querySelector('.settings-tab[data-panel="binance"]')?.style.setProperty('display', 'none');
-                document.querySelector('.settings-tab[data-panel="trading"]')?.style.setProperty('display', 'none');
+                this.hideSettingsTabs(['binance', 'trading', 'signal']);
                 document.querySelector('.mode-switch')?.style.setProperty('display', 'none');
             }
         } catch (e) {
@@ -301,13 +277,75 @@ class VibesBot {
         if (tagEl && data.companion) tagEl.textContent = 'Companion';
     }
 
-    openProfile() {
-        document.getElementById('settings-modal')?.classList.add('active');
-        document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
-        const tab = document.querySelector('.settings-tab[data-panel="account"]');
+    hideSettingsTabs(names) {
+        names.forEach((name) => {
+            document.querySelector(`.settings-tab[data-panel="${name}"]`)?.style.setProperty('display', 'none');
+        });
+    }
+
+    bindSettingsChrome() {
+        document.getElementById('modal-close')?.addEventListener('click', () => this.closeSettings());
+        document.querySelector('#settings-modal .modal-backdrop')?.addEventListener('click', (event) => {
+            if (event.target.classList.contains('modal-backdrop') && !document.documentElement.classList.contains('vb-native')) {
+                this.closeSettings();
+            }
+        });
+        document.querySelectorAll('.settings-tab').forEach((tab) => {
+            tab.addEventListener('click', () => this.showSettingsPanel(tab.dataset.panel));
+        });
+        document.addEventListener('keydown', (event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+                event.preventDefault();
+                this.openSettings();
+                return;
+            }
+            if (event.key === 'Escape') {
+                this.closeSettings();
+            }
+        });
+    }
+
+    settingsTabLabel(tab) {
+        return tab?.querySelector('.prefs-tab-label')?.textContent?.trim() || tab?.textContent?.trim() || '';
+    }
+
+    isSettingsTabVisible(tab) {
+        if (!tab) return false;
+        if (tab.style.display === 'none') return false;
+        return window.getComputedStyle(tab).display !== 'none';
+    }
+
+    firstVisibleSettingsPanel() {
+        const tab = [...document.querySelectorAll('.settings-tab')].find((el) => this.isSettingsTabVisible(el));
+        return tab?.dataset.panel || 'account';
+    }
+
+    showSettingsPanel(name) {
+        const panelName = name || this.firstVisibleSettingsPanel();
+        document.querySelectorAll('.settings-tab').forEach((tab) => tab.classList.remove('active'));
+        document.querySelectorAll('.settings-panel').forEach((panel) => panel.classList.remove('active'));
+        const tab = document.querySelector(`.settings-tab[data-panel="${panelName}"]`);
         tab?.classList.add('active');
-        document.getElementById('panel-account')?.classList.add('active');
+        document.getElementById('panel-' + panelName)?.classList.add('active');
+        const title = document.getElementById('prefs-title');
+        if (title) title.textContent = this.settingsTabLabel(tab) || panelName;
+    }
+
+    openSettings(panel) {
+        document.getElementById('settings-modal')?.classList.add('active');
+        document.body.classList.add('prefs-open');
+        const requested = panel || document.querySelector('.settings-tab.active')?.dataset.panel;
+        const tab = document.querySelector(`.settings-tab[data-panel="${requested}"]`);
+        this.showSettingsPanel(this.isSettingsTabVisible(tab) ? requested : this.firstVisibleSettingsPanel());
+    }
+
+    closeSettings() {
+        document.getElementById('settings-modal')?.classList.remove('active');
+        document.body.classList.remove('prefs-open');
+    }
+
+    openProfile() {
+        this.openSettings('account');
     }
 
     logout() {
@@ -1033,7 +1071,7 @@ class VibesBot {
             // Price label
             const price = max - (i / 4) * range;
             ctx.fillStyle = 'rgba(244, 247, 250, 0.38)';
-            ctx.font = '11px Outfit, sans-serif';
+            ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
             ctx.fillText('$' + price.toFixed(2), 5, y + 12);
         }
         
@@ -1089,7 +1127,7 @@ class VibesBot {
             ctx.setLineDash([]);
             
             ctx.fillStyle = '#FFD166';
-            ctx.font = '11px Outfit, sans-serif';
+            ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
             ctx.fillText('TARGET $' + this.priceToBeat.toFixed(2), canvas.width - 110, targetY - 5);
         }
     }
@@ -1139,7 +1177,7 @@ class VibesBot {
         
         // Label
         ctx.fillStyle = color;
-        ctx.font = '600 13px Outfit, sans-serif';
+        ctx.font = '600 13px -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.fillText('$' + lastVal.toFixed(2), 5, 15);
     }
     

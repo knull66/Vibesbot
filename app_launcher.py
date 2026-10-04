@@ -25,9 +25,9 @@ def loading_html() -> str:
     if path.exists():
         return path.read_text(encoding="utf-8").replace("{{VERSION}}", version)
     return (
-        "<!DOCTYPE html><html><body style=\"background:#070809;color:#5CF2FF;"
-        "font-family:Outfit,-apple-system,sans-serif;display:flex;align-items:center;"
-        f"justify-content:center;height:100vh\">VIBESBOT v{version}</body></html>"
+        "<!DOCTYPE html><html><body style=\"background:#0a0a0a;color:#9a9a9a;"
+        "font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;"
+        f"justify-content:center;height:100vh\">Vibesbot v{version}</body></html>"
     )
 
 
@@ -58,15 +58,18 @@ def main():
     import objc
     from Foundation import NSObject, NSURL, NSURLRequest, NSMakeRect, NSTimer
     from AppKit import (
-        NSApplication, NSWindow, NSApp, NSMenu, NSMenuItem,
+        NSAppearance, NSApplication, NSWindow, NSApp, NSMenu, NSMenuItem,
         NSWindowStyleMaskTitled, NSWindowStyleMaskClosable,
         NSWindowStyleMaskMiniaturizable, NSWindowStyleMaskResizable,
+        NSWindowStyleMaskFullSizeContentView, NSWindowTitleHidden,
         NSBackingStoreBuffered, NSApplicationActivationPolicyRegular,
     )
     from WebKit import WKWebView, WKWebViewConfiguration
 
     NATIVE_JS = """
     (function(){
+      document.documentElement.classList.add('vb-native');
+      if (document.body) document.body.classList.add('native-app');
       if (window.__vbNative) return;
       window.__vbNative = true;
       document.addEventListener('contextmenu', function(e){ e.preventDefault(); }, true);
@@ -96,12 +99,17 @@ def main():
             menubar = NSMenu.alloc().init()
             app_item = NSMenuItem.alloc().init()
             menubar.addItem_(app_item)
-            app_menu = NSMenu.alloc().init()
-            refresh_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                "Refresh", "refreshPage:", "r"
+            app_menu = NSMenu.alloc().initWithTitle_("Vibesbot")
+            settings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                "Settings…", "openSettings:", ","
             )
-            refresh_item.setTarget_(self)
-            app_menu.addItem_(refresh_item)
+            settings_item.setTarget_(self)
+            app_menu.addItem_(settings_item)
+            app_menu.addItem_(NSMenuItem.separatorItem())
+            hide_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                "Hide Vibesbot", "hide:", "h"
+            )
+            app_menu.addItem_(hide_item)
             app_menu.addItem_(NSMenuItem.separatorItem())
             quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
                 "Quit Vibesbot", "terminate:", "q"
@@ -109,11 +117,29 @@ def main():
             quit_item.setTarget_(NSApp)
             app_menu.addItem_(quit_item)
             app_item.setSubmenu_(app_menu)
+
+            view_item = NSMenuItem.alloc().init()
+            menubar.addItem_(view_item)
+            view_menu = NSMenu.alloc().initWithTitle_("View")
+            refresh_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                "Reload", "refreshPage:", "r"
+            )
+            refresh_item.setTarget_(self)
+            view_menu.addItem_(refresh_item)
+            view_item.setSubmenu_(view_menu)
             NSApp.setMainMenu_(menubar)
 
         def refreshPage_(self, sender):
             if self.webView:
                 self.webView.reload()
+
+        def openSettings_(self, sender):
+            if not self.webView:
+                return
+            self.webView.evaluateJavaScript_completionHandler_(
+                "window.__vbOpenSettings && window.__vbOpenSettings();",
+                None,
+            )
 
         def webView_willOpenMenu_withEvent_(self, webView, menu, event):
             try:
@@ -143,12 +169,26 @@ def main():
                 self.webView.setAllowsBackForwardNavigationGestures_(False)
             except Exception:
                 pass
-            style = (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                     NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+            style = (
+                NSWindowStyleMaskTitled
+                | NSWindowStyleMaskClosable
+                | NSWindowStyleMaskMiniaturizable
+                | NSWindowStyleMaskResizable
+                | NSWindowStyleMaskFullSizeContentView
+            )
             self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
                 NSMakeRect(0, 0, 1400, 900), style, NSBackingStoreBuffered, False
             )
-            self.window.setTitle_("VIBESBOT - Loading...")
+            self.window.setTitle_("Vibesbot")
+            try:
+                self.window.setTitlebarAppearsTransparent_(True)
+                self.window.setTitleVisibility_(NSWindowTitleHidden)
+                self.window.setMovableByWindowBackground_(True)
+                dark = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+                self.window.setAppearance_(dark)
+                NSApp.setAppearance_(dark)
+            except Exception:
+                pass
             self.window.setContentView_(self.webView)
             self.window.center()
             self.window.makeKeyAndOrderFront_(None)
@@ -160,7 +200,7 @@ def main():
             try:
                 urllib.request.urlopen("http://127.0.0.1:8080", timeout=1)
                 timer.invalidate()
-                self.window.setTitle_("VIBESBOT")
+                self.window.setTitle_("Vibesbot")
                 url = NSURL.URLWithString_("http://127.0.0.1:8080/login")
                 self.webView.loadRequest_(NSURLRequest.requestWithURL_(url))
             except Exception:
@@ -168,11 +208,11 @@ def main():
                     timer.invalidate()
                     self.window.setTitle_("VIBESBOT - Error")
                     error_html = """<!DOCTYPE html>
-<html><body style="background:#070809;color:#FF5C7A;font-family:Outfit,-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;text-align:center">
+<html><body style="background:#0a0a0a;color:#f07187;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;text-align:center">
 <div>
-<p style="font-size:22px;font-weight:700;letter-spacing:.18em;margin-bottom:16px;color:#5CF2FF">VIBESBOT</p>
+<p style="font-size:20px;font-weight:600;margin-bottom:12px;color:#f2f2f2">Vibesbot</p>
 <p style="font-size:14px">Server failed</p>
-<p style="color:#666;margin-top:20px;font-size:12px">Check ~/Library/Logs/Vibesbot.log</p>
+<p style="color:#6d6d6d;margin-top:20px;font-size:12px">Check ~/Library/Logs/Vibesbot.log</p>
 </div>
 </body></html>"""
                     self.webView.loadHTMLString_baseURL_(error_html, None)
