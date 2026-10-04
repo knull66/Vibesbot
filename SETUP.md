@@ -69,6 +69,9 @@ v1.37: STAKE en el header. `%` = 1–8% del saldo. `$` = Fixed. Enter o blur gua
 **Apuesta $1.50 con Settings en $1**  
 El mínimo de Wallet es 1.50; la app lo sube.
 
+**Stats en 0 con History lleno / compra UP y DOWN**  
+v1.38: una sola posición por mercado 5m. No compra el lado contrario. Stats REAL leen el journal. LIVE incluye tickets abiertos. No pulses Start otra vez en la misma ronda.
+
 **Con $10 el bot no apuesta**  
 3% de $10 es $0.30 < $1.50. Añade fondos (~$50 para 3%) o pasa a Fixed sabiendo que $1.50 es un 15% del libro.
 

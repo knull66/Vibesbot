@@ -730,6 +730,134 @@ def position_still_open(row: Dict[str, Any]) -> bool:
     return False
 
 
+def position_side(row: Any) -> str:
+    if not isinstance(row, dict):
+        return ""
+    for key in ("marketTitle", "outcomeName", "tokenName", "name", "title"):
+        text = str(row.get(key) or "").upper()
+        if "DOWN" in text:
+            return "DOWN"
+        if text == "UP" or text.endswith(" UP") or text.startswith("UP "):
+            return "UP"
+    return ""
+
+
+def position_topic_id(row: Any) -> str:
+    if not isinstance(row, dict):
+        return ""
+    return str(
+        row.get("marketTopicId") or row.get("topicId") or row.get("market_topic_id") or ""
+    ).strip()
+
+
+def position_mark_price(row: Any) -> float:
+    if not isinstance(row, dict):
+        return 0.0
+    for key in ("currentPrice", "markPrice", "price", "avgPrice", "averagePrice"):
+        parsed = parse_usdt_amount(row.get(key))
+        if parsed and 0 < parsed < 2:
+            return float(parsed)
+    return 0.0
+
+
+def position_value(row: Any) -> float:
+    if not isinstance(row, dict):
+        return 0.0
+    for key in ("currentValue", "positionValue", "value", "notional", "usdValue"):
+        parsed = parse_usdt_amount(row.get(key))
+        if parsed and parsed > 0:
+            return float(parsed)
+    shares = shares_from_position_row(row, 0.0)
+    mark = position_mark_price(row)
+    if shares > 0 and mark > 0:
+        return shares * mark
+    return 0.0
+
+
+def position_cost(row: Any) -> float:
+    if not isinstance(row, dict):
+        return 0.0
+    for key in ("cost", "totalCost", "investedAmount", "amountIn"):
+        parsed = parse_usdt_amount(row.get(key))
+        if parsed and parsed > 0:
+            return float(parsed)
+    shares = shares_from_position_row(row, 0.0)
+    avg = parse_usdt_amount(row.get("avgCost") or row.get("averageCost") or row.get("avgPrice"))
+    if shares > 0 and avg and 0 < avg < 2:
+        return shares * float(avg)
+    return 0.0
+
+
+def is_open_btc_position(row: Any) -> bool:
+    if not isinstance(row, dict) or not position_still_open(row):
+        return False
+    title = " ".join(
+        str(row.get(key) or "")
+        for key in ("marketTopicTitle", "translatedMarketTopicTitle", "title", "symbol")
+    ).lower()
+    if "btc" in title or "bitcoin" in title:
+        return True
+    return bool(position_side(row))
+
+
+def open_market_exposure(rows: Any, topic_id: str = "") -> Dict[str, Any]:
+    """Open Wallet tickets on this 5m market (or any open BTC ticket if topic is empty)."""
+    want = str(topic_id or "").strip()
+    legs: List[Dict[str, Any]] = []
+    for row in rows or []:
+        if not is_open_btc_position(row):
+            continue
+        rid = position_topic_id(row)
+        if want and rid and rid != want:
+            continue
+        shares = shares_from_position_row(row, 0.0)
+        value = position_value(row)
+        cost = position_cost(row) or value
+        mark = position_mark_price(row)
+        pnl = parse_usdt_amount(row.get("unrealizedPnl") if row.get("unrealizedPnl") not in (None, "") else row.get("pnl"))
+        if pnl is None:
+            pnl = (value - cost) if value and cost else 0.0
+        legs.append({
+            "side": position_side(row) or "?",
+            "shares": shares,
+            "value": value,
+            "cost": cost,
+            "mark": mark,
+            "pnl": float(pnl or 0),
+            "topic_id": rid,
+            "token_id": str(row.get("tokenId") or row.get("token_id") or ""),
+        })
+    sides = sorted({str(leg["side"]) for leg in legs if leg["side"] in ("UP", "DOWN")})
+    return {
+        "legs": legs,
+        "sides": sides,
+        "hedged": set(sides) >= {"UP", "DOWN"},
+        "value": sum(float(leg["value"] or 0) for leg in legs),
+        "cost": sum(float(leg["cost"] or 0) for leg in legs),
+        "pnl": sum(float(leg["pnl"] or 0) for leg in legs),
+    }
+
+
+def skip_duplicate_entry(exposure: Dict[str, Any], signal: str = "") -> Dict[str, Any]:
+    """Never add a second ticket, and never buy the other side of an open market."""
+    legs = exposure.get("legs") if isinstance(exposure, dict) else None
+    if not legs:
+        return {"skip": False, "reason": ""}
+    sides = [str(side) for side in (exposure.get("sides") or [])]
+    if exposure.get("hedged"):
+        return {
+            "skip": True,
+            "reason": "already holding UP and DOWN on this market — wait for Binance",
+        }
+    want = str(signal or "").upper()
+    if want and want in sides:
+        return {"skip": True, "reason": f"already holding {want} on this market"}
+    if want and sides:
+        held = "+".join(sides)
+        return {"skip": True, "reason": f"already holding {held} — will not buy the other side"}
+    return {"skip": True, "reason": "already have an open Wallet ticket"}
+
+
 def settlement_from_position(
     row: Optional[Dict[str, Any]],
     signal: str,
@@ -1586,6 +1714,19 @@ class WalletPredictionClient:
         if pending.next_poll_at and time.time() < pending.next_poll_at:
             return {"ready": False, "reason": "polling"}
         pending.next_poll_at = time.time() + 8
+        if not str(pending.token_id or "").strip() and not str(pending.topic_id or "").strip():
+            return {"ready": False, "reason": "waiting for Binance settlement"}
+
+        open_rows = await self.list_positions("ONGOING", 40)
+        if pending.token_id:
+            for row in open_rows:
+                if str(row.get("tokenId") or row.get("token_id") or "") == str(pending.token_id):
+                    if position_still_open(row):
+                        return {"ready": False, "reason": "position still open on Binance"}
+        if pending.topic_id:
+            held = open_market_exposure(open_rows, pending.topic_id)
+            if held.get("legs"):
+                return {"ready": False, "reason": "position still open on Binance"}
 
         rows: List[Dict[str, Any]] = []
         rows.extend(await self.settled_history(40))
@@ -1596,6 +1737,8 @@ class WalletPredictionClient:
             if token_row:
                 rows.insert(0, token_row)
         match = pick_matching_position(rows, pending.topic_id, pending.token_id, pending.order_id)
+        if match and position_still_open(match):
+            return {"ready": False, "reason": "position still open on Binance"}
         parsed = settlement_from_position(match, pending.signal, pending.shares, pending.cost)
         if parsed:
             parsed["title"] = parsed.get("title") or pending.market_title

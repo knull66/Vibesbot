@@ -42,6 +42,7 @@ from .wallet_prediction import (
     fill_from_quote,
     looks_like_btc_price,
     market_book,
+    open_market_exposure,
     outcome_token,
     cut_loss_ready,
     live_equity_baseline,
@@ -49,7 +50,9 @@ from .wallet_prediction import (
     pending_trade_from_dict,
     sell_proceeds,
     settle_payout,
+    skip_duplicate_entry,
     take_profit_ready,
+    topic_id_of,
     tradable_edge,
 )
 
@@ -141,6 +144,8 @@ class ClientSession:
     live_can_trade: bool = False
     live_trade_error: str = ""
     live_fetched_at: float = 0.0
+    live_available: float = 0.0
+    live_open_value: float = 0.0
     pending_trade: Optional[PendingWalletTrade] = None
     
     def reset(self, capital: float = 100.0):
@@ -186,20 +191,44 @@ class ClientSession:
         except Exception:
             stake_label = "3%"
         if not self.simulation:
-            capital = self.live_balance if self.live_balance is not None else max(0.0, self.initial_capital + self.cumulative_pnl)
+            from .trade_journal import read_trades, summarize_trades
+            journal = summarize_trades(read_trades(0), live=True)
+            if journal["trades"] >= total:
+                total = journal["trades"]
+                winrate = journal["winrate"]
+                wins = journal["wins"]
+                losses = journal["losses"]
+                pnl = journal["pnl"]
+                streak = journal["streak"]
+                best_streak = journal["best_streak"]
+                worst_streak = journal["worst_streak"]
+            else:
+                wins = self.wins
+                losses = self.losses
+                pnl = self.cumulative_pnl
+                streak = self.streak
+                best_streak = self.best_streak
+                worst_streak = self.worst_streak
+            if total >= 5:
+                p = wins / total
+                kelly_pct = max(0, min(100, ((p * 0.95 - (1 - p)) / 0.95) * 100))
+            profit_factor = (wins * 0.95) / max(0.01, losses * 1.0)
+            capital = self.live_balance if self.live_balance is not None else max(0.0, self.initial_capital + pnl)
             return {
                 "type": "stats",
                 "capital": capital,
-                "pnl": self.cumulative_pnl,
+                "available": getattr(self, "live_available", 0.0) or None,
+                "open_value": getattr(self, "live_open_value", 0.0) or None,
+                "pnl": pnl,
                 "trades": total,
                 "winrate": winrate,
-                "wins": self.wins,
-                "losses": self.losses,
+                "wins": wins,
+                "losses": losses,
                 "kelly": kelly_pct,
                 "stake_label": stake_label,
-                "streak": self.streak,
-                "best_streak": self.best_streak,
-                "worst_streak": self.worst_streak,
+                "streak": streak,
+                "best_streak": best_streak,
+                "worst_streak": worst_streak,
                 "max_drawdown": self.max_drawdown,
                 "profit_factor": profit_factor,
                 "equity_history": self.equity_history[-50:] or [capital],
@@ -344,11 +373,26 @@ class DashboardBot:
         session.live_wallet = result.get("display_wallet") or "My Wallet"
         session.live_wallet_address = result.get("wallet_address") or ""
         session.live_network = result.get("network") or "BNB Smart Chain"
-        session.live_balance = float(result.get("display_balance") or 0)
+        session.live_available = float(result.get("display_balance") or 0)
+        session.live_open_value = 0.0
         session.live_error = result.get("error") or ""
         session.live_can_trade = bool(result.get("can_trade"))
         session.live_trade_error = str(result.get("trade_error") or "")
         session.live_fetched_at = time.time()
+        try:
+            creds = get_settings_manager().settings.binance
+            if creds.is_configured:
+                client = WalletPredictionClient(
+                    creds.api_key,
+                    creds.api_secret,
+                    preferred_address=creds.prediction_wallet,
+                )
+                open_rows = await client.list_positions("ONGOING", 40)
+                held = open_market_exposure(open_rows)
+                session.live_open_value = float(held.get("value") or 0)
+        except Exception as exc:
+            logger.warning(f"Open position value failed: {exc}")
+        session.live_balance = session.live_available + session.live_open_value
         healed = live_equity_baseline(session.live_balance, session.cumulative_pnl, session.max_equity)
         if healed:
             peak, drawdown = healed
@@ -451,21 +495,38 @@ class DashboardBot:
 
     def _today_session_stats(self, session: ClientSession) -> Dict[str, float]:
         today = datetime.now(timezone.utc).date().isoformat()
+        rows = list(session.trades or [])
+        if not session.simulation:
+            try:
+                from .trade_journal import read_trades
+                rows = [row for row in read_trades(0) if row.get("live")]
+            except Exception:
+                pass
         pnl = 0.0
         count = 0
-        for row in session.trades:
+        seen = set()
+        for row in rows:
             stamp = str(row.get("timestamp") or "")
-            if stamp.startswith(today):
-                try:
-                    pnl += float(row.get("pnl") or 0)
-                except (TypeError, ValueError):
-                    pass
-                count += 1
+            if not stamp.startswith(today):
+                continue
+            key = str(row.get("order_id") or f"{stamp}:{row.get('direction')}:{row.get('pnl')}")
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                pnl += float(row.get("pnl") or 0)
+            except (TypeError, ValueError):
+                pass
+            count += 1
         return {"pnl": pnl, "count": count}
 
     def _session_equity(self, session: ClientSession) -> float:
-        if not session.simulation and session.live_balance is not None:
-            return float(session.live_balance)
+        if not session.simulation:
+            available = float(getattr(session, "live_available", 0) or 0)
+            if available > 0:
+                return available
+            if session.live_balance is not None:
+                return float(session.live_balance)
         return float(session.initial_capital + session.cumulative_pnl)
 
     async def _halt_if_daily_loss(self, session: ClientSession, trading: Any) -> bool:
@@ -523,6 +584,12 @@ class DashboardBot:
             "message": "Bot started - waiting for next prediction window",
             "level": "info"
         })
+        if not session.simulation:
+            try:
+                await self.refresh_live_balances(session)
+                await self.manager.send_to_session(session.session_id, session.stats_payload())
+            except Exception:
+                pass
     
     async def stop_session(self, session: ClientSession):
         session.running = False
@@ -740,8 +807,16 @@ class DashboardBot:
         """Coloca una apuesta Wallet: paper en SIM, orden oficial en REAL."""
         if session is None:
             return
-        if session.pending_trade and session.pending_trade.round_number == current_round:
-            return
+        pending = session.pending_trade
+        if pending:
+            if pending.live:
+                still_open = True
+                if pending.end_date_ms:
+                    still_open = int(time.time() * 1000) < int(pending.end_date_ms) + 8000
+                if still_open or pending.round_number == current_round:
+                    return
+            elif pending.round_number == current_round:
+                return
         try:
             signal = self._last_prediction
             confidence = self._last_prediction_confidence
@@ -896,6 +971,28 @@ class DashboardBot:
                     })
                     return
                 topic = await client.find_btc_5m_market()
+                try:
+                    open_rows = await client.list_positions("ONGOING", 40)
+                    held = open_market_exposure(open_rows, topic_id_of(topic) if topic else "")
+                    if not held.get("legs"):
+                        held = open_market_exposure(open_rows)
+                    blocked = skip_duplicate_entry(held, signal)
+                    if blocked.get("skip"):
+                        if not session.pending_trade:
+                            session.pending_trade = self._pending_from_exposure(
+                                session, current_round, held, live=True
+                            )
+                            if session.pending_trade:
+                                self._save_session(session)
+                        await self.manager.send_to_session(session.session_id, {
+                            "type": "log",
+                            "message": f"SKIP: {blocked.get('reason')}",
+                            "level": "info",
+                        })
+                        await self._emit_exposure(session, held)
+                        return
+                except Exception as exc:
+                    logger.warning(f"Open-position lock failed: {exc}")
                 if not topic:
                     await self.manager.send_to_session(session.session_id, {
                         "type": "log",
@@ -1003,6 +1100,55 @@ class DashboardBot:
             import traceback
             traceback.print_exc()
 
+    def _pending_from_exposure(
+        self,
+        session: ClientSession,
+        current_round: int,
+        exposure: Dict[str, Any],
+        live: bool = True,
+    ) -> Optional[PendingWalletTrade]:
+        legs = [leg for leg in (exposure.get("legs") or []) if isinstance(leg, dict)]
+        if not legs:
+            return None
+        primary = max(legs, key=lambda leg: float(leg.get("shares") or 0))
+        return PendingWalletTrade(
+            session_id=session.session_id,
+            round_number=current_round,
+            signal=str(primary.get("side") or "UP"),
+            stake=float(primary.get("cost") or 0),
+            open_price=0.0,
+            share_price=float(primary.get("mark") or 0.5),
+            shares=float(primary.get("shares") or 0),
+            fee=0.0,
+            cost=float(primary.get("cost") or 0),
+            live=live,
+            market_title="+".join(exposure.get("sides") or [str(primary.get("side") or "")]),
+            topic_id=str(primary.get("topic_id") or ""),
+            token_id=str(primary.get("token_id") or ""),
+            opened_at=time.time(),
+        )
+
+    async def _emit_exposure(self, session: ClientSession, exposure: Dict[str, Any], seconds_left: float = 0.0) -> None:
+        legs = [leg for leg in (exposure.get("legs") or []) if isinstance(leg, dict)]
+        if not legs:
+            await self.manager.send_to_session(session.session_id, {"type": "active_trade", "active": False})
+            return
+        sides = exposure.get("sides") or [str(leg.get("side") or "?") for leg in legs]
+        span = 300.0
+        progress = max(0.0, min(100.0, (1.0 - (float(seconds_left) / span)) * 100)) if seconds_left else 0.0
+        await self.manager.send_to_session(session.session_id, {
+            "type": "active_trade",
+            "active": True,
+            "direction": "+".join(sides),
+            "entry_price": float(exposure.get("cost") or 0),
+            "current_price": float(exposure.get("value") or 0),
+            "pnl": float(exposure.get("pnl") or 0),
+            "progress": progress,
+            "legs": legs,
+            "paid_label": f"${float(exposure.get('cost') or 0):.2f}",
+            "mark_label": f"${float(exposure.get('value') or 0):.2f}",
+        })
+
     async def _emit_open_position(self, session: ClientSession, mark: float, seconds_left: float) -> None:
         pending = session.pending_trade
         if not pending or mark <= 0:
@@ -1075,6 +1221,19 @@ class DashboardBot:
         pending = session.pending_trade
         if not pending:
             return
+        if pending.live:
+            try:
+                client = await self._live_prediction_client(session)
+                if client:
+                    held = open_market_exposure(await client.list_positions("ONGOING", 40), pending.topic_id)
+                    if not held.get("legs"):
+                        held = open_market_exposure(await client.list_positions("ONGOING", 40))
+                    if held.get("legs"):
+                        await self._emit_exposure(session, held, seconds_left)
+                        if held.get("hedged") or len(held.get("sides") or []) > 1:
+                            return
+            except Exception as exc:
+                logger.warning(f"Open exposure refresh failed: {exc}")
         book = await self.refresh_market_book()
         mark = 0.0
         if book:
@@ -1163,7 +1322,7 @@ class DashboardBot:
             pending,
             result=result,
             pnl=pnl,
-            exit_price=0.0,
+            exit_price=float(resolved.get("exit_price") or pending.share_price or 0),
             explanation=f"Binance settled {result} · {title}" + (f" · outcome {actual}" if actual else ""),
         )
 

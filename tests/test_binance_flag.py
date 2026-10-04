@@ -76,6 +76,22 @@ class BinanceFlagTests(unittest.TestCase):
             self.assertEqual(again.settings.trading.bet_percent, 2.0)
             self.assertEqual(again.settings.trading.daily_loss_pct, 15.0)
 
+    def test_journal_stats_count_real_only(self):
+        from src.trade_journal import summarize_trades
+        rows = [
+            {"live": False, "result": "WIN", "pnl": 3.0},
+            {"live": True, "result": "LOSS", "pnl": -1.5},
+            {"live": True, "result": "WIN", "pnl": 1.4},
+        ]
+        all_rows = summarize_trades(rows)
+        real = summarize_trades(rows, live=True)
+        self.assertEqual(all_rows["trades"], 3)
+        self.assertAlmostEqual(all_rows["pnl"], 2.9, places=2)
+        self.assertEqual(real["trades"], 2)
+        self.assertEqual(real["wins"], 1)
+        self.assertEqual(real["losses"], 1)
+        self.assertAlmostEqual(real["pnl"], -0.1, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()

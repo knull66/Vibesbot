@@ -26,6 +26,50 @@ def append_trade(entry: Dict[str, Any], path: Optional[Path] = None) -> Dict[str
     return row
 
 
+def summarize_trades(trades: List[Dict[str, Any]], live: Optional[bool] = None) -> Dict[str, Any]:
+    """Wins / losses / PnL from journal rows. live=True keeps REAL only."""
+    wins = 0
+    losses = 0
+    pnl = 0.0
+    streak = 0
+    best = 0
+    worst = 0
+    for row in trades or []:
+        if not isinstance(row, dict):
+            continue
+        if live is True and not row.get("live"):
+            continue
+        if live is False and row.get("live"):
+            continue
+        result = str(row.get("result") or "").upper()
+        try:
+            change = float(row.get("pnl") or 0)
+        except (TypeError, ValueError):
+            change = 0.0
+        pnl += change
+        if result == "WIN":
+            wins += 1
+            streak = streak + 1 if streak >= 0 else 1
+        elif result == "LOSS":
+            losses += 1
+            streak = streak - 1 if streak <= 0 else -1
+        else:
+            continue
+        best = max(best, streak)
+        worst = min(worst, streak)
+    total = wins + losses
+    return {
+        "wins": wins,
+        "losses": losses,
+        "trades": total,
+        "pnl": pnl,
+        "winrate": (wins / total * 100.0) if total else 0.0,
+        "streak": streak,
+        "best_streak": best,
+        "worst_streak": worst,
+    }
+
+
 def read_trades(limit: int = 100, path: Optional[Path] = None) -> List[Dict[str, Any]]:
     target = path or journal_path()
     if not target.exists():

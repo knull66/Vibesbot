@@ -730,47 +730,51 @@ class VibesBot {
         } else if (data.simulation === true && data.live !== true) {
             this.applyModeUi(true);
         }
-        const capital = Number(data.capital ?? 0);
-        if (this.statCapital) this.statCapital.textContent = '$' + capital.toFixed(2);
+        if (data.capital != null && this.statCapital) {
+            this.statCapital.textContent = '$' + Number(data.capital).toFixed(2);
+        }
         const sourceEl = document.getElementById('stat-capital-source');
         if (sourceEl) {
             if (data.live) {
-                sourceEl.textContent = data.live_error ? 'LIVE · ERROR' : 'LIVE';
-            } else {
+                const openValue = Number(data.open_value || 0);
+                sourceEl.textContent = data.live_error
+                    ? 'LIVE · ERROR'
+                    : (openValue > 0.01 ? 'LIVE · OPEN' : 'LIVE');
+            } else if (data.simulation === true) {
                 sourceEl.textContent = 'SIMULATION';
             }
         }
         
-        if (this.statPnl) {
+        if (this.statPnl && data.pnl != null) {
             const pnl = data.pnl || 0;
             this.statPnl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
             this.statPnl.className = 'main-stat-value ' + (pnl >= 0 ? 'positive' : 'negative');
         }
         
-        if (this.statTrades) this.statTrades.textContent = data.trades || 0;
+        if (this.statTrades && data.trades != null) this.statTrades.textContent = data.trades || 0;
         
-        if (this.statWinrate) {
+        if (this.statWinrate && data.winrate != null) {
             const wr = data.winrate || 0;
             this.statWinrate.textContent = wr.toFixed(1) + '%';
             if (this.winrateFill) this.winrateFill.style.width = wr + '%';
         }
         
-        if (this.statWins) this.statWins.textContent = data.wins || 0;
-        if (this.statLosses) this.statLosses.textContent = data.losses || 0;
+        if (this.statWins && data.wins != null) this.statWins.textContent = data.wins || 0;
+        if (this.statLosses && data.losses != null) this.statLosses.textContent = data.losses || 0;
 
         const profileCapital = document.getElementById('profile-capital');
         const profilePnl = document.getElementById('profile-pnl');
         const profileTrades = document.getElementById('profile-trades');
         const profileWinrate = document.getElementById('profile-winrate');
-        if (profileCapital) profileCapital.textContent = '$' + Number(data.capital ?? 0).toFixed(2);
-        if (profilePnl) {
+        if (profileCapital && data.capital != null) profileCapital.textContent = '$' + Number(data.capital).toFixed(2);
+        if (profilePnl && data.pnl != null) {
             const pnl = data.pnl || 0;
             profilePnl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
             profilePnl.classList.toggle('positive', pnl >= 0);
             profilePnl.classList.toggle('negative', pnl < 0);
         }
-        if (profileTrades) profileTrades.textContent = data.trades || 0;
-        if (profileWinrate) profileWinrate.textContent = (data.winrate || 0).toFixed(1) + '%';
+        if (profileTrades && data.trades != null) profileTrades.textContent = data.trades || 0;
+        if (profileWinrate && data.winrate != null) profileWinrate.textContent = (data.winrate || 0).toFixed(1) + '%';
         
         // Advanced stats
         const streakEl = document.getElementById('stat-streak');
@@ -833,15 +837,18 @@ class VibesBot {
         
         if (data.active) {
             this.activeTrade.style.display = 'block';
-            document.getElementById('active-direction').textContent = data.direction;
-            document.getElementById('active-direction').className = 'active-trade-direction ' + data.direction.toLowerCase();
+            const direction = data.direction || 'UP';
+            document.getElementById('active-direction').textContent = direction;
+            document.getElementById('active-direction').className = 'active-trade-direction ' + (
+                String(direction).includes('+') ? 'down' : String(direction).toLowerCase()
+            );
             const paid = Number(data.entry_price);
             const mark = Number(data.current_price);
             const fmt = (value) => (value > 0 && value < 2)
                 ? Math.round(value * 100) + '¢'
                 : '$' + (value || 0).toFixed(2);
-            document.getElementById('active-entry').textContent = fmt(paid);
-            document.getElementById('active-current').textContent = fmt(mark);
+            document.getElementById('active-entry').textContent = data.paid_label || fmt(paid);
+            document.getElementById('active-current').textContent = data.mark_label || fmt(mark);
             
             const pnl = data.pnl || 0;
             const pnlEl = document.getElementById('active-pnl');
@@ -1220,14 +1227,13 @@ class VibesBot {
             const response = await fetch('/api/binance/balances', { credentials: 'same-origin' });
             const data = await response.json();
             if (data && (data.display_balance != null || data.wallets)) {
+                const openValue = Number(data.open_value || 0);
+                const available = Number(data.display_balance ?? 0);
                 this.updateStats({
                     type: 'stats',
-                    capital: data.display_balance ?? 0,
-                    pnl: 0,
-                    trades: 0,
-                    winrate: 0,
-                    wins: 0,
-                    losses: 0,
+                    capital: available + openValue,
+                    available: available,
+                    open_value: openValue,
                     live: true,
                     simulation: false,
                     wallet: data.display_wallet || 'My Wallet',

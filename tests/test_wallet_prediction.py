@@ -20,8 +20,10 @@ from src.wallet_prediction import (
     outcome_token,
     paper_fill,
     pick_active_btc_window,
+    open_market_exposure,
     pick_matching_position,
     pick_tradable_wallet_row,
+    skip_duplicate_entry,
     resolve_preferred_address,
     same_address,
     settle_direction,
@@ -301,6 +303,40 @@ class WalletMarketPickerTests(unittest.TestCase):
             "isWinner": None,
         }, "UP", 2.54, 1.52))
 
+    def test_skips_second_ticket_and_the_other_side(self):
+        rows = [
+            {
+                "tokenId": "tok-up",
+                "marketTopicId": "m1",
+                "positionStatus": "ONGOING",
+                "marketTitle": "UP",
+                "marketTopicTitle": "Bitcoin Up or Down - October 4, 5PM-5:05PM ET",
+                "availableAmount": "8.65",
+                "currentPrice": "0.51",
+                "avgCost": "0.51",
+                "currentValue": "4.41",
+            },
+            {
+                "tokenId": "tok-down",
+                "marketTopicId": "m1",
+                "positionStatus": "ONGOING",
+                "marketTitle": "DOWN",
+                "marketTopicTitle": "Bitcoin Up or Down - October 4, 5PM-5:05PM ET",
+                "availableAmount": "2.94",
+                "currentPrice": "0.49",
+                "avgCost": "0.51",
+                "currentValue": "1.44",
+            },
+        ]
+        held = open_market_exposure(rows, "m1")
+        self.assertTrue(held["hedged"])
+        self.assertAlmostEqual(held["value"], 5.85, places=2)
+        self.assertTrue(skip_duplicate_entry(held, "UP")["skip"])
+        self.assertTrue(skip_duplicate_entry(held, "DOWN")["skip"])
+        only_up = open_market_exposure(rows[:1], "m1")
+        self.assertIn("other side", skip_duplicate_entry(only_up, "DOWN")["reason"])
+        self.assertFalse(skip_duplicate_entry({"legs": []}, "UP")["skip"])
+
 
 class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
     async def test_pins_preferred_wallet_not_richest(self):
@@ -545,6 +581,48 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(resolved["pnl"], -1.50, places=2)
         local = settle_payout("UP", 86037.85, 86051.75, 2.54, 1.52)
         self.assertEqual(local[1], "WIN")
+
+    async def test_resolve_live_result_waits_while_position_is_open(self):
+        client = WalletPredictionClient("k", "s")
+        client._wallet = {
+            "walletId": "pred",
+            "walletAddress": USER_WALLET,
+            "orderAddress": USER_WALLET,
+        }
+        pending = PendingWalletTrade(
+            session_id="s1",
+            round_number=1,
+            signal="UP",
+            stake=1.5,
+            open_price=86000,
+            share_price=0.51,
+            shares=2.94,
+            fee=0.02,
+            cost=1.52,
+            live=True,
+            topic_id="m1",
+            token_id="tok-up",
+            end_date_ms=1,
+        )
+
+        async def fake_open(tab="ONGOING", limit=20):
+            return [{
+                "tokenId": "tok-up",
+                "marketTopicId": "m1",
+                "positionStatus": "ONGOING",
+                "marketTitle": "UP",
+                "marketTopicTitle": "Bitcoin Up or Down",
+            }]
+
+        async def boom(*_args, **_kwargs):
+            raise AssertionError("should not settle an open ticket")
+
+        with patch.object(client, "list_positions", fake_open), \
+             patch.object(client, "settled_history", boom), \
+             patch.object(client, "position_by_token", boom):
+            resolved = await client.resolve_live_result(pending)
+        self.assertFalse(resolved.get("ready"))
+        self.assertIn("still open", resolved.get("reason"))
 
 
 class WalletErrorTextTests(unittest.TestCase):
