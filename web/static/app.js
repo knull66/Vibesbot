@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.37.0';
+const APP_VERSION = '1.40.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -41,6 +41,7 @@ class VibesBot {
         this.statusDot = document.getElementById('status-dot');
         this.currentPrice = document.getElementById('current-price');
         this.roundTimer = document.getElementById('round-timer');
+        this.roundRing = document.getElementById('round-ring');
         
         // Signal
         this.signalDisplay = document.getElementById('signal-display');
@@ -584,14 +585,14 @@ class VibesBot {
             const minutes = Math.floor(data.timer / 60);
             const seconds = data.timer % 60;
             this.roundTimer.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-            
-            // Color based on urgency
+            if (this.roundRing) {
+                const pct = Math.max(0, Math.min(100, (Number(data.timer) / 300) * 100));
+                this.roundRing.style.setProperty('--pct', String(pct));
+            }
             if (data.timer <= 10) {
                 this.roundTimer.style.color = 'var(--down)';
-            } else if (data.timer <= 30) {
-                this.roundTimer.style.color = 'var(--warning)';
             } else {
-                this.roundTimer.style.color = 'var(--warning)';
+                this.roundTimer.style.color = 'var(--text-dim)';
             }
         }
         
@@ -732,6 +733,14 @@ class VibesBot {
         }
         if (data.capital != null && this.statCapital) {
             this.statCapital.textContent = '$' + Number(data.capital).toFixed(2);
+        }
+        const splitEl = document.getElementById('stat-capital-split');
+        if (splitEl && (data.available != null || data.open_value != null)) {
+            const available = Number(data.available || 0);
+            const openValue = Number(data.open_value || 0);
+            splitEl.textContent = openValue > 0.01
+                ? `Cash $${available.toFixed(2)} · Open $${openValue.toFixed(2)}`
+                : '';
         }
         const sourceEl = document.getElementById('stat-capital-source');
         if (sourceEl) {

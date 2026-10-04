@@ -69,6 +69,9 @@ v1.37: STAKE en el header. `%` = 1–8% del saldo. `$` = Fixed. Enter o blur gua
 **Apuesta $1.50 con Settings en $1**  
 El mínimo de Wallet es 1.50; la app lo sube.
 
+**Dashboard negro / números chicos**  
+v1.40: estilo mate (sin glass cian). Equity grande, cash vs open, anillo de ronda.
+
 **Compró el mercado de las 5PM (countdown 3h)**  
 v1.39: solo apuesta el 5m que ya empezó y cierra en ≤6.5 min. El título "5PM–5:05PM ET" es esa hora, no “5 minutos”. Esos tickets se liquidan a las 17:05.
 
