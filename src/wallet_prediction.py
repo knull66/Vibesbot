@@ -640,9 +640,22 @@ def parse_usdt_amount(value: Any, default: Optional[float] = None) -> Optional[f
     return number
 
 
+def topic_timestamp_ms(value: Any) -> int:
+    """Binance sometimes sends seconds, sometimes ms. Always return ms."""
+    try:
+        raw = int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+    if raw <= 0:
+        return 0
+    if raw < 10_000_000_000:
+        return raw * 1000
+    return raw
+
+
 def topic_duration_minutes(topic: Dict[str, Any]) -> float:
-    start = int(topic.get("startDate") or topic.get("beginDate") or topic.get("openDate") or 0)
-    end = int(topic.get("endDate") or topic.get("closeDate") or 0)
+    start = topic_timestamp_ms(topic.get("startDate") or topic.get("beginDate") or topic.get("openDate") or 0)
+    end = topic_timestamp_ms(topic.get("endDate") or topic.get("closeDate") or 0)
     if start and end and end > start:
         return (end - start) / 60000.0
     return 0.0
@@ -981,7 +994,9 @@ def is_btc_short_window(topic: Dict[str, Any], minutes: int = 5) -> bool:
 
 
 def pick_active_btc_window(topics: List[Any], minutes: int = 5, now_ms: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """Only the live 5m candle: already started, ends within ~6.5 minutes. Never 5PM-5:05 hours out."""
     now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
+    max_ms = int((float(minutes) + 1.5) * 60_000)
     matches: List[Dict[str, Any]] = []
     rows = topics if isinstance(topics, list) else []
     for row in rows:
@@ -990,15 +1005,20 @@ def pick_active_btc_window(topics: List[Any], minutes: int = 5, now_ms: Optional
         if not is_btc_short_window(row, minutes):
             continue
         status = str(row.get("status") or "").upper()
-        if status and status not in ("REGISTERED", "OPEN", "ACTIVE"):
+        if status and status not in ("REGISTERED", "OPEN", "ACTIVE", "LIVE", "TRADING"):
             continue
-        end = int(row.get("endDate") or 0)
+        start = topic_timestamp_ms(row.get("startDate") or row.get("beginDate") or row.get("openDate"))
+        end = topic_timestamp_ms(row.get("endDate") or row.get("closeDate"))
         if end and end <= now_ms:
+            continue
+        if start and start > now_ms + 15_000:
+            continue
+        if end and (end - now_ms) > max_ms:
             continue
         matches.append(row)
     if not matches:
         return None
-    matches.sort(key=lambda item: int(item.get("endDate") or 0))
+    matches.sort(key=lambda item: topic_timestamp_ms(item.get("endDate")))
     return matches[0]
 
 
@@ -1376,7 +1396,17 @@ class WalletPredictionClient:
         if not picked:
             return None
         detail = await self.market_detail(picked.get("marketTopicId"))
-        return detail or picked
+        topic = detail or picked
+        if isinstance(detail, dict) and isinstance(picked, dict):
+            for key in ("endDate", "startDate", "beginDate", "openDate", "closeDate"):
+                if not topic.get(key) and picked.get(key):
+                    topic[key] = picked[key]
+        if not pick_active_btc_window([topic], 5):
+            logger.warning(
+                f"Skip Wallet market that is not the live 5m: {topic.get('title') or topic.get('slug')}"
+            )
+            return None
+        return topic
 
     async def list_wallets(self) -> List[Dict[str, Any]]:
         status, data = await self._request("GET", "wallet/list")
@@ -1551,7 +1581,7 @@ class WalletPredictionClient:
             "title": topic.get("title") or "",
             "topic_id": topic_id_of(topic),
             "token_id": token["token_id"],
-            "end_date": int(topic.get("endDate") or 0),
+            "end_date": topic_timestamp_ms(topic.get("endDate") or topic.get("closeDate") or 0),
         }
 
     async def _held_shares(self, token_id: str, fallback: float) -> float:

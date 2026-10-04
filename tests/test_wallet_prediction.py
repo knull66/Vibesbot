@@ -34,6 +34,7 @@ from src.wallet_prediction import (
     taker_fee,
     topic_duration_minutes,
     topic_live_price,
+    topic_timestamp_ms,
     topic_start_price,
     cut_loss_ready,
     live_equity_baseline,
@@ -201,6 +202,34 @@ class WalletMarketPickerTests(unittest.TestCase):
         ]
         picked = pick_active_btc_window(topics, 5, now_ms=now)
         self.assertEqual(picked["endDate"], now + 180_000)
+
+    def test_rejects_the_5pm_slot_three_hours_out(self):
+        now = 1_728_050_400_000  # ~13:40
+        far = {
+            "slug": "bitcoin-up-or-down",
+            "title": "Bitcoin Up or Down - October 4, 5PM-5:05PM ET",
+            "symbol": "BTCUSDT",
+            "status": "REGISTERED",
+            "startDate": now + 3 * 3600_000,
+            "endDate": now + 3 * 3600_000 + 5 * 60_000,
+        }
+        self.assertTrue(is_btc_short_window(far))
+        self.assertIsNone(pick_active_btc_window([far], 5, now_ms=now))
+
+    def test_accepts_live_5m_with_unix_seconds(self):
+        now_s = 1_728_050_400
+        live = {
+            "slug": "btc-price-5m-up-or-down",
+            "title": "BTC Price 5m Up or Down?",
+            "symbol": "BTCUSDT",
+            "status": "OPEN",
+            "startDate": now_s - 120,
+            "endDate": now_s + 180,
+        }
+        self.assertAlmostEqual(topic_duration_minutes(live), 5.0)
+        self.assertEqual(topic_timestamp_ms(now_s + 180), (now_s + 180) * 1000)
+        picked = pick_active_btc_window([live], 5, now_ms=now_s * 1000)
+        self.assertEqual(picked["endDate"], now_s + 180)
 
     def test_outcome_token_yes_on_up_market(self):
         topic = {
