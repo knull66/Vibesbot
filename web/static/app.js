@@ -454,12 +454,13 @@ class VibesBot {
     }
     
     bindMobileNav() {
-        document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
+        document.querySelectorAll('.mobile-nav-btn[data-view]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const view = btn.dataset.view;
                 this.setMobileView(view);
             });
         });
+        document.getElementById('mobile-settings')?.addEventListener('click', () => this.openSettings());
         
         const mq = window.matchMedia('(max-width: 1099px)');
         const apply = () => {
@@ -475,7 +476,7 @@ class VibesBot {
     
     setMobileView(view) {
         document.body.dataset.view = view;
-        document.querySelectorAll('.mobile-nav-btn').forEach(btn => {
+        document.querySelectorAll('.mobile-nav-btn[data-view]').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.view === view);
         });
         

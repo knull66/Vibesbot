@@ -2154,6 +2154,10 @@ html.vb-native .prefs-toolbar {
         box-shadow: none;
     }
 
+    #mobile-settings {
+        color: var(--system-blue);
+    }
+
     .modal-content {
         max-width: 96%;
         max-height: 88vh;
