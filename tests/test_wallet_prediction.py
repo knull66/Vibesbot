@@ -14,6 +14,9 @@ from src.wallet_prediction import (
     is_btc_short_window,
     looks_like_btc_price,
     market_book,
+    merge_topics,
+    resolve_cached_lock,
+    unwrap_topic_row,
     match_wallet_row,
     normalize_evm_address,
     normalize_share_price,
@@ -279,6 +282,54 @@ class WalletMarketPickerTests(unittest.TestCase):
         self.assertAlmostEqual(topic_start_price(mixed), 86047.04)
         self.assertAlmostEqual(topic_live_price(mixed), 99999.00)
         self.assertEqual(topic_start_price({"oraclePrice": "86000.00"}), 0.0)
+
+    def test_price_to_beat_reads_data_wrapper(self):
+        topic = {
+            "code": "000000",
+            "data": {
+                "marketTopicId": "4229501",
+                "title": "BTC Up or Down 5m",
+                "priceToBeat": "86047.04",
+            },
+        }
+        self.assertAlmostEqual(topic_start_price(topic), 86047.04)
+        book = market_book(topic)
+        self.assertEqual(book["topic_id"], "4229501")
+        self.assertAlmostEqual(book["price_to_beat"], 86047.04)
+
+    def test_merge_topics_keeps_search_lock_when_detail_is_thin(self):
+        picked = {
+            "marketTopicId": "4229501",
+            "title": "BTC Up or Down 5m",
+            "startPrice": "84111.25",
+            "startDate": 1_700_000_000_000,
+            "endDate": 1_700_000_300_000,
+        }
+        detail = {"data": {"marketTopicId": "4229501", "status": "OPEN"}}
+        merged = merge_topics(unwrap_topic_row(picked), unwrap_topic_row(detail))
+        self.assertAlmostEqual(topic_start_price(merged), 84111.25)
+        self.assertEqual(merged["endDate"], 1_700_000_300_000)
+
+    def test_cached_lock_survives_utc_round_and_empty_book(self):
+        cache = {}
+        first = resolve_cached_lock(cache, {
+            "topic_id": "t-1",
+            "price_to_beat": 86047.04,
+            "price_to_beat_source": "wallet",
+        })
+        self.assertAlmostEqual(first["price_to_beat"], 86047.04)
+        held = resolve_cached_lock(cache, {"topic_id": "t-1", "price_to_beat": 0})
+        self.assertAlmostEqual(held["price_to_beat"], 86047.04)
+        held_empty = resolve_cached_lock(cache, {})
+        self.assertAlmostEqual(held_empty["price_to_beat"], 86047.04)
+        swapped = resolve_cached_lock(cache, {"topic_id": "t-2", "price_to_beat": 0})
+        self.assertEqual(swapped["price_to_beat"], 0)
+        next_lock = resolve_cached_lock(cache, {
+            "topic_id": "t-2",
+            "price_to_beat": 86100.50,
+            "price_to_beat_source": "wallet",
+        })
+        self.assertAlmostEqual(next_lock["price_to_beat"], 86100.50)
 
     def test_wallets_from_wrapped_payload(self):
         rows = wallets_from_payload({

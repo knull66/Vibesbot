@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.42.0';
+const APP_VERSION = '1.43.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -20,6 +20,8 @@ class VibesBot {
         this.soundVolume = 0.6;
         this.audioCtx = null;
         this.entryPrice = null;
+        this.priceToBeat = null;
+        this.priceToBeatTopic = '';
         this.sessionId = this.getSessionId();
         this.user = null;
         
@@ -742,20 +744,37 @@ class VibesBot {
     applyPriceToBeat(data) {
         const sourceEl = document.getElementById('price-to-beat-source');
         const beat = parseFloat(data.price_to_beat);
-        if (beat && !Number.isNaN(beat)) {
-            this.priceToBeat = beat;
+        const topicId = String(data.topic_id || data.price_to_beat_topic || '');
+        const paintLock = (value, source) => {
+            this.priceToBeat = value;
+            if (topicId) this.priceToBeatTopic = topicId;
             if (this.priceToBeatEl) {
-                this.priceToBeatEl.textContent = '$' + beat.toLocaleString('en-US', {
+                this.priceToBeatEl.textContent = '$' + value.toLocaleString('en-US', {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2
                 });
             }
-            const source = data.price_to_beat_source || '';
             if (sourceEl) {
-                sourceEl.textContent = source === 'wallet'
+                sourceEl.textContent = source === 'wallet' || !source
                     ? 'Binance lock'
-                    : source || 'Binance lock';
+                    : source;
             }
+            const live = parseFloat(data.price || data.live_price);
+            if (live && !Number.isNaN(live)) this.updatePriceDiff(live);
+        };
+        if (beat && !Number.isNaN(beat)) {
+            paintLock(beat, data.price_to_beat_source || '');
+            return;
+        }
+        const topicChanged = topicId && this.priceToBeatTopic && topicId !== this.priceToBeatTopic;
+        if (topicChanged) {
+            this.priceToBeat = null;
+            this.priceToBeatTopic = topicId;
+            if (this.priceToBeatEl) this.priceToBeatEl.textContent = '$--';
+            if (sourceEl) sourceEl.textContent = 'Waiting for lock';
+            return;
+        }
+        if (this.priceToBeat) {
             const live = parseFloat(data.price || data.live_price);
             if (live && !Number.isNaN(live)) this.updatePriceDiff(live);
             return;
@@ -871,13 +890,7 @@ class VibesBot {
             this.playSound('loss');
         }
         
-        // Clear price to beat after trade closes
-        this.priceToBeat = null;
-        if (this.priceToBeatEl) this.priceToBeatEl.textContent = '$--';
-        if (this.priceDiff) {
-            this.priceDiff.textContent = '--';
-            this.priceDiff.className = 'price-diff';
-        }
+        // Keep Binance lock on screen; it belongs to the live 5m market, not the ticket.
     }
     
     updateActiveTrade(data) {

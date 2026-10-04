@@ -42,6 +42,7 @@ from .wallet_prediction import (
     fill_from_quote,
     looks_like_btc_price,
     market_book,
+    resolve_cached_lock,
     open_market_exposure,
     outcome_token,
     cut_loss_ready,
@@ -302,6 +303,7 @@ class DashboardBot:
         self._price_to_beat = 0.0
         self._price_to_beat_round = -1
         self._price_to_beat_source = ""
+        self._price_to_beat_topic = ""
         
         # Estadísticas avanzadas
         self._equity_history = [100.0]  # Historial de capital
@@ -403,7 +405,9 @@ class DashboardBot:
 
     async def refresh_market_book(self, force: bool = False) -> Dict[str, Any]:
         now = time.time()
-        if not force and self._market_book and now - self._market_fetched_at < 5:
+        have_lock = looks_like_btc_price((self._market_book or {}).get("price_to_beat"))
+        ttl = 2.0 if have_lock else 0.0
+        if not force and self._market_book and now - self._market_fetched_at < ttl:
             return self._market_book
         from .user_settings import get_settings_manager
 
@@ -444,29 +448,27 @@ class DashboardBot:
             return None
         return self.data_stream.get_last_closed_candle("5m")
 
-    def _resolve_price_to_beat(self, book: Optional[Dict[str, Any]], round_number: int) -> float:
-        """Binance Wallet lock only. Never a Spot candle stand-in."""
-        book = book or {}
-        if self._price_to_beat_round != round_number:
-            self._price_to_beat = 0.0
-            self._price_to_beat_source = ""
-            self._price_to_beat_round = round_number
-        from_book = float(book.get("price_to_beat") or 0)
-        if looks_like_btc_price(from_book):
-            self._price_to_beat = from_book
-            self._price_to_beat_round = round_number
-            self._price_to_beat_source = str(book.get("price_to_beat_source") or "wallet")
-            return from_book
-        if looks_like_btc_price(self._price_to_beat) and self._price_to_beat_source == "wallet":
-            return self._price_to_beat
-        self._price_to_beat_source = ""
-        return 0.0
+    def _resolve_price_to_beat(self, book: Optional[Dict[str, Any]], round_number: int = 0) -> float:
+        """Binance Wallet lock only. Cache by topic id, never UTC Spot rounds."""
+        cache = {
+            "price_to_beat": self._price_to_beat,
+            "source": self._price_to_beat_source,
+            "topic_id": self._price_to_beat_topic,
+        }
+        resolved = resolve_cached_lock(cache, book)
+        self._price_to_beat = float(resolved.get("price_to_beat") or 0)
+        self._price_to_beat_source = str(resolved.get("price_to_beat_source") or "")
+        self._price_to_beat_topic = str(resolved.get("topic_id") or "")
+        if looks_like_btc_price(self._price_to_beat):
+            self._price_to_beat_round = int(round_number or 0)
+        return self._price_to_beat
 
-    def _price_to_beat_payload(self, book: Optional[Dict[str, Any]], round_number: int) -> Dict[str, Any]:
+    def _price_to_beat_payload(self, book: Optional[Dict[str, Any]], round_number: int = 0) -> Dict[str, Any]:
         beat = self._resolve_price_to_beat(book, round_number)
         return {
             "price_to_beat": beat or None,
             "price_to_beat_source": self._price_to_beat_source if beat else "",
+            "topic_id": self._price_to_beat_topic or str((book or {}).get("topic_id") or ""),
         }
 
     def _live_btc_price(self, book: Optional[Dict[str, Any]] = None) -> float:
@@ -781,6 +783,7 @@ class DashboardBot:
                 "down_odds": (book or {}).get("down_odds"),
                 "price_to_beat": price_to_beat,
                 "price_to_beat_source": self._price_to_beat_source if price_to_beat else "",
+                "topic_id": self._price_to_beat_topic or str((book or {}).get("topic_id") or ""),
             })
             
             await self._emit_sessions(sessions, {
@@ -1561,6 +1564,7 @@ class DashboardBot:
             "down_odds": (self._market_book or {}).get("down_odds"),
             "price_to_beat": None,
             "price_to_beat_source": "",
+            "topic_id": (self._market_book or {}).get("topic_id") or self._price_to_beat_topic or "",
             "signal": self._last_prediction,
         }
         try:
@@ -1570,10 +1574,11 @@ class DashboardBot:
         except Exception as exc:
             logger.warning(f"Price to beat unavailable: {exc}")
         await self.manager.broadcast(payload)
-        need_lock = not looks_like_btc_price((self._market_book or {}).get("price_to_beat"))
-        if remaining % 5 == 0 or need_lock:
+        have_lock = looks_like_btc_price((self._market_book or {}).get("price_to_beat"))
+        new_window = remaining >= 297 or remaining <= 3
+        if remaining % 2 == 0 or not have_lock or new_window:
             try:
-                await self.refresh_market_book(force=need_lock)
+                await self.refresh_market_book(force=(not have_lock or new_window))
             except Exception as exc:
                 logger.warning(f"Market book refresh failed: {exc}")
     

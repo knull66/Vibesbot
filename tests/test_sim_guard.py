@@ -70,5 +70,17 @@ class SimStartPayloadTests(unittest.TestCase):
         self.assertIn("Reset REAL stats", Path(__file__).resolve().parents[1].joinpath("web/templates/index.html").read_text())
 
 
+class PriceToBeatUiTests(unittest.TestCase):
+    def test_js_keeps_last_lock_on_empty_tick(self):
+        js = Path(__file__).resolve().parents[1].joinpath("web/static/app.js").read_text()
+        self.assertIn("const topicChanged = topicId && this.priceToBeatTopic && topicId !== this.priceToBeatTopic", js)
+        self.assertIn("if (this.priceToBeat)", js)
+        self.assertIn("Keep Binance lock on screen", js)
+        self.assertNotIn("Clear price to beat after trade closes", js)
+        server = Path(__file__).resolve().parents[1].joinpath("src/web_server.py").read_text()
+        self.assertIn("resolve_cached_lock", server)
+        self.assertIn("new_window = remaining >= 297 or remaining <= 3", server)
+
+
 if __name__ == "__main__":
     unittest.main()

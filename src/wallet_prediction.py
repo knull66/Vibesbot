@@ -1052,6 +1052,12 @@ TOPIC_LOCK_KEYS = (
     "open_price",
     "price_to_beat",
     "lock_price",
+    "oracleStartPrice",
+    "startFeedPrice",
+    "feedStartPrice",
+    "indexStartPrice",
+    "referencePrice",
+    "benchmarkPrice",
 )
 
 TOPIC_LIVE_KEYS = (
@@ -1085,7 +1091,19 @@ TOPIC_CLOSE_KEYS = (
 
 def topic_blobs(topic: Dict[str, Any]) -> List[Any]:
     blobs: List[Any] = [topic]
-    for nested in ("event", "metadata", "market", "stats", "oracle", "resolution", "condition"):
+    for nested in (
+        "data",
+        "marketTopic",
+        "topic",
+        "event",
+        "metadata",
+        "market",
+        "stats",
+        "oracle",
+        "resolution",
+        "condition",
+        "info",
+    ):
         row = topic.get(nested)
         if isinstance(row, dict):
             blobs.append(row)
@@ -1123,6 +1141,12 @@ LOCK_KEY_PARTS = (
     "referenceprice",
     "benchmarkprice",
     "targetprice",
+    "oraclestartprice",
+    "startfeedprice",
+    "feedstartprice",
+    "indexstartprice",
+    "pricebeat",
+    "beatprice",
 )
 LIVE_KEY_NOISE = (
     "current",
@@ -1160,12 +1184,110 @@ def walk_lock_price(obj: Any) -> float:
     return 0.0
 
 
+def _as_topic_dict(value: Any) -> Dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def unwrap_topic_row(topic: Any) -> Dict[str, Any]:
+    """Lift marketTopic / data wrappers so search + detail share one shape."""
+    row = _as_topic_dict(topic)
+    if not row:
+        return {}
+    for key in ("data", "marketTopic", "topic"):
+        inner = row.get(key)
+        if not isinstance(inner, dict):
+            continue
+        if any(
+            inner.get(field)
+            for field in (
+                "marketTopicId",
+                "topicId",
+                "id",
+                "title",
+                "markets",
+                "startPrice",
+                "priceToBeat",
+                "lockPrice",
+                "startDate",
+            )
+        ):
+            outer = {k: v for k, v in row.items() if k != key}
+            return merge_topics(outer, inner)
+    return row
+
+
+def merge_topics(base: Any, overlay: Any) -> Dict[str, Any]:
+    """Keep search-list dates/ids when detail is a thin or wrapped payload."""
+    merged = _as_topic_dict(base)
+    extra = _as_topic_dict(overlay)
+    if not extra:
+        return merged
+    for key, value in extra.items():
+        if value in (None, "", [], {}):
+            continue
+        current = merged.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            merged[key] = merge_topics(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def resolve_cached_lock(cache: Dict[str, Any], book: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Keep the Binance lock on the same Wallet topic. Wipe only on a new topic."""
+    cache = cache if isinstance(cache, dict) else {}
+    book = book or {}
+    topic_id = str(book.get("topic_id") or "")
+    cached_topic = str(cache.get("topic_id") or "")
+    cached_beat = float(cache.get("price_to_beat") or 0)
+    cached_source = str(cache.get("source") or cache.get("price_to_beat_source") or "")
+    from_book = float(book.get("price_to_beat") or 0)
+
+    if topic_id and cached_topic and topic_id != cached_topic:
+        cached_beat = 0.0
+        cached_source = ""
+
+    if looks_like_btc_price(from_book):
+        source = str(book.get("price_to_beat_source") or "wallet")
+        cache["price_to_beat"] = from_book
+        cache["source"] = source
+        cache["topic_id"] = topic_id or cached_topic
+        return {
+            "price_to_beat": from_book,
+            "price_to_beat_source": source,
+            "topic_id": cache["topic_id"],
+        }
+
+    if looks_like_btc_price(cached_beat) and cached_source == "wallet":
+        if not topic_id or not cached_topic or topic_id == cached_topic:
+            cache["price_to_beat"] = cached_beat
+            cache["source"] = cached_source
+            if topic_id:
+                cache["topic_id"] = topic_id
+            return {
+                "price_to_beat": cached_beat,
+                "price_to_beat_source": cached_source,
+                "topic_id": str(cache.get("topic_id") or topic_id),
+            }
+
+    cache["price_to_beat"] = 0.0
+    cache["source"] = ""
+    if topic_id:
+        cache["topic_id"] = topic_id
+    return {
+        "price_to_beat": 0.0,
+        "price_to_beat_source": "",
+        "topic_id": topic_id or cached_topic,
+    }
+
+
 def topic_start_price(topic: Dict[str, Any]) -> float:
     """Chainlink lock / Binance Price to Beat. Never the live tick."""
-    direct = first_btc_price(topic_blobs(topic or {}), TOPIC_LOCK_KEYS)
+    topic = unwrap_topic_row(topic or {})
+    direct = first_btc_price(topic_blobs(topic), TOPIC_LOCK_KEYS)
     if direct:
         return direct
-    return walk_lock_price(topic or {})
+    return walk_lock_price(topic)
 
 
 def topic_live_price(topic: Dict[str, Any]) -> float:
@@ -1180,7 +1302,7 @@ def topic_close_price(topic: Dict[str, Any]) -> float:
 
 def market_book(topic: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Binance Wallet Up/Down odds and Chainlink lock for the active BTC 5m market."""
-    topic = topic or {}
+    topic = unwrap_topic_row(topic or {})
     up = outcome_token(topic, "UP") or {}
     down = outcome_token(topic, "DOWN") or {}
     up_p = as_probability(up.get("price"), 0.5)
@@ -1196,6 +1318,7 @@ def market_book(topic: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "live_price": topic_live_price(topic),
         "close_price": topic_close_price(topic),
         "title": str(topic.get("title") or "BTC Up or Down 5m"),
+        "topic_id": topic_id_of(topic),
         "source": "wallet",
     }
 
@@ -1384,7 +1507,7 @@ class WalletPredictionClient:
     async def market_detail(self, market_topic_id: Any) -> Dict[str, Any]:
         status, data = await self._request("GET", "market/detail", {"marketTopicId": market_topic_id})
         if status == 200 and isinstance(data, dict):
-            return data
+            return unwrap_topic_row(data)
         logger.warning(f"Wallet market detail failed: {status} {data}")
         return {}
 
@@ -1395,12 +1518,8 @@ class WalletPredictionClient:
         picked = pick_active_btc_window(topics, 5)
         if not picked:
             return None
-        detail = await self.market_detail(picked.get("marketTopicId"))
-        topic = detail or picked
-        if isinstance(detail, dict) and isinstance(picked, dict):
-            for key in ("endDate", "startDate", "beginDate", "openDate", "closeDate"):
-                if not topic.get(key) and picked.get(key):
-                    topic[key] = picked[key]
+        detail = await self.market_detail(picked.get("marketTopicId") or topic_id_of(picked))
+        topic = merge_topics(unwrap_topic_row(picked), unwrap_topic_row(detail))
         if not pick_active_btc_window([topic], 5):
             logger.warning(
                 f"Skip Wallet market that is not the live 5m: {topic.get('title') or topic.get('slug')}"
