@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.41.0';
+const APP_VERSION = '1.42.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -136,7 +136,9 @@ class VibesBot {
         this.bindStakeInputs();
         document.getElementById('btn-save-binance')?.addEventListener('click', () => this.saveBinanceSettings());
         document.getElementById('btn-test-api')?.addEventListener('click', () => this.testApi());
-        document.getElementById('btn-reset-sim')?.addEventListener('click', () => this.resetSimulation());
+        document.getElementById('btn-reset-sim')?.addEventListener('click', () => this.resetStats('sim'));
+        document.getElementById('btn-reset-real')?.addEventListener('click', () => this.resetStats('real'));
+        document.getElementById('btn-clear-feed')?.addEventListener('click', () => this.clearFeed());
         document.getElementById('btn-check-update')?.addEventListener('click', () => this.checkUpdates({prompt: true}));
         document.getElementById('btn-install-update')?.addEventListener('click', () => this.installUpdate());
         document.getElementById('btn-update-now')?.addEventListener('click', () => this.installUpdate());
@@ -751,10 +753,8 @@ class VibesBot {
             const source = data.price_to_beat_source || '';
             if (sourceEl) {
                 sourceEl.textContent = source === 'wallet'
-                    ? 'Wallet lock'
-                    : source === 'spot-5m-open'
-                        ? 'Est. 5m open'
-                        : source || 'Lock';
+                    ? 'Binance lock'
+                    : source || 'Binance lock';
             }
             const live = parseFloat(data.price || data.live_price);
             if (live && !Number.isNaN(live)) this.updatePriceDiff(live);
@@ -910,6 +910,13 @@ class VibesBot {
         }
     }
     
+    clearFeed() {
+        if (!this.tradeLog) return;
+        this._lastLog = '';
+        this.tradeLog.innerHTML = '<div class="log-empty">Feed cleared<br><small>New events appear here</small></div>';
+        if (this.tradeCount) this.tradeCount.textContent = '0';
+    }
+
     addLog(message, level = 'info') {
         if (!this.tradeLog) return;
         const now = Date.now();
@@ -951,7 +958,12 @@ class VibesBot {
     }
 
     applyJournal(trades) {
-        if (!Array.isArray(trades) || !trades.length) return;
+        if (!Array.isArray(trades)) return;
+        if (!trades.length) {
+            this.tradeHistory = [];
+            this.renderHistory();
+            return;
+        }
         const incoming = trades.slice().reverse();
         const merged = incoming.concat(this.tradeHistory);
         const seen = new Set();
@@ -971,14 +983,15 @@ class VibesBot {
         const count = document.getElementById('history-count');
         if (!list) return;
         
-        if (count) count.textContent = this.tradeHistory.length + ' trades';
+        const rows = this.tradeHistory.filter((trade) => this.isSimulation ? !trade.live : !!trade.live);
+        if (count) count.textContent = rows.length + (this.isSimulation ? ' SIM' : ' REAL') + ' trades';
         
-        if (this.tradeHistory.length === 0) {
+        if (rows.length === 0) {
             list.innerHTML = '<div class="history-empty">No trades yet</div>';
             return;
         }
         
-        list.innerHTML = this.tradeHistory.slice(0, 40).map(trade => `
+        list.innerHTML = rows.slice(0, 40).map(trade => `
             <div class="history-item ${trade.result?.toLowerCase() || ''}">
                 <div class="history-direction ${trade.direction?.toLowerCase() || ''}">${trade.direction || '?'}</div>
                 <div class="history-details">
@@ -1187,7 +1200,7 @@ class VibesBot {
     // ═══════════════════════════════════════════════════════════
     
     start() {
-        this.send({ action: 'start' });
+        this.send({ action: 'start', simulation: !!this.isSimulation });
         this.isRunning = true;
         this.isPaused = false;
         this.updateControlButtons();
@@ -1259,6 +1272,7 @@ class VibesBot {
             this.modeLabel.textContent = simulation ? 'SIM' : 'REAL';
             this.modeLabel.className = 'mode-indicator ' + (simulation ? 'sim' : 'real');
         }
+        this.renderHistory();
     }
 
     async setMode(simulation) {
@@ -1487,9 +1501,9 @@ class VibesBot {
                 body: JSON.stringify({
                     api_key: document.getElementById('api-key')?.value || '',
                     api_secret: document.getElementById('api-secret')?.value || '',
-                    testnet: !!document.getElementById('use-testnet')?.checked,
-                    is_testnet: !!document.getElementById('use-testnet')?.checked,
-                    use_testnet: !!document.getElementById('use-testnet')?.checked,
+                    testnet: false,
+                    is_testnet: false,
+                    use_testnet: false,
                     prediction_wallet: document.getElementById('prediction-wallet')?.value || '',
                 })
             });
@@ -1509,14 +1523,28 @@ class VibesBot {
         }
     }
     
-    async resetSimulation() {
+    async resetStats(mode) {
+        const live = mode === 'real';
         try {
-            await fetch('/api/simulation/reset', {
+            const response = await fetch('/api/stats/reset', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session_id: this.sessionId })
+                body: JSON.stringify({ mode: live ? 'real' : 'sim' })
             });
-            this.addLog('✓ Simulation reset', 'info');
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                this.addLog(data.error || 'Reset failed', 'loss');
+                return;
+            }
+            if (!live) {
+                this.tradeHistory = this.tradeHistory.filter((row) => row.live);
+                this.addLog('✓ SIM paper book reset', 'info');
+            } else {
+                this.tradeHistory = this.tradeHistory.filter((row) => !row.live);
+                this.addLog('✓ REAL stats cleared. Open Binance tickets stay.', 'info');
+            }
+            this.renderHistory();
+            await this.loadJournal();
         } catch (e) {
             this.addLog('✗ Error resetting', 'loss');
         }

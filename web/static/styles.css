@@ -496,6 +496,13 @@ body.companion-mode .stake-control { display: none; }
     text-transform: uppercase;
 }
 
+.btn-clear-feed {
+    margin-left: auto;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 510;
+}
+
 .panel-body {
     flex: 1;
     padding: 8px 16px 16px;
@@ -1263,14 +1270,24 @@ html.vb-native .header label {
     -webkit-app-region: no-drag;
 }
 
-html.vb-native .brand-icon,
-html.vb-native .brand-name,
 html.vb-native .footer,
 html.vb-native .btn-logout,
 html.vb-native .panel-icon,
 html.vb-native #pwa-install-btn,
 html.vb-native #btn-refresh {
     display: none !important;
+}
+
+html.vb-native .brand-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+}
+
+html.vb-native .brand-name {
+    display: inline;
+    font-size: 13px;
+    letter-spacing: 0.08em;
 }
 
 html.vb-native .main {

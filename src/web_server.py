@@ -190,29 +190,29 @@ class ClientSession:
                 stake_label = f"{float(trading.bet_percent):.0f}%"
         except Exception:
             stake_label = "3%"
+        from .trade_journal import read_trades, summarize_trades
+        journal = summarize_trades(read_trades(0), live=not self.simulation)
+        if journal["trades"] or not self.simulation:
+            total = journal["trades"]
+            winrate = journal["winrate"]
+            wins = journal["wins"]
+            losses = journal["losses"]
+            pnl = journal["pnl"]
+            streak = journal["streak"]
+            best_streak = journal["best_streak"]
+            worst_streak = journal["worst_streak"]
+        else:
+            wins = self.wins
+            losses = self.losses
+            pnl = self.cumulative_pnl
+            streak = self.streak
+            best_streak = self.best_streak
+            worst_streak = self.worst_streak
+        if total >= 5:
+            p = wins / total
+            kelly_pct = max(0, min(100, ((p * 0.95 - (1 - p)) / 0.95) * 100))
+        profit_factor = (wins * 0.95) / max(0.01, losses * 1.0)
         if not self.simulation:
-            from .trade_journal import read_trades, summarize_trades
-            journal = summarize_trades(read_trades(0), live=True)
-            if journal["trades"] >= total:
-                total = journal["trades"]
-                winrate = journal["winrate"]
-                wins = journal["wins"]
-                losses = journal["losses"]
-                pnl = journal["pnl"]
-                streak = journal["streak"]
-                best_streak = journal["best_streak"]
-                worst_streak = journal["worst_streak"]
-            else:
-                wins = self.wins
-                losses = self.losses
-                pnl = self.cumulative_pnl
-                streak = self.streak
-                best_streak = self.best_streak
-                worst_streak = self.worst_streak
-            if total >= 5:
-                p = wins / total
-                kelly_pct = max(0, min(100, ((p * 0.95 - (1 - p)) / 0.95) * 100))
-            profit_factor = (wins * 0.95) / max(0.01, losses * 1.0)
             capital = self.live_balance if self.live_balance is not None else max(0.0, self.initial_capital + pnl)
             return {
                 "type": "stats",
@@ -242,17 +242,17 @@ class ClientSession:
             }
         return {
             "type": "stats",
-            "capital": self.initial_capital + self.cumulative_pnl,
-            "pnl": self.cumulative_pnl,
+            "capital": self.initial_capital + pnl,
+            "pnl": pnl,
             "trades": total,
             "winrate": winrate,
-            "wins": self.wins,
-            "losses": self.losses,
+            "wins": wins,
+            "losses": losses,
             "kelly": kelly_pct,
             "stake_label": stake_label,
-            "streak": self.streak,
-            "best_streak": self.best_streak,
-            "worst_streak": self.worst_streak,
+            "streak": streak,
+            "best_streak": best_streak,
+            "worst_streak": worst_streak,
             "max_drawdown": self.max_drawdown,
             "profit_factor": profit_factor,
             "equity_history": self.equity_history[-50:],
@@ -409,7 +409,7 @@ class DashboardBot:
 
         sm = get_settings_manager()
         creds = sm.settings.binance
-        if not creds.is_configured or creds.is_testnet:
+        if not creds.is_configured:
             return self._market_book
         try:
             client = WalletPredictionClient(
@@ -445,22 +445,20 @@ class DashboardBot:
         return self.data_stream.get_last_closed_candle("5m")
 
     def _resolve_price_to_beat(self, book: Optional[Dict[str, Any]], round_number: int) -> float:
-        """Official Wallet lock when Binance sends it; else this 5m Spot open."""
+        """Binance Wallet lock only. Never a Spot candle stand-in."""
         book = book or {}
+        if self._price_to_beat_round != round_number:
+            self._price_to_beat = 0.0
+            self._price_to_beat_source = ""
+            self._price_to_beat_round = round_number
         from_book = float(book.get("price_to_beat") or 0)
         if looks_like_btc_price(from_book):
             self._price_to_beat = from_book
             self._price_to_beat_round = round_number
             self._price_to_beat_source = str(book.get("price_to_beat_source") or "wallet")
             return from_book
-        if self._price_to_beat_round == round_number and looks_like_btc_price(self._price_to_beat):
+        if looks_like_btc_price(self._price_to_beat) and self._price_to_beat_source == "wallet":
             return self._price_to_beat
-        fallback = self._five_minute_open()
-        if looks_like_btc_price(fallback):
-            self._price_to_beat = fallback
-            self._price_to_beat_round = round_number
-            self._price_to_beat_source = "spot-5m-open"
-            return fallback
         self._price_to_beat_source = ""
         return 0.0
 
@@ -496,12 +494,15 @@ class DashboardBot:
     def _today_session_stats(self, session: ClientSession) -> Dict[str, float]:
         today = datetime.now(timezone.utc).date().isoformat()
         rows = list(session.trades or [])
-        if not session.simulation:
-            try:
-                from .trade_journal import read_trades
-                rows = [row for row in read_trades(0) if row.get("live")]
-            except Exception:
-                pass
+        try:
+            from .trade_journal import read_trades
+            journal = read_trades(0)
+            if not session.simulation:
+                rows = [row for row in journal if row.get("live")]
+            else:
+                rows = [row for row in journal if not row.get("live")]
+        except Exception:
+            rows = [row for row in rows if bool(row.get("live")) == (not session.simulation)]
         pnl = 0.0
         count = 0
         seen = set()
@@ -576,12 +577,13 @@ class DashboardBot:
         """Inicia el trading solo para esta sesión."""
         session.running = True
         session.paused = False
+        mode = "SIM paper" if session.simulation else "REAL Binance"
         await self.manager.send_to_session(session.session_id, session.status_payload(
             self.predictor.is_ready if self.predictor else False
         ))
         await self.manager.send_to_session(session.session_id, {
             "type": "log",
-            "message": "Bot started - waiting for next prediction window",
+            "message": f"Bot started · {mode} · waiting for the next window",
             "level": "info"
         })
         if not session.simulation:
@@ -807,6 +809,8 @@ class DashboardBot:
         """Coloca una apuesta Wallet: paper en SIM, orden oficial en REAL."""
         if session is None:
             return
+        if session.simulation and session.pending_trade and session.pending_trade.live:
+            return
         pending = session.pending_trade
         if pending:
             if pending.live:
@@ -929,7 +933,9 @@ class DashboardBot:
             market_title = "BTC 5m Wallet (paper)"
             balance_before = 0.0
 
-            if not session.simulation:
+            if session.simulation:
+                live = False
+            elif not session.simulation:
                 creds = sm.settings.binance
                 if not creds.is_configured:
                     await self.manager.send_to_session(session.session_id, {
@@ -1026,6 +1032,13 @@ class DashboardBot:
                     })
                     return
                 fill = paper_fill(amount, edge["share_price"], fee_bps)
+                if session.simulation:
+                    await self.manager.send_to_session(session.session_id, {
+                        "type": "log",
+                        "message": "SIM blocked a live order",
+                        "level": "loss",
+                    })
+                    return
                 placed = await client.quote_and_buy(topic, signal, amount, edge["share_price"])
                 if not placed.get("success"):
                     await self.manager.send_to_session(session.session_id, {
@@ -1179,6 +1192,8 @@ class DashboardBot:
         label: str,
     ) -> bool:
         if pending.live:
+            if session.simulation:
+                return False
             client = await self._live_prediction_client(session)
             if not client or not pending.token_id:
                 return False
@@ -1220,6 +1235,8 @@ class DashboardBot:
         """Lock a markup or cut a hard fade. Otherwise show the open mark."""
         pending = session.pending_trade
         if not pending:
+            return
+        if pending.live and session.simulation:
             return
         if pending.live:
             try:
@@ -1553,9 +1570,10 @@ class DashboardBot:
         except Exception as exc:
             logger.warning(f"Price to beat unavailable: {exc}")
         await self.manager.broadcast(payload)
-        if remaining % 5 == 0:
+        need_lock = not looks_like_btc_price((self._market_book or {}).get("price_to_beat"))
+        if remaining % 5 == 0 or need_lock:
             try:
-                await self.refresh_market_book()
+                await self.refresh_market_book(force=need_lock)
             except Exception as exc:
                 logger.warning(f"Market book refresh failed: {exc}")
     
@@ -2065,6 +2083,12 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                     continue
                 
                 if action == "start":
+                    if "simulation" in data:
+                        want_sim = bool(data.get("simulation"))
+                        if is_companion or (not user.is_owner and not want_sim):
+                            want_sim = True
+                        session.simulation = want_sim
+                        bot._save_session(session)
                     await bot.start_session(session)
                 elif action == "stop":
                     await bot.stop_session(session)
@@ -2090,7 +2114,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                     if session.simulation:
                         await manager.send_to(websocket, {
                             "type": "log",
-                            "message": "Simulation account",
+                            "message": "SIM · paper only. No Binance orders.",
                             "level": "info",
                         })
                     else:
@@ -2194,22 +2218,68 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         sm = get_settings_manager()
         return await sm.fetch_live_balances()
     
+    def _reset_mode_stats(session: Optional[ClientSession], live: bool) -> int:
+        from .trade_journal import clear_trades, read_trades, summarize_trades
+        removed = clear_trades(live=live)
+        if session is None:
+            return removed
+        session.trades = [row for row in (session.trades or []) if bool(row.get("live")) != live]
+        journal = summarize_trades(read_trades(0), live=live)
+        if live:
+            if not session.simulation:
+                session.wins = 0
+                session.losses = 0
+                session.cumulative_pnl = 0.0
+                session.streak = 0
+                session.best_streak = 0
+                session.worst_streak = 0
+                session.max_drawdown = 0.0
+        else:
+            session.initial_capital = 100.0
+            if session.simulation:
+                session.reset(100.0)
+                session.wins = journal["wins"]
+                session.losses = journal["losses"]
+                session.cumulative_pnl = journal["pnl"]
+        bot._save_session(session)
+        return removed
+
     @app.post("/api/simulation/reset")
     async def reset_simulation(request: Request):
         """Reinicia la cuenta de simulación del usuario autenticado."""
         user = getattr(request.state, "user", None)
         session_id = f"user:{user.id}" if user else None
-        
-        if session_id:
-            session = bot.get_session(session_id)
-            session.reset(100.0)
-            bot._save_session(session)
-            await bot.manager.send_to_session(session_id, session.stats_payload())
-        
+        session = bot.get_session(session_id) if session_id else None
+        _reset_mode_stats(session, live=False)
         sm = get_settings_manager()
         sm.reset_simulation(100.0)
-        
+        if session:
+            from .trade_journal import read_trades
+            await bot.manager.send_to_session(session.session_id, session.stats_payload())
+            await bot.manager.send_to_session(session.session_id, {"type": "journal", "trades": read_trades(200)})
         return {"success": True, "simulation": sm.settings.simulation.to_dict()}
+
+    @app.post("/api/stats/reset")
+    async def reset_stats(request: Request):
+        """Clear SIM paper stats or REAL journal stats. Does not cancel Binance tickets."""
+        user = getattr(request.state, "user", None)
+        if not user:
+            return JSONResponse({"error": "Sign in first"}, status_code=401)
+        data = {}
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        mode = str(data.get("mode") or "sim").strip().lower()
+        live = mode in ("real", "live")
+        session = bot.get_session(f"user:{user.id}")
+        removed = _reset_mode_stats(session, live=live)
+        if not live:
+            get_settings_manager().reset_simulation(100.0)
+        await bot.manager.send_to_session(session.session_id, session.stats_payload())
+        from .trade_journal import read_trades
+        await bot.manager.send_to_session(session.session_id, {"type": "journal", "trades": read_trades(200)})
+        return {"success": True, "mode": "real" if live else "sim", "removed": removed}
     
     @app.get("/api/simulation/history")
     async def get_simulation_history():

@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.41.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.42.0">
 </head>
 <body class="auth-wait" data-view="signal">
     <div class="restart-banner" id="restart-banner">
@@ -284,6 +284,7 @@
                     <span class="panel-icon">◆</span>
                     <span class="panel-title">Live feed</span>
                     <span id="trade-count" class="trade-badge">0</span>
+                    <button class="btn btn-clear-feed" id="btn-clear-feed" type="button">Clear</button>
                 </div>
                 <div class="panel-body">
                     <!-- Active Trade Display -->
@@ -332,7 +333,7 @@
                 <span class="footer-label">Exit:</span>
                 <span id="strategy-status">Hold to settle · 90¢ / 12¢</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.41.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.42.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -390,11 +391,12 @@
                             <input type="password" id="api-secret" placeholder="Stored in Keychain" autocomplete="off">
                         </div>
                         <div class="pref-row">
-                            <label for="use-testnet">Testnet</label>
-                            <input type="checkbox" id="use-testnet">
+                            <label>Network</label>
+                            <span class="pref-static-label">Live Binance</span>
                         </div>
+                        <input type="checkbox" id="use-testnet" hidden>
                     </div>
-                    <p class="pref-foot">Leave Testnet off. Enable Prediction Trading and lock the key to this Mac IP.</p>
+                    <p class="pref-foot">Prediction is live only. Enable Prediction Trading and lock the key to this Mac IP.</p>
                     <h3 class="pref-section">Wallet</h3>
                     <div class="pref-group">
                         <div class="pref-row">
@@ -464,7 +466,9 @@
                     <div class="form-actions">
                         <button class="btn btn-primary" id="btn-save-trading" type="button">Save</button>
                         <button class="btn btn-danger" id="btn-reset-sim" type="button">Reset SIM</button>
+                        <button class="btn btn-danger" id="btn-reset-real" type="button">Reset REAL stats</button>
                     </div>
+                    <p class="pref-foot">Reset SIM restores the $100 paper book. Reset REAL stats clears the journal only — open Binance tickets stay.</p>
                 </div>
 
                 <div class="settings-panel" id="panel-signal">
@@ -564,7 +568,7 @@
                         </div>
                     </div>
                     <h3 class="pref-section">Data</h3>
-                    <p class="pref-foot">Version <span id="current-version">v1.41.0</span>. Updates pop up on their own.</p>
+                    <p class="pref-foot">Version <span id="current-version">v1.42.0</span>. Updates pop up on their own.</p>
                     <div class="form-actions">
                         <button class="btn" id="btn-export-csv" type="button">Export CSV</button>
                         <button class="btn" id="btn-export-json" type="button">Export JSON</button>
@@ -614,7 +618,7 @@
             </div>
             <div class="modal-body" style="padding:16px 20px 22px;">
                 <p class="settings-hint" style="margin-bottom:12px;">
-                    <span id="update-prompt-from">v1.41.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
+                    <span id="update-prompt-from">v1.42.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
                 </p>
                 <p id="update-prompt-notes" class="settings-hint" style="margin-bottom:16px;"></p>
                 <div class="form-actions" style="justify-content:center;">
@@ -651,6 +655,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.41.0"></script>
+    <script src="/static/app.js?v=1.42.0"></script>
 </body>
 </html>

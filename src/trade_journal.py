@@ -70,6 +70,25 @@ def summarize_trades(trades: List[Dict[str, Any]], live: Optional[bool] = None) 
     }
 
 
+def clear_trades(live: Optional[bool] = None, path: Optional[Path] = None) -> int:
+    """Drop journal rows. live=True clears REAL, False clears SIM, None clears all."""
+    target = path or journal_path()
+    rows = read_trades(0, target)
+    if live is None:
+        kept: List[Dict[str, Any]] = []
+    elif live is True:
+        kept = [row for row in rows if not row.get("live")]
+    else:
+        kept = [row for row in rows if row.get("live")]
+    removed = len(rows) - len(kept)
+    with open(target, "w", encoding="utf-8") as handle:
+        for row in kept:
+            handle.write(json.dumps(row, default=str) + "\n")
+    if target.exists():
+        chmod_private(target)
+    return removed
+
+
 def read_trades(limit: int = 100, path: Optional[Path] = None) -> List[Dict[str, Any]]:
     target = path or journal_path()
     if not target.exists():
