@@ -6,6 +6,8 @@ from src.wallet_prediction import (
     WalletPredictionClient,
     as_probability,
     clamp_bet_amount,
+    daily_loss_hit,
+    resolve_stake,
     decode_wei_to_usdt,
     encode_balance_of,
     fill_from_quote,
@@ -62,6 +64,29 @@ class WalletMathTests(unittest.TestCase):
         self.assertEqual(clamp_bet_amount(1.0), 1.5)
         self.assertEqual(clamp_bet_amount(2.0), 2.0)
         self.assertEqual(clamp_bet_amount("nope"), 1.5)
+
+    def test_percent_stake_on_a_50_dollar_book(self):
+        stake = resolve_stake(50, percent=3, mode="percent")
+        self.assertTrue(stake["ok"])
+        self.assertAlmostEqual(stake["amount"], 1.5, places=2)
+
+    def test_percent_stake_skips_a_10_dollar_book(self):
+        stake = resolve_stake(10, percent=3, mode="percent")
+        self.assertFalse(stake["ok"])
+        self.assertIn("1.50", stake["reason"])
+
+    def test_fixed_1_50_is_too_big_for_6_dollars(self):
+        stake = resolve_stake(6.59, fixed=1.5, mode="fixed")
+        self.assertFalse(stake["ok"])
+
+    def test_daily_stop_hits_20_percent(self):
+        hit, reason = daily_loss_hit(-2.1, 10, dollar_limit=5, pct_limit=20)
+        self.assertTrue(hit)
+        self.assertIn("20%", reason)
+
+    def test_daily_stop_ignores_a_small_dip(self):
+        hit, _ = daily_loss_hit(-0.40, 10, dollar_limit=5, pct_limit=20)
+        self.assertFalse(hit)
 
     def test_skips_favorite_that_pays_pennies(self):
         skip = tradable_edge(0.92, 1.5)

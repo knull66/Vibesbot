@@ -65,6 +65,17 @@ class BinanceFlagTests(unittest.TestCase):
             self.assertEqual(again.settings.trading.bet_amount, 1.5)
             self.assertEqual(again.settings.trading.max_daily_loss, 12.0)
 
+    def test_percent_stake_persists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = SettingsManager(Path(tmp))
+            manager.update_trading_settings(stake_mode="percent", bet_percent=2, daily_loss_pct=15)
+            self.assertEqual(manager.settings.trading.stake_mode, "percent")
+            self.assertEqual(manager.settings.trading.bet_percent, 2.0)
+            self.assertEqual(manager.settings.trading.daily_loss_pct, 15.0)
+            again = SettingsManager(Path(tmp))
+            self.assertEqual(again.settings.trading.bet_percent, 2.0)
+            self.assertEqual(again.settings.trading.daily_loss_pct, 15.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -36,6 +36,11 @@ SELL_SLIPPAGE_BPS = 1500
 SELL_FRACTION = 0.995
 MIN_BET_USDT = 1.5
 MAX_BET_USDT = 100.0
+DEFAULT_STAKE_MODE = "percent"
+DEFAULT_BET_PERCENT = 3.0
+MIN_BET_PERCENT = 1.0
+MAX_BET_PERCENT = 8.0
+DEFAULT_DAILY_LOSS_PCT = 20.0
 MIN_SHARE_PRICE = 0.20
 MAX_SHARE_PRICE = 0.82
 MIN_WIN_PNL_RATIO = 0.10
@@ -331,6 +336,102 @@ def clamp_bet_amount(value: Any, default: float = MIN_BET_USDT) -> float:
     if amount <= 0:
         amount = float(default)
     return min(max(amount, MIN_BET_USDT), MAX_BET_USDT)
+
+
+def clamp_bet_percent(value: Any, default: float = DEFAULT_BET_PERCENT) -> float:
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        percent = float(default)
+    if percent <= 0:
+        percent = float(default)
+    return min(max(percent, MIN_BET_PERCENT), MAX_BET_PERCENT)
+
+
+def clamp_daily_loss_pct(value: Any, default: float = DEFAULT_DAILY_LOSS_PCT) -> float:
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        percent = float(default)
+    if percent <= 0:
+        percent = float(default)
+    return min(max(percent, 5.0), 50.0)
+
+
+def resolve_stake(
+    capital: Any,
+    percent: Any = DEFAULT_BET_PERCENT,
+    fixed: Any = MIN_BET_USDT,
+    mode: Any = DEFAULT_STAKE_MODE,
+) -> Dict[str, Any]:
+    """Size a ticket as % of capital. Never more than 8%. Never below Wallet $1.50."""
+    try:
+        bank = float(capital or 0)
+    except (TypeError, ValueError):
+        bank = 0.0
+    kind = str(mode or DEFAULT_STAKE_MODE).strip().lower()
+    if kind not in ("percent", "fixed"):
+        kind = DEFAULT_STAKE_MODE
+    hard_cap = bank * (MAX_BET_PERCENT / 100.0) if bank > 0 else 0.0
+    if kind == "fixed":
+        amount = clamp_bet_amount(fixed)
+        if bank > 0 and amount > hard_cap + 1e-9:
+            need = MIN_BET_USDT / (MAX_BET_PERCENT / 100.0)
+            return {
+                "ok": False,
+                "amount": 0.0,
+                "mode": kind,
+                "reason": (
+                    f"${amount:.2f} is {amount / bank * 100:.0f}% of ${bank:.2f}. "
+                    f"Cap is {MAX_BET_PERCENT:.0f}%. Need ~${need:.0f} or pick a smaller Fixed."
+                ),
+            }
+        return {"ok": True, "amount": amount, "mode": kind, "reason": f"fixed ${amount:.2f}"}
+    pct = clamp_bet_percent(percent)
+    raw = bank * (pct / 100.0)
+    if raw + 1e-9 < MIN_BET_USDT:
+        need = MIN_BET_USDT / (pct / 100.0) if pct else 0
+        return {
+            "ok": False,
+            "amount": 0.0,
+            "mode": kind,
+            "reason": (
+                f"{pct:.0f}% of ${bank:.2f} is ${raw:.2f} < Wallet min ${MIN_BET_USDT:.2f}. "
+                f"Need ~${need:.0f} or switch to Fixed (that is a big slice of a small book)."
+            ),
+        }
+    amount = min(max(raw, MIN_BET_USDT), MAX_BET_USDT, hard_cap if hard_cap >= MIN_BET_USDT else MAX_BET_USDT)
+    amount = float(f"{amount:.2f}")
+    return {"ok": True, "amount": amount, "mode": kind, "reason": f"{pct:.0f}% of ${bank:.2f} = ${amount:.2f}"}
+
+
+def daily_loss_hit(
+    day_pnl: Any,
+    day_start: Any,
+    dollar_limit: Any = 0,
+    pct_limit: Any = DEFAULT_DAILY_LOSS_PCT,
+) -> Tuple[bool, str]:
+    try:
+        pnl = float(day_pnl or 0)
+    except (TypeError, ValueError):
+        pnl = 0.0
+    try:
+        start = float(day_start or 0)
+    except (TypeError, ValueError):
+        start = 0.0
+    try:
+        dollar = float(dollar_limit or 0)
+    except (TypeError, ValueError):
+        dollar = 0.0
+    pct = clamp_daily_loss_pct(pct_limit) if pct_limit not in (None, "") else 0.0
+    bits: List[str] = []
+    if dollar > 0 and pnl <= -dollar + 1e-9:
+        bits.append(f"daily ${pnl:.2f} hit the ${dollar:.2f} cap")
+    if pct > 0 and start > 0 and pnl <= -(start * pct / 100.0) + 1e-9:
+        bits.append(f"daily {pnl / start * 100:.0f}% hit the {pct:.0f}% stop")
+    if bits:
+        return True, " · ".join(bits)
+    return False, ""
 
 
 def normalize_share_price(value: Any, default: float = 0.5) -> float:

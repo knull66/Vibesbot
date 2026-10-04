@@ -16,7 +16,8 @@ Clona el repo público: [knull66/Vibesbot](https://github.com/knull66/Vibesbot).
 - **Señal**: mayoría de indicadores + tape (`round_signal`). El panel Strategy ajusta esos pesos. No hay LightGBM en el camino de apuesta. Umbral ~**0.50**.
 - **Filtros**: modo agresivo. Book 20–82% (un DOWN 76% sí). Solo corta 88%+ y 92¢ que pagan centavos. ≥ $3 vs Price to Beat. Señal con 2 votos (RSI solo ya cuenta).
 - **Price to Beat**: lock oficial de Wallet si Binance lo manda; si no, el open de la vela 5m de Spot (etiqueta “Est. 5m open”). Sirve para no apostar un 50/50 al inicio de ronda. REAL se liquida con Binance, no con esa línea.
-- **Circuit breaker**: 5 pérdidas seguidas pausan ~30 min. Settings de pérdida diaria y máximo de trades también cortan.
+- **Stake**: 3% del Prediction Account (tope 8%). $1.50 sobre $10 es 15% — el bot se salta si 3% no llega al mínimo de Wallet. Kelly del panel ya no es el tamaño. También puedes poner un Fixed $.
+- **Circuit breaker**: 3 pérdidas seguidas pausan ~30 min. Stop diario 20% del saldo de arranque (o el $ que pongas) pone Pause.
 - **Salida**: aguanta hasta que Binance liquide. Un +6¢ al comprar no es un win (esa comisión de ida y vuelta desangra). Solo vende un lock ≥ 90¢ (~$0.70) o un ticket muerto ≤ 12¢, y nunca en los primeros 75s.
 - **Drawdown**: en REAL el pico es el saldo de la wallet, no los $100 de SIM. Un −$1.50 sobre ~$9 es ~16%, no 92%.
 - **Updates**: popup Actualizar / Más tarde al abrir y cada ~30 min. No hay que ir a Settings.

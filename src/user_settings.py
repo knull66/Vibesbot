@@ -21,7 +21,16 @@ import aiohttp
 
 from .secret_box import chmod_private, chmod_private_dir, load_secret, persist_secret
 from .utils.logger import get_logger
-from .wallet_prediction import clamp_bet_amount, MIN_BET_USDT, resolve_preferred_address
+from .wallet_prediction import (
+    DEFAULT_BET_PERCENT,
+    DEFAULT_DAILY_LOSS_PCT,
+    DEFAULT_STAKE_MODE,
+    MIN_BET_USDT,
+    clamp_bet_amount,
+    clamp_bet_percent,
+    clamp_daily_loss_pct,
+    resolve_preferred_address,
+)
 
 logger = get_logger("user_settings")
 
@@ -171,8 +180,11 @@ class TradingSettings:
     mode: TradingMode = TradingMode.SIMULATION
     style: TradingStyle = TradingStyle.HOLD  # HOLD o ACTIVE
     symbol: str = "BTCUSDT"
-    bet_amount: float = 1.5  # USD por apuesta (Wallet min ~1.5 USDT)
-    max_daily_loss: float = 50.0  # USD
+    bet_amount: float = 1.5  # USD por apuesta si stake_mode=fixed
+    stake_mode: str = DEFAULT_STAKE_MODE
+    bet_percent: float = DEFAULT_BET_PERCENT
+    max_daily_loss: float = 5.0
+    daily_loss_pct: float = DEFAULT_DAILY_LOSS_PCT
     max_trades_per_day: int = 50
     confidence_threshold: float = 0.50  # 50% — Wallet 5m is ~50/50
     auto_trade: bool = False  # Si ejecuta trades automáticamente
@@ -187,8 +199,11 @@ class TradingSettings:
             "style": self.style.value,
             "symbol": self.symbol,
             "bet_amount": self.bet_amount,
+            "stake_mode": self.stake_mode,
+            "bet_percent": self.bet_percent,
             "max_daily_loss": self.max_daily_loss,
             "daily_loss_limit": self.max_daily_loss,
+            "daily_loss_pct": self.daily_loss_pct,
             "max_trades_per_day": self.max_trades_per_day,
             "confidence_threshold": self.confidence_threshold,
             "auto_trade": self.auto_trade,
@@ -570,7 +585,10 @@ class SettingsManager:
                     mode=TradingMode(t.get("mode", "simulation")),
                     symbol=t.get("symbol", "BTCUSDT"),
                     bet_amount=clamp_bet_amount(t.get("bet_amount", MIN_BET_USDT)),
-                    max_daily_loss=float(t.get("max_daily_loss") or t.get("daily_loss_limit") or 50.0),
+                    stake_mode=str(t.get("stake_mode") or DEFAULT_STAKE_MODE),
+                    bet_percent=clamp_bet_percent(t.get("bet_percent", DEFAULT_BET_PERCENT)),
+                    max_daily_loss=float(t.get("max_daily_loss") or t.get("daily_loss_limit") or 5.0),
+                    daily_loss_pct=clamp_daily_loss_pct(t.get("daily_loss_pct", DEFAULT_DAILY_LOSS_PCT)),
                     max_trades_per_day=t.get("max_trades_per_day", 50),
                     confidence_threshold=effective_confidence_threshold(
                         t.get("confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD)
@@ -685,6 +703,13 @@ class SettingsManager:
             mapped["mode"] = TradingMode(mapped["mode"])
         if "bet_amount" in mapped:
             mapped["bet_amount"] = clamp_bet_amount(mapped["bet_amount"])
+        if "bet_percent" in mapped:
+            mapped["bet_percent"] = clamp_bet_percent(mapped["bet_percent"])
+        if "daily_loss_pct" in mapped:
+            mapped["daily_loss_pct"] = clamp_daily_loss_pct(mapped["daily_loss_pct"])
+        if "stake_mode" in mapped:
+            mode = str(mapped.get("stake_mode") or DEFAULT_STAKE_MODE).strip().lower()
+            mapped["stake_mode"] = mode if mode in ("percent", "fixed") else DEFAULT_STAKE_MODE
         if "confidence_threshold" in mapped:
             mapped["confidence_threshold"] = effective_confidence_threshold(mapped["confidence_threshold"])
         if "max_daily_loss" in mapped:

@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.36.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.37.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -67,6 +67,14 @@
                     <span class="mode-indicator sim" id="mode-label">SIM</span>
                     <div class="mode-toggle simulation" id="mode-toggle" title="Toggle SIM/REAL"></div>
                 </div>
+                <label class="stake-control" title="Percent of the live book, or a fixed USDT size">
+                    <span class="stake-label">STAKE</span>
+                    <select id="header-stake-mode" aria-label="Stake mode">
+                        <option value="percent">%</option>
+                        <option value="fixed">$</option>
+                    </select>
+                    <input id="header-stake-value" type="text" inputmode="decimal" value="3" autocomplete="off" spellcheck="false">
+                </label>
                 
                 <button class="btn btn-start" id="btn-start">Start</button>
                 <button class="btn btn-pause" id="btn-pause" disabled>Pause</button>
@@ -224,8 +232,8 @@
                             <div class="stat-label">WORST</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value" id="stat-kelly">--%</div>
-                            <div class="stat-label">KELLY</div>
+                            <div class="stat-value" id="stat-kelly">3%</div>
+                            <div class="stat-label">STAKE</div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-value" id="stat-profit-factor">--</div>
@@ -319,7 +327,7 @@
                 <span class="footer-label">Exit:</span>
                 <span id="strategy-status">Hold to settle · 90¢ / 12¢</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.36.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.37.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -388,18 +396,34 @@
                         <h3>TRADING PARAMETERS</h3>
                         
                         <div class="form-group">
-                            <label for="bet-amount">BET AMOUNT ($)</label>
-                            <input type="number" id="bet-amount" value="1.50" min="1.5" step="0.1">
+                            <label for="stake-mode">STAKE MODE</label>
+                            <select id="stake-mode">
+                                <option value="percent">Percent of capital (safer)</option>
+                                <option value="fixed">Fixed USDT</option>
+                            </select>
                         </div>
-                        <p class="settings-hint">SIM and REAL. Min $1.50. Bets 20–82¢. Holds to Binance settle. Does not scalp the +6¢ bounce after entry.</p>
+                        <div class="form-group">
+                            <label for="bet-percent">STAKE % OF BOOK</label>
+                            <input type="text" id="bet-percent" inputmode="decimal" value="3" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="bet-amount">FIXED AMOUNT ($)</label>
+                            <input type="text" id="bet-amount" inputmode="decimal" value="1.50" autocomplete="off">
+                        </div>
+                        <p class="settings-hint">Default is 3% of the live Prediction Account (or SIM book). Wallet min is $1.50 — if 3% is below that, the bot skips instead of betting 15%+ of a $10 book. Cap is 8% per ticket. Type any size you want in Fixed.</p>
                         <div class="form-group">
                             <label for="confidence-threshold">MIN CONFIDENCE (%)</label>
                             <input type="number" id="confidence-threshold" value="50" min="50" max="99">
                         </div>
                         <div class="form-group">
-                            <label for="daily-loss-limit">DAILY LOSS LIMIT ($)</label>
-                            <input type="number" id="daily-loss-limit" value="20" min="1">
+                            <label for="daily-loss-pct">DAILY STOP (%)</label>
+                            <input type="text" id="daily-loss-pct" inputmode="decimal" value="20" autocomplete="off">
                         </div>
+                        <div class="form-group">
+                            <label for="daily-loss-limit">DAILY STOP ($)</label>
+                            <input type="text" id="daily-loss-limit" inputmode="decimal" value="5" autocomplete="off">
+                        </div>
+                        <p class="settings-hint">Hits either stop → Pause. 20% of a $10 day-start is $2. Three losses in a row also pause ~30 min.</p>
                         
                         <div class="sim-stats" style="margin-top:16px;">
                             <div class="sim-stat">
@@ -503,7 +527,7 @@
                         </div>
                         <div class="update-status" id="password-status"></div>
                         <h3 style="margin-top:20px;">APP</h3>
-                        <p class="settings-hint">Version <span id="current-version">v1.36.0</span>. If a new build is out, a popup asks you to update — no need to hunt in Settings.</p>
+                        <p class="settings-hint">Version <span id="current-version">v1.37.0</span>. If a new build is out, a popup asks you to update — no need to hunt in Settings.</p>
                         <div class="form-actions">
                             <button class="btn" id="btn-export-csv">CSV</button>
                             <button class="btn" id="btn-export-json">JSON</button>
@@ -557,7 +581,7 @@
             </div>
             <div class="modal-body" style="padding:16px 20px 22px;">
                 <p class="settings-hint" style="margin-bottom:12px;">
-                    <span id="update-prompt-from">v1.36.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
+                    <span id="update-prompt-from">v1.37.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
                 </p>
                 <p id="update-prompt-notes" class="settings-hint" style="margin-bottom:16px;"></p>
                 <div class="form-actions" style="justify-content:center;">
@@ -594,6 +618,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.36.0"></script>
+    <script src="/static/app.js?v=1.37.0"></script>
 </body>
 </html>

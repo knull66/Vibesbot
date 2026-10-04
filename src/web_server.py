@@ -36,7 +36,9 @@ from .wallet_prediction import (
     PendingWalletTrade,
     WalletPredictionClient,
     clamp_bet_amount,
+    daily_loss_hit,
     fetch_spot_top_of_book,
+    resolve_stake,
     fill_from_quote,
     looks_like_btc_price,
     market_book,
@@ -174,6 +176,15 @@ class ClientSession:
             p = self.wins / total
             kelly_pct = max(0, min(100, ((p * 0.95 - (1 - p)) / 0.95) * 100))
         profit_factor = (self.wins * 0.95) / max(0.01, self.losses * 1.0)
+        try:
+            from .user_settings import get_settings_manager
+            trading = get_settings_manager().settings.trading
+            if str(getattr(trading, "stake_mode", "percent")) == "fixed":
+                stake_label = f"${float(trading.bet_amount):.2f}"
+            else:
+                stake_label = f"{float(trading.bet_percent):.0f}%"
+        except Exception:
+            stake_label = "3%"
         if not self.simulation:
             capital = self.live_balance if self.live_balance is not None else max(0.0, self.initial_capital + self.cumulative_pnl)
             return {
@@ -185,6 +196,7 @@ class ClientSession:
                 "wins": self.wins,
                 "losses": self.losses,
                 "kelly": kelly_pct,
+                "stake_label": stake_label,
                 "streak": self.streak,
                 "best_streak": self.best_streak,
                 "worst_streak": self.worst_streak,
@@ -208,6 +220,7 @@ class ClientSession:
             "wins": self.wins,
             "losses": self.losses,
             "kelly": kelly_pct,
+            "stake_label": stake_label,
             "streak": self.streak,
             "best_streak": self.best_streak,
             "worst_streak": self.worst_streak,
@@ -449,6 +462,31 @@ class DashboardBot:
                     pass
                 count += 1
         return {"pnl": pnl, "count": count}
+
+    def _session_equity(self, session: ClientSession) -> float:
+        if not session.simulation and session.live_balance is not None:
+            return float(session.live_balance)
+        return float(session.initial_capital + session.cumulative_pnl)
+
+    async def _halt_if_daily_loss(self, session: ClientSession, trading: Any) -> bool:
+        day = self._today_session_stats(session)
+        start = self._session_equity(session) - float(day["pnl"])
+        hit, reason = daily_loss_hit(
+            day["pnl"],
+            start,
+            getattr(trading, "max_daily_loss", 0),
+            getattr(trading, "daily_loss_pct", 20),
+        )
+        if not hit:
+            return False
+        session.paused = True
+        await self.manager.send_to_session(session.session_id, session.status_payload(True))
+        await self.manager.send_to_session(session.session_id, {
+            "type": "log",
+            "message": f"PAUSE: {reason}. Start again tomorrow or raise the daily stop.",
+            "level": "loss",
+        })
+        return True
     
     async def _data_loop(self):
         """Loop que siempre envía datos de mercado, incluso sin trading."""
@@ -748,16 +786,23 @@ class DashboardBot:
                 })
                 return
 
-            amount = clamp_bet_amount(sm.settings.trading.bet_amount)
-            day = self._today_session_stats(session)
-            max_loss = float(sm.settings.trading.max_daily_loss or 0)
-            if max_loss > 0 and day["pnl"] <= -max_loss:
+            if await self._halt_if_daily_loss(session, sm.settings.trading):
+                return
+            stake = resolve_stake(
+                self._session_equity(session),
+                percent=sm.settings.trading.bet_percent,
+                fixed=sm.settings.trading.bet_amount,
+                mode=sm.settings.trading.stake_mode,
+            )
+            if not stake.get("ok"):
                 await self.manager.send_to_session(session.session_id, {
                     "type": "log",
-                    "message": f"SKIP: daily loss ${day['pnl']:.2f} hit the ${max_loss:.2f} Settings limit",
+                    "message": f"SKIP: {stake.get('reason') or 'stake too large for this book'}",
                     "level": "info",
                 })
                 return
+            amount = clamp_bet_amount(stake.get("amount"))
+            day = self._today_session_stats(session)
             max_trades = int(sm.settings.trading.max_trades_per_day or 0)
             if max_trades > 0 and day["count"] >= max_trades:
                 await self.manager.send_to_session(session.session_id, {
@@ -1248,6 +1293,11 @@ class DashboardBot:
                     "message": tripped,
                     "level": "info",
                 })
+        try:
+            from .user_settings import get_settings_manager
+            await self._halt_if_daily_loss(session, get_settings_manager().settings.trading)
+        except Exception:
+            pass
         try:
             from .strategy_manager import get_strategy_manager
             if result in ("WIN", "LOSS"):

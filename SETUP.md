@@ -63,8 +63,14 @@ Empieza en SIM. Pasa a REAL solo cuando el feed SIM y el book de Binance coincid
 **wallet/list vacío / -2015**  
 Enable Prediction Trading + IP de este Mac. Testnet no tiene Wallet Prediction.
 
+**No me deja cambiar la apuesta / se queda en $1.50**  
+v1.37: STAKE en el header. `%` = 1–8% del saldo. `$` = Fixed. Enter o blur guarda. REAL mínimo $1.50.
+
 **Apuesta $1.50 con Settings en $1**  
 El mínimo de Wallet es 1.50; la app lo sube.
+
+**Con $10 el bot no apuesta**  
+3% de $10 es $0.30 < $1.50. Añade fondos (~$50 para 3%) o pasa a Fixed sabiendo que $1.50 es un 15% del libro.
 
 **Muchos SKIP**  
 Solo corta favoritos 85¢+ / lotto 15¢ y un 50/50 plano vs el lock. Un DOWN 71–76% sí se apuesta.

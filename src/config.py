@@ -65,7 +65,7 @@ class RiskConfig:
     max_daily_loss: float = 20.0
     max_daily_loss_percent: float = 0.20
     
-    circuit_breaker_consecutive_losses: int = 5
+    circuit_breaker_consecutive_losses: int = 3
     circuit_breaker_cooldown_minutes: int = 30
     
     min_volatility_threshold: float = 0.0005

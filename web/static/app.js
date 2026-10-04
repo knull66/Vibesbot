@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.36.0';
+const APP_VERSION = '1.37.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -153,7 +153,8 @@ class VibesBot {
         });
         
         // Save buttons
-        document.getElementById('btn-save-trading')?.addEventListener('click', () => this.saveTradingSettings());
+        document.getElementById('btn-save-trading')?.addEventListener('click', () => this.saveTradingSettings({withStrategy: true}));
+        this.bindStakeInputs();
         document.getElementById('btn-save-binance')?.addEventListener('click', () => this.saveBinanceSettings());
         document.getElementById('btn-test-api')?.addEventListener('click', () => this.testApi());
         document.getElementById('btn-reset-sim')?.addEventListener('click', () => this.resetSimulation());
@@ -786,7 +787,7 @@ class VibesBot {
         if (worstEl) worstEl.textContent = data.worst_streak || 0;
         
         const kellyEl = document.getElementById('stat-kelly');
-        if (kellyEl) kellyEl.textContent = (data.kelly || 0).toFixed(1) + '%';
+        if (kellyEl) kellyEl.textContent = data.stake_label || (data.kelly || 0).toFixed(1) + '%';
         
         const pfEl = document.getElementById('stat-profit-factor');
         if (pfEl) pfEl.textContent = (data.profit_factor || 0).toFixed(2);
@@ -1249,43 +1250,104 @@ class VibesBot {
     
     applyTradingSettings(trading) {
         if (!trading) return;
-        const betEl = document.getElementById('bet-amount');
-        if (betEl && trading.bet_amount != null) {
-            betEl.value = Number(trading.bet_amount).toFixed(2);
+        const focused = document.activeElement && document.activeElement.id;
+        const mode = trading.stake_mode === 'fixed' ? 'fixed' : 'percent';
+        const setIfIdle = (id, value) => {
+            const el = document.getElementById(id);
+            if (el && focused !== id) el.value = value;
+        };
+        setIfIdle('stake-mode', mode);
+        setIfIdle('header-stake-mode', mode);
+        if (trading.bet_percent != null) setIfIdle('bet-percent', String(Number(trading.bet_percent)));
+        if (trading.bet_amount != null) setIfIdle('bet-amount', Number(trading.bet_amount).toFixed(2));
+        const header = document.getElementById('header-stake-value');
+        if (header && focused !== 'header-stake-value') {
+            header.value = mode === 'fixed'
+                ? Number(trading.bet_amount || 1.5).toFixed(2)
+                : String(Number(trading.bet_percent || 3));
         }
         const confEl = document.getElementById('confidence-threshold');
-        if (confEl && trading.confidence_threshold != null) {
+        if (confEl && trading.confidence_threshold != null && focused !== 'confidence-threshold') {
             confEl.value = Math.round(Number(trading.confidence_threshold) * 100);
         }
         const lossEl = document.getElementById('daily-loss-limit');
         const loss = trading.max_daily_loss ?? trading.daily_loss_limit;
-        if (lossEl && loss != null) {
+        if (lossEl && loss != null && focused !== 'daily-loss-limit') {
             lossEl.value = Number(loss);
         }
+        if (trading.daily_loss_pct != null) setIfIdle('daily-loss-pct', String(Number(trading.daily_loss_pct)));
     }
 
-    async saveTradingSettings() {
-        const rawBet = parseFloat(document.getElementById('bet-amount')?.value || 1.5);
-        const settings = {
-            bet_amount: Math.max(1.5, rawBet || 1.5),
-            confidence_threshold: parseFloat(document.getElementById('confidence-threshold')?.value || 50) / 100,
-            daily_loss_limit: parseFloat(document.getElementById('daily-loss-limit')?.value || 20),
-            max_daily_loss: parseFloat(document.getElementById('daily-loss-limit')?.value || 20)
+    bindStakeInputs() {
+        const syncMode = (value) => {
+            const mode = value === 'fixed' ? 'fixed' : 'percent';
+            const headerMode = document.getElementById('header-stake-mode');
+            const settingsMode = document.getElementById('stake-mode');
+            if (headerMode) headerMode.value = mode;
+            if (settingsMode) settingsMode.value = mode;
+            const header = document.getElementById('header-stake-value');
+            if (header && document.activeElement !== header) {
+                header.value = mode === 'fixed'
+                    ? (document.getElementById('bet-amount')?.value || '1.50')
+                    : (document.getElementById('bet-percent')?.value || '3');
+            }
         };
-        
+        document.getElementById('header-stake-mode')?.addEventListener('change', (e) => {
+            syncMode(e.target.value);
+            this.saveTradingSettings();
+        });
+        document.getElementById('stake-mode')?.addEventListener('change', (e) => {
+            syncMode(e.target.value);
+            this.saveTradingSettings();
+        });
+        ['header-stake-value', 'bet-amount', 'bet-percent', 'daily-loss-limit', 'daily-loss-pct'].forEach((id) => {
+            const el = document.getElementById(id);
+            el?.addEventListener('focus', () => el.select());
+            el?.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    el.blur();
+                }
+            });
+            el?.addEventListener('blur', () => this.saveTradingSettings());
+        });
+    }
+
+    async saveTradingSettings(opts = {}) {
+        const modeEl = document.getElementById('header-stake-mode') || document.getElementById('stake-mode');
+        const mode = modeEl?.value === 'fixed' ? 'fixed' : 'percent';
+        const headerRaw = document.getElementById('header-stake-value')?.value;
+        let percent = parseFloat(document.getElementById('bet-percent')?.value || 3);
+        let fixed = parseFloat(document.getElementById('bet-amount')?.value || 1.5);
+        const headerNum = parseFloat(String(headerRaw || '').replace(',', '.'));
+        if (Number.isFinite(headerNum) && headerNum > 0) {
+            if (mode === 'fixed') fixed = headerNum;
+            else percent = headerNum;
+        }
+        const settings = {
+            stake_mode: mode,
+            bet_percent: percent,
+            bet_amount: fixed,
+            confidence_threshold: parseFloat(document.getElementById('confidence-threshold')?.value || 50) / 100,
+            daily_loss_limit: parseFloat(document.getElementById('daily-loss-limit')?.value || 5),
+            max_daily_loss: parseFloat(document.getElementById('daily-loss-limit')?.value || 5),
+            daily_loss_pct: parseFloat(document.getElementById('daily-loss-pct')?.value || 20),
+        };
         try {
             const response = await fetch('/api/settings/trading', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
             });
-            
-            if (response.ok) {
-                const payload = await response.json();
-                this.applyTradingSettings(payload.settings || settings);
-                await this.saveStrategy();
-                this.addLog('✓ Trading settings saved for SIM and REAL', 'info');
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                this.addLog(err.error || 'Could not save stake', 'loss');
+                return;
             }
+            const payload = await response.json();
+            this.applyTradingSettings(payload.settings || settings);
+            if (opts.withStrategy) await this.saveStrategy();
+            this.addLog('✓ Stake saved for SIM and REAL', 'info');
         } catch (e) {
             this.addLog('✗ Error saving settings', 'loss');
         }
