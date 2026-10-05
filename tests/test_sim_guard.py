@@ -36,6 +36,16 @@ class JournalResetTests(unittest.TestCase):
         self.assertEqual(sim["trades"], 1)
         self.assertAlmostEqual(sim["pnl"], 2.0)
 
+    def test_profit_factor_uses_dollars_not_win_count(self):
+        self._row(True, "WIN", 0.20)
+        self._row(True, "WIN", 0.20)
+        self._row(True, "LOSS", -1.50)
+        real = summarize_trades(read_trades(0, self.path), live=True)
+        self.assertAlmostEqual(real["pnl"], -1.10)
+        self.assertAlmostEqual(real["profit_factor"], 0.40 / 1.50, places=2)
+        fake = (2 * 0.95) / 1.0
+        self.assertNotAlmostEqual(real["profit_factor"], fake, places=2)
+
     def test_clear_sim_keeps_real(self):
         self._row(True, "WIN", 3.0)
         self._row(False, "LOSS", -1.0)
@@ -68,6 +78,11 @@ class SimStartPayloadTests(unittest.TestCase):
         self.assertIn("action: 'start', simulation: !!this.isSimulation", js)
         self.assertIn("SIM blocked a live order", Path(__file__).resolve().parents[1].joinpath("src/web_server.py").read_text())
         self.assertIn("Reset REAL stats", Path(__file__).resolve().parents[1].joinpath("web/templates/index.html").read_text())
+        html = Path(__file__).resolve().parents[1].joinpath("web/templates/index.html").read_text()
+        self.assertIn("VS START", html)
+        server = Path(__file__).resolve().parents[1].joinpath("src/web_server.py").read_text()
+        self.assertIn("wallet_start", server)
+        self.assertIn("journal.get(\"profit_factor\")", server)
 
 
 class PriceToBeatUiTests(unittest.TestCase):

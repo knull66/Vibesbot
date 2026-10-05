@@ -31,6 +31,8 @@ def summarize_trades(trades: List[Dict[str, Any]], live: Optional[bool] = None) 
     wins = 0
     losses = 0
     pnl = 0.0
+    gross_profit = 0.0
+    gross_loss = 0.0
     streak = 0
     best = 0
     worst = 0
@@ -47,6 +49,10 @@ def summarize_trades(trades: List[Dict[str, Any]], live: Optional[bool] = None) 
         except (TypeError, ValueError):
             change = 0.0
         pnl += change
+        if change > 0:
+            gross_profit += change
+        elif change < 0:
+            gross_loss += abs(change)
         if result == "WIN":
             wins += 1
             streak = streak + 1 if streak >= 0 else 1
@@ -58,6 +64,7 @@ def summarize_trades(trades: List[Dict[str, Any]], live: Optional[bool] = None) 
         best = max(best, streak)
         worst = min(worst, streak)
     total = wins + losses
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 1e-9 else (gross_profit if gross_profit else 0.0)
     return {
         "wins": wins,
         "losses": losses,
@@ -67,6 +74,9 @@ def summarize_trades(trades: List[Dict[str, Any]], live: Optional[bool] = None) 
         "streak": streak,
         "best_streak": best,
         "worst_streak": worst,
+        "gross_profit": round(gross_profit, 4),
+        "gross_loss": round(gross_loss, 4),
+        "profit_factor": profit_factor,
     }
 
 

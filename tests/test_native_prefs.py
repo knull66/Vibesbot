@@ -8,9 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 class NativePrefsTests(unittest.TestCase):
     def test_version_is_current(self):
         version = (ROOT / "VERSION").read_text().strip()
-        self.assertEqual(version, "1.44.0")
+        self.assertEqual(version, "1.45.0")
         app_js = (ROOT / "web" / "static" / "app.js").read_text()
-        self.assertIn("const APP_VERSION = '1.44.0'", app_js)
+        self.assertIn("const APP_VERSION = '1.45.0'", app_js)
 
     def test_settings_is_sidebar_prefs(self):
         html = (ROOT / "web" / "templates" / "index.html").read_text()

@@ -43,6 +43,7 @@ from src.wallet_prediction import (
     topic_start_price,
     cut_loss_ready,
     live_equity_baseline,
+    side_still_winning,
     take_profit_ready,
     tradable_edge,
     unwrap_prediction_payload,
@@ -782,6 +783,16 @@ class TakeProfitTests(unittest.TestCase):
     def test_small_dip_is_not_a_cut(self):
         ok, _, _ = cut_loss_ready(0.60, 0.55, 2.5, 1.53, 90, held_seconds=90)
         self.assertFalse(ok)
+
+    def test_does_not_cut_up_while_btc_is_above_lock(self):
+        ok, reason, _ = cut_loss_ready(
+            0.49, 0.10, 3.0, 1.53, 90, held_seconds=90,
+            live_price=85890.01, lock_price=85882.01, signal="UP",
+        )
+        self.assertFalse(ok)
+        self.assertIn("btc still on side", reason)
+        self.assertTrue(side_still_winning("UP", 85890.01, 85882.01))
+        self.assertFalse(side_still_winning("UP", 85800.00, 85882.01))
 
     def test_paper_peak_is_not_a_92_percent_crash(self):
         healed = live_equity_baseline(7.92, -1.50, 100.0)

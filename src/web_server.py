@@ -150,6 +150,9 @@ class ClientSession:
     live_available: float = 0.0
     live_open_value: float = 0.0
     pending_trade: Optional[PendingWalletTrade] = None
+    wallet_start: float = 0.0
+    wallet_day: str = ""
+    wallet_day_start: float = 0.0
     
     def reset(self, capital: float = 100.0):
         self.wins = 0
@@ -214,9 +217,14 @@ class ClientSession:
         if total >= 5:
             p = wins / total
             kelly_pct = max(0, min(100, ((p * 0.95 - (1 - p)) / 0.95) * 100))
-        profit_factor = (wins * 0.95) / max(0.01, losses * 1.0)
+        profit_factor = float(journal.get("profit_factor") or 0)
+        if not (journal["trades"] or not self.simulation):
+            profit_factor = (wins * 0.95) / max(0.01, losses * 1.0)
         if not self.simulation:
             capital = self.live_balance if self.live_balance is not None else max(0.0, self.initial_capital + pnl)
+            start = float(getattr(self, "wallet_start", 0) or 0)
+            if start > 1:
+                pnl = capital - start
             return {
                 "type": "stats",
                 "capital": capital,
@@ -397,6 +405,7 @@ class DashboardBot:
         except Exception as exc:
             logger.warning(f"Open position value failed: {exc}")
         session.live_balance = session.live_available + session.live_open_value
+        self._sync_wallet_anchors(session)
         healed = live_equity_baseline(session.live_balance, session.cumulative_pnl, session.max_equity)
         if healed:
             peak, drawdown = healed
@@ -521,6 +530,25 @@ class DashboardBot:
                 return float(price)
         return 0.0
 
+    def _sync_wallet_anchors(self, session: ClientSession) -> None:
+        """Pin REAL P&L and the daily stop to the live Binance wallet, not the journal."""
+        bal = float(session.live_balance or 0)
+        if bal <= 0:
+            return
+        today = datetime.now(timezone.utc).date().isoformat()
+        if str(getattr(session, "wallet_day", "") or "") != today:
+            session.wallet_day = today
+            session.wallet_day_start = bal
+        start = float(getattr(session, "wallet_start", 0) or 0)
+        if start <= 1 or start >= 90:
+            hist0 = 0.0
+            if session.equity_history:
+                try:
+                    hist0 = float(session.equity_history[0] or 0)
+                except (TypeError, ValueError):
+                    hist0 = 0.0
+            session.wallet_start = hist0 if 1 < hist0 < 90 else bal
+
     def _today_session_stats(self, session: ClientSession) -> Dict[str, float]:
         today = datetime.now(timezone.utc).date().isoformat()
         rows = list(session.trades or [])
@@ -538,7 +566,8 @@ class DashboardBot:
         seen = set()
         for row in rows:
             stamp = str(row.get("timestamp") or "")
-            if not stamp.startswith(today):
+            day = stamp[:10]
+            if day != today:
                 continue
             key = str(row.get("order_id") or f"{stamp}:{row.get('direction')}:{row.get('pnl')}")
             if key in seen:
@@ -553,6 +582,9 @@ class DashboardBot:
 
     def _session_equity(self, session: ClientSession) -> float:
         if not session.simulation:
+            day_start = float(getattr(session, "wallet_day_start", 0) or 0)
+            if day_start > 0:
+                return day_start
             available = float(getattr(session, "live_available", 0) or 0)
             if available > 0:
                 return available
@@ -561,8 +593,13 @@ class DashboardBot:
         return float(session.initial_capital + session.cumulative_pnl)
 
     async def _halt_if_daily_loss(self, session: ClientSession, trading: Any) -> bool:
-        day = self._today_session_stats(session)
-        start = self._session_equity(session) - float(day["pnl"])
+        if not session.simulation and session.live_balance is not None:
+            start = float(getattr(session, "wallet_day_start", 0) or 0) or float(session.live_balance)
+            day_pnl = float(session.live_balance) - start
+            day = {"pnl": day_pnl, "count": 0}
+        else:
+            day = self._today_session_stats(session)
+            start = self._session_equity(session) - float(day["pnl"])
         hit, reason = daily_loss_hit(
             day["pnl"],
             start,
@@ -1302,6 +1339,9 @@ class DashboardBot:
             ok, reason, pnl = cut_loss_ready(
                 pending.share_price, mark, pending.shares, pending.cost, seconds_left,
                 held_seconds=held,
+                live_price=self._live_btc_price(book),
+                lock_price=pending.open_price or (book or {}).get("price_to_beat"),
+                signal=pending.signal,
             )
             label = "CUT LOSS"
         if not ok:
@@ -1437,7 +1477,7 @@ class DashboardBot:
             drawdown = ((session.max_equity - current_equity) / session.max_equity) * 100
             session.max_drawdown = max(session.max_drawdown, drawdown)
         session.trades.append({
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "direction": pending.signal,
             "amount": pending.stake,
             "entry_price": pending.open_price,
@@ -1452,7 +1492,7 @@ class DashboardBot:
         session.pending_trade = None
         await self.manager.send_to_session(session.session_id, {
             "type": "trade",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "direction": pending.signal,
             "amount": pending.stake,
             "entry_price": pending.open_price,
@@ -1476,7 +1516,7 @@ class DashboardBot:
         try:
             from .trade_journal import append_trade
             append_trade({
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "session_id": session.session_id,
                 "direction": pending.signal,
                 "amount": pending.stake,
@@ -1633,6 +1673,9 @@ class DashboardBot:
             session.max_drawdown = data.get("max_drawdown", 0.0)
             session.max_equity = data.get("max_equity", 100.0)
             session.initial_capital = data.get("initial_capital", 100.0)
+            session.wallet_start = float(data.get("wallet_start") or 0.0)
+            session.wallet_day = str(data.get("wallet_day") or "")
+            session.wallet_day_start = float(data.get("wallet_day_start") or 0.0)
             session.simulation = data.get("simulation", True)
             session.pending_trade = pending_trade_from_dict(data.get("pending_trade"))
         except Exception as e:
@@ -1653,6 +1696,9 @@ class DashboardBot:
                     "max_drawdown": session.max_drawdown,
                     "max_equity": session.max_equity,
                     "initial_capital": session.initial_capital,
+                    "wallet_start": getattr(session, "wallet_start", 0.0),
+                    "wallet_day": getattr(session, "wallet_day", ""),
+                    "wallet_day_start": getattr(session, "wallet_day_start", 0.0),
                     "simulation": session.simulation,
                     "pending_trade": session.pending_trade.to_dict() if session.pending_trade else None,
                     "last_updated": datetime.now().isoformat(),
@@ -2268,6 +2314,10 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
                 session.best_streak = 0
                 session.worst_streak = 0
                 session.max_drawdown = 0.0
+                if session.live_balance:
+                    session.wallet_start = float(session.live_balance)
+                    session.wallet_day_start = float(session.live_balance)
+                    session.wallet_day = datetime.now(timezone.utc).date().isoformat()
         else:
             session.initial_capital = 100.0
             if session.simulation:

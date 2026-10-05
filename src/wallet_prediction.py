@@ -572,6 +572,20 @@ def take_profit_ready(
     return True, f"TAKE PROFIT +${pnl:.2f} @ {mark_px:.2f} (in {entry_px:.2f})", pnl
 
 
+def side_still_winning(signal: Any, live_price: Any, lock_price: Any) -> bool:
+    """True when BTC vs Binance lock still agrees with the open ticket."""
+    if not looks_like_btc_price(live_price) or not looks_like_btc_price(lock_price):
+        return False
+    live = float(live_price)
+    lock = float(lock_price)
+    side = str(signal or "").upper()
+    if side == "UP":
+        return live >= lock
+    if side == "DOWN":
+        return live <= lock
+    return False
+
+
 def cut_loss_ready(
     entry: Any,
     mark: Any,
@@ -580,8 +594,13 @@ def cut_loss_ready(
     seconds_left: float,
     fee_bps: int = DEFAULT_FEE_BPS,
     held_seconds: float = 0.0,
+    live_price: Any = None,
+    lock_price: Any = None,
+    signal: Any = None,
 ) -> Tuple[bool, str, float]:
-    """Dump only a dead ticket. A −12¢ dip is noise on a 5m book."""
+    """Dump only a dead ticket. Never cut while BTC is still on our side of the lock."""
+    if side_still_winning(signal, live_price, lock_price):
+        return False, "btc still on side", 0.0
     if float(held_seconds or 0) < EXIT_MIN_HOLD_SECONDS:
         return False, "hold after entry", 0.0
     if float(seconds_left or 0) < CUT_LOSS_MIN_SECONDS:
