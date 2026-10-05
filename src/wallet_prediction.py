@@ -17,8 +17,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -972,6 +974,40 @@ def topic_winning_signal(topic: Dict[str, Any]) -> str:
     return ""
 
 
+def title_window_minutes(text: Any) -> float:
+    """Parse '8:00PM-8:05PM ET' / '3PM-3:05PM' into duration minutes."""
+    match = re.search(
+        r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:[-–]|to)\s*(\d{1,2}):(\d{2})\s*(am|pm)",
+        str(text or ""),
+        re.I,
+    )
+    if not match:
+        return 0.0
+
+    def _minutes(hour: str, minute: str, ampm: str) -> int:
+        hour_i = int(hour)
+        minute_i = int(minute or 0)
+        stamp = ampm.lower()
+        if stamp == "pm" and hour_i != 12:
+            hour_i += 12
+        if stamp == "am" and hour_i == 12:
+            hour_i = 0
+        return hour_i * 60 + minute_i
+
+    start = _minutes(match.group(1), match.group(2), match.group(3))
+    end = _minutes(match.group(4), match.group(5), match.group(6))
+    if end < start:
+        end += 24 * 60
+    return float(end - start)
+
+
+def is_btc_up_or_down(topic: Dict[str, Any]) -> bool:
+    text = f"{topic.get('slug') or ''} {topic.get('title') or ''}".lower()
+    symbol = str(topic.get("symbol") or "").upper()
+    is_btc = symbol == "BTCUSDT" or "btc" in text or "bitcoin" in text
+    return is_btc and "up" in text and "down" in text
+
+
 def is_btc_short_window(topic: Dict[str, Any], minutes: int = 5) -> bool:
     slug = str(topic.get("slug") or "").lower()
     title = str(topic.get("title") or "").lower()
@@ -984,13 +1020,18 @@ def is_btc_short_window(topic: Dict[str, Any], minutes: int = 5) -> bool:
         or f"{minutes} min" in text
         or f"{minutes}min" in text
         or f"{minutes}-min" in text
+        or "updown-5m" in text
+        or "up-or-down-5m" in text
     )
     if any(marker in text for marker in ("1h", "2h", "4h", "12h", "15m", "30m", "1 hour", "hourly", "daily")):
         return False
     duration = topic_duration_minutes(topic)
     if duration and not (float(minutes) - 1.5 <= duration <= float(minutes) + 1.5):
         return False
-    return is_btc and (window or (3.5 <= duration <= 6.5))
+    clock = title_window_minutes(text)
+    if clock and not (float(minutes) - 1.5 <= clock <= float(minutes) + 1.5):
+        return False
+    return is_btc and (window or (3.5 <= duration <= 6.5) or (3.5 <= clock <= 6.5))
 
 
 def pick_active_btc_window(topics: List[Any], minutes: int = 5, now_ms: Optional[int] = None) -> Optional[Dict[str, Any]]:
@@ -1249,6 +1290,22 @@ def resolve_cached_lock(cache: Dict[str, Any], book: Optional[Dict[str, Any]]) -
 
     if looks_like_btc_price(from_book):
         source = str(book.get("price_to_beat_source") or "wallet")
+        same_topic = not topic_id or not cached_topic or topic_id == cached_topic
+        if (
+            source != "wallet"
+            and looks_like_btc_price(cached_beat)
+            and cached_source == "wallet"
+            and same_topic
+        ):
+            cache["price_to_beat"] = cached_beat
+            cache["source"] = cached_source
+            if topic_id:
+                cache["topic_id"] = topic_id
+            return {
+                "price_to_beat": cached_beat,
+                "price_to_beat_source": cached_source,
+                "topic_id": str(cache.get("topic_id") or topic_id),
+            }
         cache["price_to_beat"] = from_book
         cache["source"] = source
         cache["topic_id"] = topic_id or cached_topic
@@ -1321,6 +1378,86 @@ def market_book(topic: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "topic_id": topic_id_of(topic),
         "source": "wallet",
     }
+
+
+_START_PRICE_PAIR_RE = re.compile(
+    r"startPrice\\?\"\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*,\\?\"startPricePublishTime\\?\"\s*:\s*\\?\"([^\\\"]+)",
+    re.I,
+)
+_START_PRICE_LOOSE_RE = re.compile(r"startPrice\\?\"\s*:\s*([0-9]+(?:\.[0-9]+)?)", re.I)
+
+
+def current_btc_5m_slot(now: Optional[float] = None) -> int:
+    stamp = int(now if now is not None else time.time())
+    return stamp - (stamp % 300)
+
+
+def parse_predict_fun_start_price(html: str, slot: int = 0) -> float:
+    """Official Chainlink startPrice from the public Predict.fun 5m page."""
+    text = str(html or "")
+    for raw_price, raw_when in _START_PRICE_PAIR_RE.findall(text):
+        price = parse_btc_price(raw_price)
+        if not price:
+            continue
+        if not slot:
+            return price
+        try:
+            when = datetime.fromisoformat(str(raw_when).strip().rstrip("\\").replace("Z", "+00:00"))
+            if abs(when.timestamp() - float(slot)) <= 90:
+                return price
+        except (TypeError, ValueError):
+            continue
+    if slot:
+        return 0.0
+    loose = _START_PRICE_LOOSE_RE.search(text)
+    return parse_btc_price(loose.group(1) if loose else 0)
+
+
+async def fetch_predict_fun_lock(now: Optional[float] = None) -> Dict[str, Any]:
+    """Public Predict.fun page — same Price to Beat Binance Wallet shows."""
+    slot = current_btc_5m_slot(now)
+    url = f"https://predict.fun/market/btc-updown-5m-{slot}"
+    timeout = aiohttp.ClientTimeout(total=8)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers={"User-Agent": "Vibesbot/1.44"}) as response:
+                if response.status != 200:
+                    logger.warning(f"Predict.fun lock page HTTP {response.status}")
+                    return {}
+                html = await response.text()
+    except Exception as exc:
+        logger.warning(f"Predict.fun lock page failed: {exc}")
+        return {}
+    lock = parse_predict_fun_start_price(html, slot)
+    if not looks_like_btc_price(lock):
+        return {"topic_id": f"btc-updown-5m-{slot}", "slot": slot}
+    return {
+        "price_to_beat": lock,
+        "price_to_beat_source": "wallet",
+        "topic_id": f"btc-updown-5m-{slot}",
+        "slot": slot,
+    }
+
+
+async def fetch_spot_five_minute_open(symbol: str = "BTCUSDT") -> float:
+    """Binance Spot 5m candle open — same window the Up/Down market locks against."""
+    timeout = aiohttp.ClientTimeout(total=6)
+    url = "https://api.binance.com/api/v3/klines"
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                url, params={"symbol": symbol, "interval": "5m", "limit": 1}
+            ) as response:
+                if response.status != 200:
+                    return 0.0
+                rows = await response.json()
+        if not isinstance(rows, list) or not rows:
+            return 0.0
+        open_price = parse_btc_price((rows[0] or [None, None])[1])
+        return open_price if looks_like_btc_price(open_price) else 0.0
+    except Exception as exc:
+        logger.warning(f"Spot 5m kline failed: {exc}")
+        return 0.0
 
 
 async def fetch_spot_top_of_book(symbol: str = "BTCUSDT") -> float:
@@ -1504,6 +1641,27 @@ class WalletPredictionClient:
             return [row for row in rows if isinstance(row, dict)]
         return []
 
+    async def list_markets(self, limit: int = 50) -> List[Dict[str, Any]]:
+        status, data = await self._request(
+            "GET",
+            "market/list",
+            {
+                "l1Category": "crypto",
+                "limit": min(int(limit), 100),
+                "sortBy": "END_DATE",
+                "orderBy": "ASC",
+            },
+        )
+        if status != 200:
+            logger.warning(f"Wallet market list failed: {status} {data}")
+            return []
+        if isinstance(data, list):
+            return [row for row in data if isinstance(row, dict)]
+        if isinstance(data, dict):
+            rows = data.get("marketTopics") or data.get("list") or data.get("data") or []
+            return [row for row in rows if isinstance(row, dict)]
+        return []
+
     async def market_detail(self, market_topic_id: Any) -> Dict[str, Any]:
         status, data = await self._request("GET", "market/detail", {"marketTopicId": market_topic_id})
         if status == 200 and isinstance(data, dict):
@@ -1513,9 +1671,35 @@ class WalletPredictionClient:
 
     async def find_btc_5m_market(self) -> Optional[Dict[str, Any]]:
         topics: List[Dict[str, Any]] = []
-        for query in ("BTC 5m", "BTC 5 min Up or Down", "btc-price-5m"):
+        for query in (
+            "Bitcoin Up or Down",
+            "BTC 5m",
+            "BTC 5 min Up or Down",
+            "btc-updown-5m",
+            "btc-price-5m",
+        ):
             topics.extend(await self.search_markets(query, 20))
+        topics.extend(await self.list_markets(50))
         picked = pick_active_btc_window(topics, 5)
+        if not picked:
+            hydrated: List[Dict[str, Any]] = []
+            seen: set = set()
+            for row in topics:
+                row = unwrap_topic_row(row)
+                if not is_btc_up_or_down(row) and not is_btc_short_window(row, 5):
+                    continue
+                tid = topic_id_of(row)
+                if not tid or tid in seen:
+                    continue
+                if topic_timestamp_ms(row.get("startDate") or row.get("endDate")):
+                    continue
+                seen.add(tid)
+                detail = await self.market_detail(tid)
+                hydrated.append(merge_topics(row, unwrap_topic_row(detail)))
+                if len(seen) >= 8:
+                    break
+            topics.extend(hydrated)
+            picked = pick_active_btc_window(topics, 5)
         if not picked:
             return None
         detail = await self.market_detail(picked.get("marketTopicId") or topic_id_of(picked))

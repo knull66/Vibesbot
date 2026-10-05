@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.43.0';
+const APP_VERSION = '1.44.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -755,9 +755,9 @@ class VibesBot {
                 });
             }
             if (sourceEl) {
-                sourceEl.textContent = source === 'wallet' || !source
+                sourceEl.textContent = (source === 'wallet' || source === 'predict' || !source)
                     ? 'Binance lock'
-                    : source;
+                    : (source === 'spot-5m' ? 'Binance 5m open' : source);
             }
             const live = parseFloat(data.price || data.live_price);
             if (live && !Number.isNaN(live)) this.updatePriceDiff(live);

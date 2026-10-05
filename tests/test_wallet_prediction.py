@@ -15,7 +15,9 @@ from src.wallet_prediction import (
     looks_like_btc_price,
     market_book,
     merge_topics,
+    parse_predict_fun_start_price,
     resolve_cached_lock,
+    title_window_minutes,
     unwrap_topic_row,
     match_wallet_row,
     normalize_evm_address,
@@ -181,6 +183,12 @@ class WalletMarketPickerTests(unittest.TestCase):
             "title": "BTC Price 1h Up or Down?",
             "symbol": "BTCUSDT",
         }))
+        self.assertTrue(is_btc_short_window({
+            "title": "Bitcoin Up or Down - October 4, 8:00PM-8:05PM ET",
+        }))
+        self.assertAlmostEqual(title_window_minutes("8:00PM-8:05PM ET"), 5.0)
+        self.assertAlmostEqual(title_window_minutes("3PM-3:05PM"), 5.0)
+        self.assertAlmostEqual(title_window_minutes("3PM-5:05PM ET"), 125.0)
 
     def test_rejects_two_hour_window_even_if_btc(self):
         now = 1_700_000_000_000
@@ -330,6 +338,22 @@ class WalletMarketPickerTests(unittest.TestCase):
             "price_to_beat_source": "wallet",
         })
         self.assertAlmostEqual(next_lock["price_to_beat"], 86100.50)
+
+    def test_parse_predict_fun_start_price_for_current_slot(self):
+        html = (
+            r'feedProvider\":\"CHAINLINK\",\"startPrice\":86434.065,'
+            r'\"startPricePublishTime\":\"2026-10-05T00:05:00.000Z\",\"endPrice\":null'
+        )
+        from datetime import datetime, timezone
+        slot = int(datetime(2026, 10, 5, 0, 5, tzinfo=timezone.utc).timestamp())
+        self.assertAlmostEqual(parse_predict_fun_start_price(html, slot), 86434.065)
+        self.assertEqual(parse_predict_fun_start_price(html, slot + 300), 0.0)
+        kept = resolve_cached_lock(
+            {"price_to_beat": 86434.065, "source": "wallet", "topic_id": "t-1"},
+            {"topic_id": "t-1", "price_to_beat": 86000.0, "price_to_beat_source": "spot-5m"},
+        )
+        self.assertAlmostEqual(kept["price_to_beat"], 86434.065)
+        self.assertEqual(kept["price_to_beat_source"], "wallet")
 
     def test_wallets_from_wrapped_payload(self):
         rows = wallets_from_payload({

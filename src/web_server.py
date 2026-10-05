@@ -38,6 +38,8 @@ from .wallet_prediction import (
     clamp_bet_amount,
     daily_loss_hit,
     fetch_spot_top_of_book,
+    fetch_predict_fun_lock,
+    fetch_spot_five_minute_open,
     resolve_stake,
     fill_from_quote,
     looks_like_btc_price,
@@ -413,26 +415,45 @@ class DashboardBot:
 
         sm = get_settings_manager()
         creds = sm.settings.binance
-        if not creds.is_configured:
-            return self._market_book
-        try:
-            client = WalletPredictionClient(
-                creds.api_key,
-                creds.api_secret,
-                preferred_address=creds.prediction_wallet,
-            )
-            topic = await client.find_btc_5m_market()
-            if topic:
-                self._market_topic = topic
-                book = market_book(topic)
-                if not looks_like_btc_price(book.get("live_price")):
-                    book["live_price"] = await fetch_spot_top_of_book()
-                    if looks_like_btc_price(book.get("live_price")):
-                        book["live_source"] = "binance-spot-tob"
-                self._market_book = book
-                self._market_fetched_at = now
-        except Exception as exc:
-            logger.warning(f"Wallet market book failed: {exc}")
+        book = dict(self._market_book or {})
+        if creds.is_configured:
+            try:
+                client = WalletPredictionClient(
+                    creds.api_key,
+                    creds.api_secret,
+                    preferred_address=creds.prediction_wallet,
+                )
+                topic = await client.find_btc_5m_market()
+                if topic:
+                    self._market_topic = topic
+                    book = market_book(topic)
+                    if not looks_like_btc_price(book.get("live_price")):
+                        book["live_price"] = await fetch_spot_top_of_book()
+                        if looks_like_btc_price(book.get("live_price")):
+                            book["live_source"] = "binance-spot-tob"
+            except Exception as exc:
+                logger.warning(f"Wallet market book failed: {exc}")
+        if not looks_like_btc_price(book.get("price_to_beat")):
+            try:
+                public = await fetch_predict_fun_lock()
+                if looks_like_btc_price(public.get("price_to_beat")):
+                    book["price_to_beat"] = public["price_to_beat"]
+                    book["price_to_beat_source"] = "wallet"
+                    book["topic_id"] = book.get("topic_id") or public.get("topic_id") or ""
+                elif public.get("topic_id") and not book.get("topic_id"):
+                    book["topic_id"] = public["topic_id"]
+            except Exception as exc:
+                logger.warning(f"Predict.fun lock failed: {exc}")
+        if not looks_like_btc_price(book.get("price_to_beat")):
+            fallback = self._five_minute_open()
+            if not looks_like_btc_price(fallback):
+                fallback = await fetch_spot_five_minute_open()
+            if looks_like_btc_price(fallback):
+                book["price_to_beat"] = fallback
+                book["price_to_beat_source"] = "spot-5m"
+        if book:
+            self._market_book = book
+            self._market_fetched_at = now
         return self._market_book
 
     def _five_minute_open(self) -> float:
@@ -449,19 +470,26 @@ class DashboardBot:
         return self.data_stream.get_last_closed_candle("5m")
 
     def _resolve_price_to_beat(self, book: Optional[Dict[str, Any]], round_number: int = 0) -> float:
-        """Binance Wallet lock only. Cache by topic id, never UTC Spot rounds."""
+        """Official Predict.fun/Binance lock, else the live 5m open so the UI never goes blank."""
         cache = {
             "price_to_beat": self._price_to_beat,
             "source": self._price_to_beat_source,
             "topic_id": self._price_to_beat_topic,
         }
         resolved = resolve_cached_lock(cache, book)
-        self._price_to_beat = float(resolved.get("price_to_beat") or 0)
-        self._price_to_beat_source = str(resolved.get("price_to_beat_source") or "")
-        self._price_to_beat_topic = str(resolved.get("topic_id") or "")
-        if looks_like_btc_price(self._price_to_beat):
+        beat = float(resolved.get("price_to_beat") or 0)
+        source = str(resolved.get("price_to_beat_source") or "")
+        if looks_like_btc_price(beat):
+            self._price_to_beat = beat
+            self._price_to_beat_source = source or "wallet"
+            self._price_to_beat_topic = str(resolved.get("topic_id") or "")
             self._price_to_beat_round = int(round_number or 0)
-        return self._price_to_beat
+            return self._price_to_beat
+        fallback = self._five_minute_open()
+        if looks_like_btc_price(fallback):
+            self._price_to_beat_source = "spot-5m"
+            return fallback
+        return 0.0
 
     def _price_to_beat_payload(self, book: Optional[Dict[str, Any]], round_number: int = 0) -> Dict[str, Any]:
         beat = self._resolve_price_to_beat(book, round_number)
@@ -1547,6 +1575,14 @@ class DashboardBot:
                 except Exception as e:
                     logger.debug(f"Error calculating features: {e}")
         
+        have_lock = looks_like_btc_price((self._market_book or {}).get("price_to_beat"))
+        new_window = remaining >= 297 or remaining <= 3
+        if remaining % 2 == 0 or not have_lock or new_window:
+            try:
+                await self.refresh_market_book(force=(not have_lock or new_window))
+            except Exception as exc:
+                logger.warning(f"Market book refresh failed: {exc}")
+
         # Enviar market data a TODOS (el precio es el mismo)
         payload = {
             "type": "market",
@@ -1574,13 +1610,6 @@ class DashboardBot:
         except Exception as exc:
             logger.warning(f"Price to beat unavailable: {exc}")
         await self.manager.broadcast(payload)
-        have_lock = looks_like_btc_price((self._market_book or {}).get("price_to_beat"))
-        new_window = remaining >= 297 or remaining <= 3
-        if remaining % 2 == 0 or not have_lock or new_window:
-            try:
-                await self.refresh_market_book(force=(not have_lock or new_window))
-            except Exception as exc:
-                logger.warning(f"Market book refresh failed: {exc}")
     
     def _sessions_dir(self) -> Path:
         path = Path(__file__).parent.parent / "data" / "sessions"

@@ -76,6 +76,7 @@ class PriceToBeatUiTests(unittest.TestCase):
         self.assertIn("const topicChanged = topicId && this.priceToBeatTopic && topicId !== this.priceToBeatTopic", js)
         self.assertIn("if (this.priceToBeat)", js)
         self.assertIn("Keep Binance lock on screen", js)
+        self.assertIn("Binance 5m open", js)
         self.assertNotIn("Clear price to beat after trade closes", js)
         server = Path(__file__).resolve().parents[1].joinpath("src/web_server.py").read_text()
         self.assertIn("resolve_cached_lock", server)
