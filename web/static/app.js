@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.48.0';
+const APP_VERSION = '1.49.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -145,7 +145,7 @@ class VibesBot {
         document.getElementById('btn-reset-sim')?.addEventListener('click', () => this.resetStats('sim'));
         document.getElementById('btn-reset-real')?.addEventListener('click', () => this.resetStats('real'));
         document.getElementById('btn-clear-feed')?.addEventListener('click', () => this.clearFeed());
-        document.getElementById('btn-check-update')?.addEventListener('click', () => this.checkUpdates({prompt: true}));
+        document.getElementById('btn-check-update')?.addEventListener('click', () => this.checkUpdates({prompt: false, manual: true}));
         document.getElementById('btn-install-update')?.addEventListener('click', () => this.installUpdate());
         document.getElementById('btn-update-now')?.addEventListener('click', () => this.installUpdate());
         document.getElementById('btn-update-later')?.addEventListener('click', () => this.snoozeUpdate());
@@ -1643,11 +1643,11 @@ class VibesBot {
             if (latestEl) latestEl.textContent = latest ? ('v' + String(latest).replace(/^v/i, '')) : '--';
             
             if (available) {
-                if (statusEl) statusEl.textContent = 'Update available';
+                if (statusEl) statusEl.textContent = 'Update available · v' + String(latest).replace(/^v/i, '');
                 if (installBtn) installBtn.disabled = false;
                 if (prompt && data.prompt !== false) this.showUpdatePrompt(data);
-            } else if (statusEl && !prompt) {
-                statusEl.textContent = 'You have the latest version';
+            } else {
+                if (statusEl) statusEl.textContent = latest ? 'You have the latest · v' + String(latest).replace(/^v/i, '') : 'No GitHub release found';
                 if (installBtn) installBtn.disabled = true;
             }
         } catch (e) {
