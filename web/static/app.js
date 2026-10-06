@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.46.0';
+const APP_VERSION = '1.47.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -1392,6 +1392,8 @@ class VibesBot {
             lossEl.value = Number(loss);
         }
         if (trading.daily_loss_pct != null) setIfIdle('daily-loss-pct', String(Number(trading.daily_loss_pct)));
+        if (trading.session_lock_usd != null) setIfIdle('session-lock-usd', String(Number(trading.session_lock_usd)));
+        if (trading.session_trail_pct != null) setIfIdle('session-trail-pct', String(Number(trading.session_trail_pct)));
     }
 
     bindStakeInputs() {
@@ -1416,7 +1418,7 @@ class VibesBot {
             syncMode(e.target.value);
             this.saveTradingSettings();
         });
-        ['header-stake-value', 'bet-amount', 'bet-percent', 'daily-loss-limit', 'daily-loss-pct'].forEach((id) => {
+        ['header-stake-value', 'bet-amount', 'bet-percent', 'daily-loss-limit', 'daily-loss-pct', 'session-lock-usd', 'session-trail-pct'].forEach((id) => {
             const el = document.getElementById(id);
             el?.addEventListener('focus', () => el.select());
             el?.addEventListener('keydown', (event) => {
@@ -1448,6 +1450,8 @@ class VibesBot {
             daily_loss_limit: parseFloat(document.getElementById('daily-loss-limit')?.value || 5),
             max_daily_loss: parseFloat(document.getElementById('daily-loss-limit')?.value || 5),
             daily_loss_pct: parseFloat(document.getElementById('daily-loss-pct')?.value || 20),
+            session_lock_usd: parseFloat(document.getElementById('session-lock-usd')?.value || 0),
+            session_trail_pct: parseFloat(document.getElementById('session-trail-pct')?.value || 40),
         };
         try {
             const response = await fetch('/api/settings/trading', {

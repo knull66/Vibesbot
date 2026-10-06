@@ -8,9 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 class NativePrefsTests(unittest.TestCase):
     def test_version_is_current(self):
         version = (ROOT / "VERSION").read_text().strip()
-        self.assertEqual(version, "1.46.0")
+        self.assertEqual(version, "1.47.0")
         app_js = (ROOT / "web" / "static" / "app.js").read_text()
-        self.assertIn("const APP_VERSION = '1.46.0'", app_js)
+        self.assertIn("const APP_VERSION = '1.47.0'", app_js)
 
     def test_settings_is_sidebar_prefs(self):
         html = (ROOT / "web" / "templates" / "index.html").read_text()
@@ -25,6 +25,7 @@ class NativePrefsTests(unittest.TestCase):
             "api-key", "api-secret", "use-testnet", "prediction-wallet",
             "stake-mode", "bet-percent", "bet-amount",
             "confidence-threshold", "daily-loss-pct", "daily-loss-limit",
+            "session-lock-usd", "session-trail-pct",
             "strategy-select", "rsi-weight", "macd-weight", "bb-weight", "mom-weight",
             "current-password", "new-password",
             "sound-enabled", "sound-volume",

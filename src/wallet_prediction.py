@@ -43,6 +43,11 @@ DEFAULT_BET_PERCENT = 3.0
 MIN_BET_PERCENT = 1.0
 MAX_BET_PERCENT = 8.0
 DEFAULT_DAILY_LOSS_PCT = 20.0
+DEFAULT_SESSION_LOCK_USD = 0.0
+DEFAULT_SESSION_TRAIL_PCT = 40.0
+MIN_SESSION_PEAK_PNL = 5.0
+MAX_SESSION_LOCK_USD = 500.0
+MAX_SESSION_TRAIL_PCT = 80.0
 MIN_SHARE_PRICE = 0.20
 MAX_SHARE_PRICE = 0.82
 MIN_WIN_PNL_RATIO = 0.10
@@ -405,6 +410,71 @@ def resolve_stake(
     amount = min(max(raw, MIN_BET_USDT), MAX_BET_USDT, hard_cap if hard_cap >= MIN_BET_USDT else MAX_BET_USDT)
     amount = float(f"{amount:.2f}")
     return {"ok": True, "amount": amount, "mode": kind, "reason": f"{pct:.0f}% of ${bank:.2f} = ${amount:.2f}"}
+
+
+def clamp_session_lock_usd(value: Any, default: float = DEFAULT_SESSION_LOCK_USD) -> float:
+    """0 turns the hard session target off."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = float(default)
+    if amount < 0:
+        amount = 0.0
+    return min(amount, MAX_SESSION_LOCK_USD)
+
+
+def clamp_session_trail_pct(value: Any, default: float = DEFAULT_SESSION_TRAIL_PCT) -> float:
+    """0 turns the trailing lock off. 40 means pause after giving back 40% of peak profit."""
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        percent = float(default)
+    if percent < 0:
+        percent = 0.0
+    return min(percent, MAX_SESSION_TRAIL_PCT)
+
+
+def session_lock_hit(
+    equity: Any,
+    start: Any,
+    peak: Any,
+    target_usd: Any = 0,
+    trail_pct: Any = DEFAULT_SESSION_TRAIL_PCT,
+) -> Tuple[bool, str]:
+    """Pause new bets when the session has earned enough, or given a chunk back.
+
+    This is not a Spot transfer. Open tickets still settle.
+    """
+    try:
+        bal = float(equity or 0)
+    except (TypeError, ValueError):
+        bal = 0.0
+    try:
+        basis = float(start or 0)
+    except (TypeError, ValueError):
+        basis = 0.0
+    try:
+        high = float(peak or 0)
+    except (TypeError, ValueError):
+        high = 0.0
+    if bal <= 0 or basis <= 1:
+        return False, ""
+    high = max(high, bal, basis)
+    pnl = bal - basis
+    peak_pnl = high - basis
+    target = clamp_session_lock_usd(target_usd, 0.0)
+    trail = clamp_session_trail_pct(trail_pct, 0.0)
+    if target > 0 and pnl + 1e-9 >= target:
+        return True, f"session +${pnl:.2f} hit the ${target:.2f} bank target"
+    if trail > 0 and peak_pnl + 1e-9 >= MIN_SESSION_PEAK_PNL:
+        giveback = high - bal
+        allowed = peak_pnl * trail / 100.0
+        if giveback + 1e-9 >= allowed:
+            return True, (
+                f"session gave back ${giveback:.2f} of +${peak_pnl:.2f} peak "
+                f"({trail:.0f}% trail)"
+            )
+    return False, ""
 
 
 def daily_loss_hit(

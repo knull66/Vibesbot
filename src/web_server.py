@@ -37,6 +37,7 @@ from .wallet_prediction import (
     WalletPredictionClient,
     clamp_bet_amount,
     daily_loss_hit,
+    session_lock_hit,
     fetch_spot_top_of_book,
     fetch_predict_fun_lock,
     fetch_spot_five_minute_open,
@@ -156,6 +157,7 @@ class ClientSession:
     session_started_at: str = ""
     session_elapsed: float = 0.0
     session_tick_at: float = 0.0
+    session_peak: float = 0.0
 
     def session_elapsed_seconds(self) -> float:
         extra = 0.0
@@ -429,6 +431,9 @@ class DashboardBot:
             logger.warning(f"Open position value failed: {exc}")
         session.live_balance = session.live_available + session.live_open_value
         self._sync_wallet_anchors(session)
+        if session.running and session.live_balance:
+            peak = float(getattr(session, "session_peak", 0) or 0)
+            session.session_peak = max(peak, float(session.live_balance))
         healed = live_equity_baseline(session.live_balance, session.cumulative_pnl, session.max_equity)
         if healed:
             peak, drawdown = healed
@@ -609,6 +614,24 @@ class DashboardBot:
                 return float(session.live_balance)
         return float(session.initial_capital + session.cumulative_pnl)
 
+    async def _pause_for_reason(self, session: ClientSession, reason: str, level: str = "loss") -> bool:
+        now = time.time()
+        if session.running and not session.paused and session.session_tick_at:
+            session.session_elapsed += max(0.0, now - session.session_tick_at)
+        session.session_tick_at = 0.0
+        session.paused = True
+        await self.manager.send_to_session(session.session_id, session.status_payload(
+            self.predictor.is_ready if self.predictor else False
+        ))
+        await self.manager.send_to_session(session.session_id, {
+            "type": "log",
+            "message": f"PAUSE: {reason}",
+            "level": level,
+        })
+        await self.manager.send_to_session(session.session_id, session.stats_payload())
+        self._save_session(session)
+        return True
+
     async def _halt_if_daily_loss(self, session: ClientSession, trading: Any) -> bool:
         if not session.simulation and session.live_balance is not None:
             start = float(getattr(session, "wallet_day_start", 0) or 0) or float(session.live_balance)
@@ -625,14 +648,40 @@ class DashboardBot:
         )
         if not hit:
             return False
-        session.paused = True
-        await self.manager.send_to_session(session.session_id, session.status_payload(True))
-        await self.manager.send_to_session(session.session_id, {
-            "type": "log",
-            "message": f"PAUSE: {reason}. Start again tomorrow or raise the daily stop.",
-            "level": "loss",
-        })
-        return True
+        return await self._pause_for_reason(
+            session,
+            f"{reason}. Start again tomorrow or raise the daily stop.",
+        )
+
+    async def _halt_if_session_lock(self, session: ClientSession, trading: Any) -> bool:
+        if session.paused or not session.running:
+            return False
+        if session.simulation:
+            equity = float(session.initial_capital + session.cumulative_pnl)
+            start = float(getattr(session, "wallet_start", 0) or session.initial_capital or 0)
+        elif session.live_balance is None:
+            return False
+        else:
+            equity = float(session.live_balance)
+            start = float(getattr(session, "wallet_start", 0) or 0)
+        peak = float(getattr(session, "session_peak", 0) or 0)
+        if equity > peak:
+            session.session_peak = equity
+            peak = equity
+        hit, reason = session_lock_hit(
+            equity,
+            start,
+            peak,
+            getattr(trading, "session_lock_usd", 0),
+            getattr(trading, "session_trail_pct", 40),
+        )
+        if not hit:
+            return False
+        return await self._pause_for_reason(
+            session,
+            f"{reason}. Transfer Out in Binance Portfolio if you want Spot. Resume to keep playing.",
+            "info",
+        )
     
     async def _data_loop(self):
         """Loop que siempre envía datos de mercado, incluso sin trading."""
@@ -646,6 +695,8 @@ class DashboardBot:
                     if not session.simulation and now - session.live_fetched_at > 20:
                         try:
                             await self.refresh_live_balances(session)
+                            from .user_settings import get_settings_manager
+                            await self._halt_if_session_lock(session, get_settings_manager().settings.trading)
                         except Exception as exc:
                             logger.error(f"Live balance refresh failed: {exc}")
                     await self.manager.send_to_session(session.session_id, session.stats_payload())
@@ -666,6 +717,9 @@ class DashboardBot:
         if fresh:
             session.session_elapsed = 0.0
             session.session_started_at = datetime.now(timezone.utc).isoformat()
+            if session.simulation:
+                session.wallet_start = float(session.initial_capital + session.cumulative_pnl)
+                session.session_peak = session.wallet_start
         session.session_tick_at = now
         mode = "SIM paper" if session.simulation else "REAL Binance"
         if not session.simulation:
@@ -673,6 +727,7 @@ class DashboardBot:
                 await self.refresh_live_balances(session)
                 if fresh and session.live_balance:
                     session.wallet_start = float(session.live_balance)
+                    session.session_peak = float(session.live_balance)
             except Exception:
                 pass
         await self.manager.send_to_session(session.session_id, session.status_payload(
@@ -715,6 +770,10 @@ class DashboardBot:
         session.paused = not session.paused
         if session.running and not session.paused:
             session.session_tick_at = now
+            if session.simulation:
+                session.session_peak = float(session.initial_capital + session.cumulative_pnl)
+            elif session.live_balance:
+                session.session_peak = float(session.live_balance)
         await self.manager.send_to_session(session.session_id, session.status_payload(
             self.predictor.is_ready if self.predictor else False
         ))
@@ -977,6 +1036,8 @@ class DashboardBot:
                 return
 
             if await self._halt_if_daily_loss(session, sm.settings.trading):
+                return
+            if await self._halt_if_session_lock(session, sm.settings.trading):
                 return
             stake = resolve_stake(
                 self._session_equity(session),
@@ -1586,6 +1647,7 @@ class DashboardBot:
         try:
             from .user_settings import get_settings_manager
             await self._halt_if_daily_loss(session, get_settings_manager().settings.trading)
+            await self._halt_if_session_lock(session, get_settings_manager().settings.trading)
         except Exception:
             pass
         try:
@@ -1722,6 +1784,7 @@ class DashboardBot:
             session.session_started_at = str(data.get("session_started_at") or "")
             session.session_elapsed = float(data.get("session_elapsed") or 0.0)
             session.session_tick_at = 0.0
+            session.session_peak = float(data.get("session_peak") or 0.0)
             session.simulation = data.get("simulation", True)
             session.pending_trade = pending_trade_from_dict(data.get("pending_trade"))
         except Exception as e:
@@ -1747,6 +1810,7 @@ class DashboardBot:
                     "wallet_day_start": getattr(session, "wallet_day_start", 0.0),
                     "session_started_at": getattr(session, "session_started_at", ""),
                     "session_elapsed": session.session_elapsed_seconds() if hasattr(session, "session_elapsed_seconds") else getattr(session, "session_elapsed", 0.0),
+                    "session_peak": getattr(session, "session_peak", 0.0),
                     "simulation": session.simulation,
                     "pending_trade": session.pending_trade.to_dict() if session.pending_trade else None,
                     "last_updated": datetime.now().isoformat(),

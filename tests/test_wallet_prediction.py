@@ -7,6 +7,7 @@ from src.wallet_prediction import (
     as_probability,
     clamp_bet_amount,
     daily_loss_hit,
+    session_lock_hit,
     resolve_stake,
     decode_wei_to_usdt,
     encode_balance_of,
@@ -95,6 +96,24 @@ class WalletMathTests(unittest.TestCase):
 
     def test_daily_stop_ignores_a_small_dip(self):
         hit, _ = daily_loss_hit(-0.40, 10, dollar_limit=5, pct_limit=20)
+        self.assertFalse(hit)
+
+    def test_session_trail_pauses_after_giving_back_peak(self):
+        hit, reason = session_lock_hit(43.20, 33.0, 50.32, target_usd=0, trail_pct=40)
+        self.assertTrue(hit)
+        self.assertIn("trail", reason)
+
+    def test_session_trail_lets_a_small_giveback_run(self):
+        hit, _ = session_lock_hit(47.76, 33.0, 50.32, target_usd=0, trail_pct=40)
+        self.assertFalse(hit)
+
+    def test_session_bank_target_hits(self):
+        hit, reason = session_lock_hit(44.0, 33.0, 44.0, target_usd=10, trail_pct=0)
+        self.assertTrue(hit)
+        self.assertIn("bank target", reason)
+
+    def test_session_trail_waits_for_five_dollar_peak(self):
+        hit, _ = session_lock_hit(36.0, 33.0, 37.0, target_usd=0, trail_pct=40)
         self.assertFalse(hit)
 
     def test_skips_favorite_that_pays_pennies(self):
