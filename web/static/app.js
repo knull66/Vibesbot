@@ -2,7 +2,7 @@
  * VIBESBOT - Trading Dashboard
  */
 
-const APP_VERSION = '1.45.0';
+const APP_VERSION = '1.46.0';
 const SOUND_PREFS_KEY = 'vb_sound';
 
 class VibesBot {
@@ -46,6 +46,10 @@ class VibesBot {
         this.currentPrice = document.getElementById('current-price');
         this.roundTimer = document.getElementById('round-timer');
         this.roundRing = document.getElementById('round-ring');
+        this.sessionTimerEl = document.getElementById('session-timer');
+        this.sessionElapsed = 0;
+        this.sessionClockRunning = false;
+        this.sessionClockAt = Date.now();
         
         // Signal
         this.signalDisplay = document.getElementById('signal-display');
@@ -817,6 +821,13 @@ class VibesBot {
             this.statPnl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
             this.statPnl.className = 'main-stat-value ' + (pnl >= 0 ? 'positive' : 'negative');
         }
+        const startEl = document.getElementById('stat-pnl-start');
+        if (startEl) {
+            startEl.textContent = data.wallet_start
+                ? 'from $' + Number(data.wallet_start).toFixed(2)
+                : '';
+        }
+        this.applySessionClock(data);
         
         if (this.statTrades && data.trades != null) this.statTrades.textContent = data.trades || 0;
         
@@ -1261,6 +1272,30 @@ class VibesBot {
             strategy.textContent = 'Hold to settle · 90¢ / 12¢';
         }
         this.updateControlButtons();
+        this.applySessionClock(data);
+    }
+
+    applySessionClock(data) {
+        if (!data || data.session_elapsed == null) return;
+        this.sessionElapsed = Number(data.session_elapsed) || 0;
+        this.sessionClockRunning = !!data.session_running;
+        this.sessionClockAt = Date.now();
+        this.paintSessionClock();
+    }
+
+    paintSessionClock() {
+        if (!this.sessionTimerEl) return;
+        let sec = this.sessionElapsed || 0;
+        if (this.sessionClockRunning) {
+            sec += (Date.now() - (this.sessionClockAt || Date.now())) / 1000;
+        }
+        sec = Math.max(0, sec);
+        const hours = Math.floor(sec / 3600);
+        const minutes = Math.floor((sec % 3600) / 60);
+        const seconds = Math.floor(sec % 60);
+        this.sessionTimerEl.textContent = hours > 0
+            ? hours + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0')
+            : String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
     }
     
     toggleMode() {
@@ -1974,6 +2009,7 @@ class VibesBot {
             if (clock) {
                 clock.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
             }
+            this.paintSessionClock();
         };
         update();
         setInterval(update, 1000);

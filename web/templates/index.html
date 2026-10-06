@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.45.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.46.0">
 </head>
 <body class="auth-wait" data-view="signal">
     <div class="restart-banner" id="restart-banner">
@@ -60,6 +60,10 @@
                         <span class="status-label">ROUND</span>
                         <span class="status-value timer" id="round-timer">--:--</span>
                     </div>
+                </div>
+                <div class="status-item" title="Time since Start">
+                    <span class="status-label">SESSION</span>
+                    <span class="status-value timer session" id="session-timer">00:00</span>
                 </div>
             </div>
 
@@ -199,6 +203,7 @@
                             <div class="main-stat-kicker">P&amp;L</div>
                             <div class="main-stat-value positive" id="stat-pnl">+$0.00</div>
                             <div class="main-stat-label">VS START</div>
+                            <div class="main-stat-sub" id="stat-pnl-start"></div>
                         </div>
                         <div class="main-stat winrate">
                             <div class="main-stat-kicker">Win rate</div>
@@ -333,7 +338,7 @@
                 <span class="footer-label">Exit:</span>
                 <span id="strategy-status">Hold to settle · 90¢ / 12¢</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.45.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.46.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -568,7 +573,7 @@
                         </div>
                     </div>
                     <h3 class="pref-section">Data</h3>
-                    <p class="pref-foot">Version <span id="current-version">v1.45.0</span>. Updates pop up on their own.</p>
+                    <p class="pref-foot">Version <span id="current-version">v1.46.0</span>. Updates pop up on their own.</p>
                     <div class="form-actions">
                         <button class="btn" id="btn-export-csv" type="button">Export CSV</button>
                         <button class="btn" id="btn-export-json" type="button">Export JSON</button>
@@ -618,7 +623,7 @@
             </div>
             <div class="modal-body" style="padding:16px 20px 22px;">
                 <p class="settings-hint" style="margin-bottom:12px;">
-                    <span id="update-prompt-from">v1.45.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
+                    <span id="update-prompt-from">v1.46.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
                 </p>
                 <p id="update-prompt-notes" class="settings-hint" style="margin-bottom:16px;"></p>
                 <div class="form-actions" style="justify-content:center;">
@@ -655,6 +660,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.45.0"></script>
+    <script src="/static/app.js?v=1.46.0"></script>
 </body>
 </html>

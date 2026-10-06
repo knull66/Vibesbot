@@ -252,6 +252,11 @@ body {
     color: var(--warning);
 }
 
+.status-value.timer.session {
+    color: var(--text);
+    min-width: 4.5ch;
+}
+
 .controls {
     display: flex;
     align-items: center;

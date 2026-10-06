@@ -153,6 +153,24 @@ class ClientSession:
     wallet_start: float = 0.0
     wallet_day: str = ""
     wallet_day_start: float = 0.0
+    session_started_at: str = ""
+    session_elapsed: float = 0.0
+    session_tick_at: float = 0.0
+
+    def session_elapsed_seconds(self) -> float:
+        extra = 0.0
+        tick = float(self.session_tick_at or 0)
+        if self.running and not self.paused and tick:
+            extra = max(0.0, time.time() - tick)
+        return float(self.session_elapsed or 0) + extra
+
+    def session_clock_payload(self) -> Dict[str, Any]:
+        return {
+            "session_elapsed": round(self.session_elapsed_seconds(), 1),
+            "session_running": bool(self.running and not self.paused),
+            "session_started_at": self.session_started_at or "",
+            "wallet_start": 0.0 if self.simulation else float(self.wallet_start or 0),
+        }
     
     def reset(self, capital: float = 100.0):
         self.wins = 0
@@ -177,6 +195,7 @@ class ClientSession:
             "signal_engine": "indicators+tape",
             "session_id": self.session_id,
             "simulation": self.simulation,
+            **self.session_clock_payload(),
         }
     
     def stats_payload(self) -> dict:
@@ -225,7 +244,7 @@ class ClientSession:
             start = float(getattr(self, "wallet_start", 0) or 0)
             if start > 1:
                 pnl = capital - start
-            return {
+            payload = {
                 "type": "stats",
                 "capital": capital,
                 "available": getattr(self, "live_available", 0.0) or None,
@@ -251,7 +270,9 @@ class ClientSession:
                 "network": self.live_network or "BNB Smart Chain",
                 "live_error": self.live_error,
             }
-        return {
+            payload.update(self.session_clock_payload())
+            return payload
+        payload = {
             "type": "stats",
             "capital": self.initial_capital + pnl,
             "pnl": pnl,
@@ -271,6 +292,8 @@ class ClientSession:
             "simulation": True,
             "wallet": "Simulation",
         }
+        payload.update(self.session_clock_payload())
+        return payload
 
 
 class DashboardBot:
@@ -540,14 +563,8 @@ class DashboardBot:
             session.wallet_day = today
             session.wallet_day_start = bal
         start = float(getattr(session, "wallet_start", 0) or 0)
-        if start <= 1 or start >= 90:
-            hist0 = 0.0
-            if session.equity_history:
-                try:
-                    hist0 = float(session.equity_history[0] or 0)
-                except (TypeError, ValueError):
-                    hist0 = 0.0
-            session.wallet_start = hist0 if 1 < hist0 < 90 else bal
+        if start <= 1:
+            session.wallet_start = bal
 
     def _today_session_stats(self, session: ClientSession) -> Dict[str, float]:
         today = datetime.now(timezone.utc).date().isoformat()
@@ -642,25 +659,41 @@ class DashboardBot:
     
     async def start_session(self, session: ClientSession):
         """Inicia el trading solo para esta sesión."""
+        fresh = not session.running
+        now = time.time()
         session.running = True
         session.paused = False
+        if fresh:
+            session.session_elapsed = 0.0
+            session.session_started_at = datetime.now(timezone.utc).isoformat()
+        session.session_tick_at = now
         mode = "SIM paper" if session.simulation else "REAL Binance"
+        if not session.simulation:
+            try:
+                await self.refresh_live_balances(session)
+                if fresh and session.live_balance:
+                    session.wallet_start = float(session.live_balance)
+            except Exception:
+                pass
         await self.manager.send_to_session(session.session_id, session.status_payload(
             self.predictor.is_ready if self.predictor else False
         ))
         await self.manager.send_to_session(session.session_id, {
             "type": "log",
-            "message": f"Bot started · {mode} · waiting for the next window",
+            "message": (
+                f"Bot started · {mode} · waiting for the next window"
+                + (f" · vs ${session.wallet_start:,.2f}" if session.wallet_start else "")
+            ),
             "level": "info"
         })
-        if not session.simulation:
-            try:
-                await self.refresh_live_balances(session)
-                await self.manager.send_to_session(session.session_id, session.stats_payload())
-            except Exception:
-                pass
-    
+        await self.manager.send_to_session(session.session_id, session.stats_payload())
+        self._save_session(session)
+
     async def stop_session(self, session: ClientSession):
+        now = time.time()
+        if session.running and not session.paused and session.session_tick_at:
+            session.session_elapsed += max(0.0, now - session.session_tick_at)
+        session.session_tick_at = 0.0
         session.running = False
         session.paused = False
         await self.manager.send_to_session(session.session_id, session.status_payload(
@@ -671,9 +704,17 @@ class DashboardBot:
             "message": "Bot stopped",
             "level": "info"
         })
-    
+        await self.manager.send_to_session(session.session_id, session.stats_payload())
+        self._save_session(session)
+
     async def pause_session(self, session: ClientSession):
+        now = time.time()
+        if session.running and not session.paused and session.session_tick_at:
+            session.session_elapsed += max(0.0, now - session.session_tick_at)
+            session.session_tick_at = 0.0
         session.paused = not session.paused
+        if session.running and not session.paused:
+            session.session_tick_at = now
         await self.manager.send_to_session(session.session_id, session.status_payload(
             self.predictor.is_ready if self.predictor else False
         ))
@@ -682,6 +723,8 @@ class DashboardBot:
             "message": "Bot paused" if session.paused else "Bot resumed",
             "level": "info"
         })
+        await self.manager.send_to_session(session.session_id, session.stats_payload())
+        self._save_session(session)
     
     async def start(self):
         """Compatibilidad: inicia todas las sesiones no es el flujo nuevo."""
@@ -1676,6 +1719,9 @@ class DashboardBot:
             session.wallet_start = float(data.get("wallet_start") or 0.0)
             session.wallet_day = str(data.get("wallet_day") or "")
             session.wallet_day_start = float(data.get("wallet_day_start") or 0.0)
+            session.session_started_at = str(data.get("session_started_at") or "")
+            session.session_elapsed = float(data.get("session_elapsed") or 0.0)
+            session.session_tick_at = 0.0
             session.simulation = data.get("simulation", True)
             session.pending_trade = pending_trade_from_dict(data.get("pending_trade"))
         except Exception as e:
@@ -1699,6 +1745,8 @@ class DashboardBot:
                     "wallet_start": getattr(session, "wallet_start", 0.0),
                     "wallet_day": getattr(session, "wallet_day", ""),
                     "wallet_day_start": getattr(session, "wallet_day_start", 0.0),
+                    "session_started_at": getattr(session, "session_started_at", ""),
+                    "session_elapsed": session.session_elapsed_seconds() if hasattr(session, "session_elapsed_seconds") else getattr(session, "session_elapsed", 0.0),
                     "simulation": session.simulation,
                     "pending_trade": session.pending_trade.to_dict() if session.pending_trade else None,
                     "last_updated": datetime.now().isoformat(),
