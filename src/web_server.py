@@ -37,7 +37,7 @@ from .wallet_prediction import (
     WalletPredictionClient,
     clamp_bet_amount,
     daily_loss_hit,
-    session_lock_hit,
+    harvest_amount,
     fetch_spot_top_of_book,
     fetch_predict_fun_lock,
     fetch_spot_five_minute_open,
@@ -158,6 +158,10 @@ class ClientSession:
     session_elapsed: float = 0.0
     session_tick_at: float = 0.0
     session_peak: float = 0.0
+    banked_session: float = 0.0
+    banked_day: float = 0.0
+    harvest_at: float = 0.0
+    harvest_block_until: float = 0.0
 
     def session_elapsed_seconds(self) -> float:
         extra = 0.0
@@ -243,6 +247,8 @@ class ClientSession:
             profit_factor = (wins * 0.95) / max(0.01, losses * 1.0)
         if not self.simulation:
             capital = self.live_balance if self.live_balance is not None else max(0.0, self.initial_capital + pnl)
+            banked = float(getattr(self, "banked_session", 0) or 0)
+            capital = capital + banked
             start = float(getattr(self, "wallet_start", 0) or 0)
             if start > 1:
                 pnl = capital - start
@@ -251,6 +257,7 @@ class ClientSession:
                 "capital": capital,
                 "available": getattr(self, "live_available", 0.0) or None,
                 "open_value": getattr(self, "live_open_value", 0.0) or None,
+                "banked": banked,
                 "pnl": pnl,
                 "trades": total,
                 "winrate": winrate,
@@ -567,6 +574,7 @@ class DashboardBot:
         if str(getattr(session, "wallet_day", "") or "") != today:
             session.wallet_day = today
             session.wallet_day_start = bal
+            session.banked_day = 0.0
         start = float(getattr(session, "wallet_start", 0) or 0)
         if start <= 1:
             session.wallet_start = bal
@@ -635,7 +643,7 @@ class DashboardBot:
     async def _halt_if_daily_loss(self, session: ClientSession, trading: Any) -> bool:
         if not session.simulation and session.live_balance is not None:
             start = float(getattr(session, "wallet_day_start", 0) or 0) or float(session.live_balance)
-            day_pnl = float(session.live_balance) - start
+            day_pnl = float(session.live_balance) + float(getattr(session, "banked_day", 0) or 0) - start
             day = {"pnl": day_pnl, "count": 0}
         else:
             day = self._today_session_stats(session)
@@ -653,35 +661,68 @@ class DashboardBot:
             f"{reason}. Start again tomorrow or raise the daily stop.",
         )
 
-    async def _halt_if_session_lock(self, session: ClientSession, trading: Any) -> bool:
-        if session.paused or not session.running:
+    async def _maybe_harvest(self, session: ClientSession) -> bool:
+        """Send Prediction cash above the working book to Spot. Bot keeps trading."""
+        if session.simulation or not session.running:
             return False
-        if session.simulation:
-            equity = float(session.initial_capital + session.cumulative_pnl)
-            start = float(getattr(session, "wallet_start", 0) or session.initial_capital or 0)
-        elif session.live_balance is None:
+        now = time.time()
+        if now < float(getattr(session, "harvest_block_until", 0) or 0):
             return False
-        else:
-            equity = float(session.live_balance)
-            start = float(getattr(session, "wallet_start", 0) or 0)
-        peak = float(getattr(session, "session_peak", 0) or 0)
-        if equity > peak:
-            session.session_peak = equity
-            peak = equity
-        hit, reason = session_lock_hit(
-            equity,
-            start,
-            peak,
-            getattr(trading, "session_lock_usd", 0),
-            getattr(trading, "session_trail_pct", 40),
+        if now - float(getattr(session, "harvest_at", 0) or 0) < 75:
+            return False
+        if session.pending_trade:
+            return False
+        from .user_settings import get_settings_manager
+        sm = get_settings_manager()
+        trading = sm.settings.trading
+        keep = float(getattr(trading, "working_bankroll", 0) or 0)
+        if keep <= 1:
+            keep = float(getattr(session, "wallet_start", 0) or 0)
+        amount = harvest_amount(
+            getattr(session, "live_available", 0),
+            keep,
+            getattr(session, "live_open_value", 0),
+            getattr(trading, "harvest_min", 5),
         )
-        if not hit:
+        if amount < 0.01:
             return False
-        return await self._pause_for_reason(
-            session,
-            f"{reason}. Transfer Out in Binance Portfolio if you want Spot. Resume to keep playing.",
-            "info",
+        creds = sm.settings.binance
+        if not creds.is_configured:
+            return False
+        client = WalletPredictionClient(
+            creds.api_key,
+            creds.api_secret,
+            preferred_address=creds.prediction_wallet,
         )
+        result = await client.transfer_to_spot(amount)
+        if not result.get("success"):
+            session.harvest_block_until = now + 600
+            await self.manager.send_to_session(session.session_id, {
+                "type": "log",
+                "message": f"BANK skipped: {result.get('error') or 'Transfer Out failed'}",
+                "level": "loss",
+            })
+            self._save_session(session)
+            return False
+        sent = float(result.get("amount") or amount)
+        session.banked_session = float(getattr(session, "banked_session", 0) or 0) + sent
+        session.banked_day = float(getattr(session, "banked_day", 0) or 0) + sent
+        session.harvest_at = now
+        await self.manager.send_to_session(session.session_id, {
+            "type": "log",
+            "message": (
+                f"BANKED ${sent:.2f} to Spot · Prediction keeps ${keep:.2f} · "
+                f"saved ${session.banked_session:.2f} this session"
+            ),
+            "level": "info",
+        })
+        try:
+            await self.refresh_live_balances(session)
+        except Exception:
+            pass
+        await self.manager.send_to_session(session.session_id, session.stats_payload())
+        self._save_session(session)
+        return True
     
     async def _data_loop(self):
         """Loop que siempre envía datos de mercado, incluso sin trading."""
@@ -695,8 +736,7 @@ class DashboardBot:
                     if not session.simulation and now - session.live_fetched_at > 20:
                         try:
                             await self.refresh_live_balances(session)
-                            from .user_settings import get_settings_manager
-                            await self._halt_if_session_lock(session, get_settings_manager().settings.trading)
+                            await self._maybe_harvest(session)
                         except Exception as exc:
                             logger.error(f"Live balance refresh failed: {exc}")
                     await self.manager.send_to_session(session.session_id, session.stats_payload())
@@ -717,6 +757,7 @@ class DashboardBot:
         if fresh:
             session.session_elapsed = 0.0
             session.session_started_at = datetime.now(timezone.utc).isoformat()
+            session.banked_session = 0.0
             if session.simulation:
                 session.wallet_start = float(session.initial_capital + session.cumulative_pnl)
                 session.session_peak = session.wallet_start
@@ -1036,8 +1077,6 @@ class DashboardBot:
                 return
 
             if await self._halt_if_daily_loss(session, sm.settings.trading):
-                return
-            if await self._halt_if_session_lock(session, sm.settings.trading):
                 return
             stake = resolve_stake(
                 self._session_equity(session),
@@ -1647,7 +1686,7 @@ class DashboardBot:
         try:
             from .user_settings import get_settings_manager
             await self._halt_if_daily_loss(session, get_settings_manager().settings.trading)
-            await self._halt_if_session_lock(session, get_settings_manager().settings.trading)
+            await self._maybe_harvest(session)
         except Exception:
             pass
         try:
@@ -1785,6 +1824,8 @@ class DashboardBot:
             session.session_elapsed = float(data.get("session_elapsed") or 0.0)
             session.session_tick_at = 0.0
             session.session_peak = float(data.get("session_peak") or 0.0)
+            session.banked_session = float(data.get("banked_session") or 0.0)
+            session.banked_day = float(data.get("banked_day") or 0.0)
             session.simulation = data.get("simulation", True)
             session.pending_trade = pending_trade_from_dict(data.get("pending_trade"))
         except Exception as e:
@@ -1811,6 +1852,8 @@ class DashboardBot:
                     "session_started_at": getattr(session, "session_started_at", ""),
                     "session_elapsed": session.session_elapsed_seconds() if hasattr(session, "session_elapsed_seconds") else getattr(session, "session_elapsed", 0.0),
                     "session_peak": getattr(session, "session_peak", 0.0),
+                    "banked_session": getattr(session, "banked_session", 0.0),
+                    "banked_day": getattr(session, "banked_day", 0.0),
                     "simulation": session.simulation,
                     "pending_trade": session.pending_trade.to_dict() if session.pending_trade else None,
                     "last_updated": datetime.now().isoformat(),

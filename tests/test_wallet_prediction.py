@@ -6,6 +6,7 @@ from src.wallet_prediction import (
     WalletPredictionClient,
     as_probability,
     clamp_bet_amount,
+    harvest_amount,
     daily_loss_hit,
     session_lock_hit,
     resolve_stake,
@@ -97,6 +98,12 @@ class WalletMathTests(unittest.TestCase):
     def test_daily_stop_ignores_a_small_dip(self):
         hit, _ = daily_loss_hit(-0.40, 10, dollar_limit=5, pct_limit=20)
         self.assertFalse(hit)
+
+    def test_harvest_sends_excess_cash_to_spot(self):
+        self.assertAlmostEqual(harvest_amount(47.76, 33.0, 0, 5), 14.76)
+        self.assertEqual(harvest_amount(50.32, 33.0, 1.51, 5), 0.0)
+        self.assertEqual(harvest_amount(36.0, 33.0, 0, 5), 0.0)
+        self.assertEqual(harvest_amount(47.76, 0, 0, 5), 0.0)
 
     def test_session_trail_pauses_after_giving_back_peak(self):
         hit, reason = session_lock_hit(43.20, 33.0, 50.32, target_usd=0, trail_pct=40)
@@ -747,6 +754,39 @@ class WalletBscPickerTests(unittest.IsolatedAsyncioTestCase):
             resolved = await client.resolve_live_result(pending)
         self.assertFalse(resolved.get("ready"))
         self.assertIn("still open", resolved.get("reason"))
+
+    async def test_transfer_to_spot_uses_inbound_wei(self):
+        listed = "0xbbbbccccddddeeeeffff00001111222233334444"
+        client = WalletPredictionClient("k", "s", preferred_address=USER_WALLET)
+        captured = {}
+
+        async def fake_request(method, path, extra=None):
+            captured["method"] = method
+            captured["path"] = path
+            captured["extra"] = extra or {}
+            return 200, {"code": 0, "transferId": "t1"}
+
+        async def fake_wallet(refresh=True):
+            return {
+                "walletId": "pred",
+                "walletAddress": listed,
+                "orderAddress": listed,
+                "usdt": 47.76,
+                "label": "Prediction Account",
+                "can_trade": True,
+            }
+
+        with patch.object(client, "_request", fake_request), \
+             patch.object(client, "ensure_wallet", fake_wallet):
+            result = await client.transfer_to_spot(14.76)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(captured["method"], "POST")
+        self.assertEqual(captured["path"], "transfer/inbound")
+        self.assertEqual(captured["extra"]["accountType"], "SPOT")
+        self.assertEqual(captured["extra"]["fromTokenAmount"], str(int(round(14.76 * 10**18))))
+        self.assertEqual(captured["extra"]["walletId"], "pred")
+        self.assertEqual(captured["extra"]["walletAddress"], listed)
 
 
 class WalletErrorTextTests(unittest.TestCase):

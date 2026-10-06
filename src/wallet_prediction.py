@@ -44,10 +44,14 @@ MIN_BET_PERCENT = 1.0
 MAX_BET_PERCENT = 8.0
 DEFAULT_DAILY_LOSS_PCT = 20.0
 DEFAULT_SESSION_LOCK_USD = 0.0
-DEFAULT_SESSION_TRAIL_PCT = 40.0
+DEFAULT_SESSION_TRAIL_PCT = 0.0
 MIN_SESSION_PEAK_PNL = 5.0
 MAX_SESSION_LOCK_USD = 500.0
 MAX_SESSION_TRAIL_PCT = 80.0
+DEFAULT_WORKING_BANKROLL = 0.0
+DEFAULT_HARVEST_MIN = 5.0
+MAX_WORKING_BANKROLL = 500.0
+MAX_HARVEST_MIN = 100.0
 MIN_SHARE_PRICE = 0.20
 MAX_SHARE_PRICE = 0.82
 MIN_WIN_PNL_RATIO = 0.10
@@ -432,6 +436,78 @@ def clamp_session_trail_pct(value: Any, default: float = DEFAULT_SESSION_TRAIL_P
     if percent < 0:
         percent = 0.0
     return min(percent, MAX_SESSION_TRAIL_PCT)
+
+
+def clamp_harvest_min(value: Any, default: float = DEFAULT_HARVEST_MIN) -> float:
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = float(default)
+    if amount < 0:
+        amount = 0.0
+    return min(amount, MAX_HARVEST_MIN)
+
+
+def clamp_working_bankroll(value: Any, default: float = DEFAULT_WORKING_BANKROLL) -> float:
+    """0 means keep whatever was in the wallet at Start."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = float(default)
+    if amount < 0:
+        amount = 0.0
+    return min(amount, MAX_WORKING_BANKROLL)
+
+
+def harvest_amount(
+    available: Any,
+    keep: Any,
+    open_value: Any = 0,
+    min_sweep: Any = DEFAULT_HARVEST_MIN,
+) -> float:
+    """USDT to send Prediction → Spot. 0 while a ticket is open or the extra is tiny."""
+    try:
+        cash = float(available or 0)
+    except (TypeError, ValueError):
+        cash = 0.0
+    try:
+        hold = float(keep or 0)
+    except (TypeError, ValueError):
+        hold = 0.0
+    try:
+        opened = float(open_value or 0)
+    except (TypeError, ValueError):
+        opened = 0.0
+    try:
+        floor = float(min_sweep if min_sweep is not None else DEFAULT_HARVEST_MIN)
+    except (TypeError, ValueError):
+        floor = DEFAULT_HARVEST_MIN
+    if floor < 0:
+        floor = 0.0
+    if opened > 0.01 or hold <= 1 or cash <= 0:
+        return 0.0
+    extra = cash - hold
+    if extra + 1e-9 < max(floor, 0.01):
+        return 0.0
+    return float(f"{extra:.2f}")
+
+
+def prediction_transfer_ok(status: int, data: Any) -> bool:
+    if int(status) != 200:
+        return False
+    if not isinstance(data, dict):
+        return True
+    if data.get("success") is False:
+        return False
+    code = data.get("code")
+    if code not in (None, "", 0, "0", "000000"):
+        try:
+            if int(code) != 0:
+                return False
+        except (TypeError, ValueError):
+            if not (data.get("transferId") or data.get("id") or data.get("txnId")):
+                return False
+    return True
 
 
 def session_lock_hit(
@@ -1864,6 +1940,45 @@ class WalletPredictionClient:
             "error": str(picked.get("error") or ""),
         }
         return self._wallet
+
+    async def transfer_to_spot(self, amount_usdt: float) -> Dict[str, Any]:
+        """Send Prediction USDT to CEX Spot. Official transfer/inbound (Prediction → Spot)."""
+        amount = float(f"{max(0.0, float(amount_usdt or 0)):.2f}")
+        if amount < 0.01:
+            return {"success": False, "error": "Nothing to bank", "amount": 0.0}
+        wallet = await self.ensure_wallet(refresh=True)
+        order_address = str(wallet.get("orderAddress") or "")
+        wallet_id = str(wallet.get("walletId") or "")
+        if not wallet.get("can_trade") or not wallet_id or not order_address:
+            return {
+                "success": False,
+                "error": wallet.get("error") or "Prediction Account missing for Transfer Out",
+                "amount": 0.0,
+            }
+        extra = {
+            "walletId": wallet_id,
+            "walletAddress": order_address,
+            "fromTokenAmount": str(int(round(amount * USDT_WEI))),
+            "accountType": "SPOT",
+            "fromToken": "USDT",
+            "toToken": "USDT",
+            "chainId": BSC_CHAIN_ID,
+        }
+        status, data = await self._request("POST", "transfer/inbound", extra)
+        if prediction_transfer_ok(status, data):
+            return {
+                "success": True,
+                "amount": amount,
+                "account": "SPOT",
+                "payload": data if isinstance(data, dict) else {},
+            }
+        detail = api_error_text(status, data)
+        if "31003" in detail or "SAS" in detail.upper():
+            detail = (
+                "Binance SAS is off for Transfer Out. Enable it on the API key / wallet, "
+                "or Transfer Out in Prediction → Portfolio."
+            )
+        return {"success": False, "error": detail or "Transfer Out failed", "amount": 0.0}
 
     async def quote_and_buy(
         self,

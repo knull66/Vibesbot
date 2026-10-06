@@ -79,12 +79,12 @@ class BinanceFlagTests(unittest.TestCase):
     def test_session_lock_settings_persist(self):
         with tempfile.TemporaryDirectory() as tmp:
             manager = SettingsManager(Path(tmp))
-            manager.update_trading_settings(session_lock_usd=10, session_trail_pct=40)
-            self.assertEqual(manager.settings.trading.session_lock_usd, 10.0)
-            self.assertEqual(manager.settings.trading.session_trail_pct, 40.0)
+            manager.update_trading_settings(working_bankroll=33, harvest_min=5)
+            self.assertEqual(manager.settings.trading.working_bankroll, 33.0)
+            self.assertEqual(manager.settings.trading.harvest_min, 5.0)
             again = SettingsManager(Path(tmp))
-            self.assertEqual(again.settings.trading.session_lock_usd, 10.0)
-            self.assertEqual(again.settings.trading.session_trail_pct, 40.0)
+            self.assertEqual(again.settings.trading.working_bankroll, 33.0)
+            self.assertEqual(again.settings.trading.harvest_min, 5.0)
 
     def test_journal_stats_count_real_only(self):
         from src.trade_journal import summarize_trades

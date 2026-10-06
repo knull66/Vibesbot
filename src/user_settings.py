@@ -24,15 +24,19 @@ from .utils.logger import get_logger
 from .wallet_prediction import (
     DEFAULT_BET_PERCENT,
     DEFAULT_DAILY_LOSS_PCT,
+    DEFAULT_HARVEST_MIN,
     DEFAULT_SESSION_LOCK_USD,
     DEFAULT_SESSION_TRAIL_PCT,
     DEFAULT_STAKE_MODE,
+    DEFAULT_WORKING_BANKROLL,
     MIN_BET_USDT,
     clamp_bet_amount,
     clamp_bet_percent,
     clamp_daily_loss_pct,
+    clamp_harvest_min,
     clamp_session_lock_usd,
     clamp_session_trail_pct,
+    clamp_working_bankroll,
     resolve_preferred_address,
 )
 
@@ -191,6 +195,8 @@ class TradingSettings:
     daily_loss_pct: float = DEFAULT_DAILY_LOSS_PCT
     session_lock_usd: float = DEFAULT_SESSION_LOCK_USD
     session_trail_pct: float = DEFAULT_SESSION_TRAIL_PCT
+    working_bankroll: float = DEFAULT_WORKING_BANKROLL
+    harvest_min: float = DEFAULT_HARVEST_MIN
     max_trades_per_day: int = 50
     confidence_threshold: float = 0.50  # 50% — Wallet 5m is ~50/50
     auto_trade: bool = False  # Si ejecuta trades automáticamente
@@ -212,6 +218,8 @@ class TradingSettings:
             "daily_loss_pct": self.daily_loss_pct,
             "session_lock_usd": self.session_lock_usd,
             "session_trail_pct": self.session_trail_pct,
+            "working_bankroll": self.working_bankroll,
+            "harvest_min": self.harvest_min,
             "max_trades_per_day": self.max_trades_per_day,
             "confidence_threshold": self.confidence_threshold,
             "auto_trade": self.auto_trade,
@@ -599,6 +607,8 @@ class SettingsManager:
                     daily_loss_pct=clamp_daily_loss_pct(t.get("daily_loss_pct", DEFAULT_DAILY_LOSS_PCT)),
                     session_lock_usd=clamp_session_lock_usd(t.get("session_lock_usd", DEFAULT_SESSION_LOCK_USD)),
                     session_trail_pct=clamp_session_trail_pct(t.get("session_trail_pct", DEFAULT_SESSION_TRAIL_PCT)),
+                    working_bankroll=clamp_working_bankroll(t.get("working_bankroll", DEFAULT_WORKING_BANKROLL)),
+                    harvest_min=clamp_harvest_min(t.get("harvest_min", DEFAULT_HARVEST_MIN)),
                     max_trades_per_day=t.get("max_trades_per_day", 50),
                     confidence_threshold=effective_confidence_threshold(
                         t.get("confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD)
@@ -721,6 +731,10 @@ class SettingsManager:
             mapped["session_lock_usd"] = clamp_session_lock_usd(mapped["session_lock_usd"])
         if "session_trail_pct" in mapped:
             mapped["session_trail_pct"] = clamp_session_trail_pct(mapped["session_trail_pct"])
+        if "working_bankroll" in mapped:
+            mapped["working_bankroll"] = clamp_working_bankroll(mapped["working_bankroll"])
+        if "harvest_min" in mapped:
+            mapped["harvest_min"] = clamp_harvest_min(mapped["harvest_min"])
         if "stake_mode" in mapped:
             mode = str(mapped.get("stake_mode") or DEFAULT_STAKE_MODE).strip().lower()
             mapped["stake_mode"] = mode if mode in ("percent", "fixed") else DEFAULT_STAKE_MODE
