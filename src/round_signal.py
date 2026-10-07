@@ -1,9 +1,9 @@
 """Round-level signal: indicators + tape, never a naked 50/50 coin flip."""
 from typing import Dict, Optional, Tuple
 
-MIN_CONFIRM_MOVE = 3.0
+MIN_CONFIRM_MOVE = 10.0
 CROWD_FADE_LIMIT = 0.88
-VOTE_THRESHOLD = 2
+VOTE_THRESHOLD = 3
 
 
 def tape_vote(flow_imbalance: float, book_imbalance: float = 0.0) -> int:
