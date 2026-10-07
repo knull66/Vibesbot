@@ -19,7 +19,7 @@ Clona el repo público: [knull66/Vibesbot](https://github.com/knull66/Vibesbot).
 - **Señal**: mayoría de indicadores + tape (`round_signal`). El panel Strategy ajusta esos pesos. No hay LightGBM en el camino de apuesta. Umbral ~**0.50**.
 - **Filtros**: modo agresivo. Book 20–82% (un DOWN 76% sí). Solo corta 88%+ y 92¢ que pagan centavos. ≥ $3 vs Price to Beat. Señal con 2 votos (RSI solo ya cuenta).
 - **Price to Beat**: lock oficial de Wallet si Binance lo manda; si no, el open de la vela 5m de Spot (etiqueta “Est. 5m open”). Sirve para no apostar un 50/50 al inicio de ronda. REAL se liquida con Binance, no con esa línea.
-- **Stake**: 3% del Prediction Account (tope 8%). $1.50 sobre $10 es 15% — el bot se salta si 3% no llega al mínimo de Wallet. Kelly del panel ya no es el tamaño. También puedes poner un Fixed $.
+- **Stake**: 3% del Prediction Account (tope 8%). $1 sobre $10 es 10% — el bot se salta si 3% no llega al mínimo de Wallet ($1). Kelly del panel ya no es el tamaño. También puedes poner un Fixed $.
 - **Circuit breaker**: 3 pérdidas seguidas pausan ~30 min. Stop diario 20% del saldo de arranque (o el $ que pongas) pone Pause.
 - **Salida**: aguanta hasta que Binance liquide. Un +6¢ al comprar no es un win (esa comisión de ida y vuelta desangra). Solo vende un lock ≥ 90¢ (~$0.70) o un ticket muerto ≤ 12¢, y nunca en los primeros 75s.
 - **Drawdown**: en REAL el pico es el saldo de la wallet, no los $100 de SIM. Un −$1.50 sobre ~$9 es ~16%, no 92%.
@@ -36,7 +36,7 @@ Playwright y el clicker de Event Contracts están eliminados. Al abrir, se purga
 1. API key de Binance **live** (no testnet).
 2. Permiso **Enable Prediction Trading**.
 3. **Restricción de IP** a la IP de este Mac (Binance lo exige para ese permiso).
-4. USDT en el **Prediction Account** (Transfer In ≥ 1.50), red BNB Smart Chain.
+4. USDT en el **Prediction Account** (Transfer In ≥ 1), red BNB Smart Chain.
 5. En Settings, deja la wallet vacía salvo que quieras forzar una address que **sí** aparezca en `wallet/list`.
 
 El API secret se guarda cifrado (Keychain en macOS, sidecar `chmod 0600` en el resto). No va en texto plano dentro de `user_settings.json`.
@@ -66,7 +66,7 @@ python3 run_dashboard.py
 
 | Campo | Default real | Notas |
 |-------|----------------|-------|
-| `bet_amount` | 1.50 USDT | Mínimo de Wallet. $1 se sube a $1.50. |
+| `bet_amount` | 1.00 USDT | Mínimo de Wallet. $1 se respeta. |
 | `confidence_threshold` | 0.50 | 0.62 legado → 0.50 |
 | `max_daily_loss` | 50 | Sí se aplica en el motor del dashboard |
 | `max_trades_per_day` | 50 | Sí se aplica |

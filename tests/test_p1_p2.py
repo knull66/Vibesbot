@@ -19,11 +19,34 @@ class CircuitBreakerTests(unittest.TestCase):
         risk = RiskManager(RiskConfig(circuit_breaker_consecutive_losses=3, circuit_breaker_cooldown_minutes=30))
         ok, _ = risk.circuit_status()
         self.assertTrue(ok)
+        tripped = None
         for _ in range(3):
-            risk.record_settled("LOSS", -1.5)
+            tripped = risk.record_settled("LOSS", -1.5)
+        self.assertIsNotNone(tripped)
+        self.assertIn("paused", tripped.lower())
         ok, reason = risk.circuit_status()
         self.assertFalse(ok)
-        self.assertIn("circuit breaker", reason.lower())
+        self.assertIn("consecutive losses", reason.lower())
+        self.assertNotIn("until", reason.lower())
+
+    def test_start_clears_the_losing_streak(self):
+        risk = RiskManager(RiskConfig(circuit_breaker_consecutive_losses=3))
+        for _ in range(3):
+            risk.record_settled("LOSS", -1.5)
+        risk.clear_circuit()
+        ok, _ = risk.circuit_status()
+        self.assertTrue(ok)
+
+    def test_circuit_survives_a_restore(self):
+        risk = RiskManager(RiskConfig(circuit_breaker_consecutive_losses=3))
+        for _ in range(3):
+            risk.record_settled("LOSS", -1.5)
+        snap = risk.snapshot()
+        again = RiskManager(RiskConfig(circuit_breaker_consecutive_losses=3))
+        again.restore(snap)
+        ok, reason = again.circuit_status()
+        self.assertFalse(ok)
+        self.assertIn("consecutive losses", reason.lower())
 
     def test_push_does_not_count(self):
         risk = RiskManager(RiskConfig(circuit_breaker_consecutive_losses=2))

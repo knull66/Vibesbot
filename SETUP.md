@@ -35,7 +35,7 @@ El secret se cifra al guardar (Keychain en Mac, archivo `binance_api_secret.enc`
 | Web3 My Wallet | No. |
 | Spot / Funding / Futures | No. |
 
-Mínimo **1.50 USDT** por apuesta. Pasa USDT a BNB Smart Chain y Transfer In al Prediction Account.
+Mínimo **1 USDT** por apuesta. Pasa USDT a BNB Smart Chain y Transfer In al Prediction Account.
 
 Deja el campo wallet **vacío** para gastar la account listada. No pongas una address de My Wallet si no aparece en `wallet/list`.
 
@@ -64,10 +64,10 @@ Empieza en SIM. Pasa a REAL solo cuando el feed SIM y el book de Binance coincid
 Enable Prediction Trading + IP de este Mac. Testnet no tiene Wallet Prediction.
 
 **No me deja cambiar la apuesta / se queda en $1.50**  
-v1.37: STAKE en el header. `%` = 1–8% del saldo. `$` = Fixed. Enter o blur guarda. REAL mínimo $1.50.
+v1.37: STAKE en el header. `%` = 1–8% del saldo. `$` = Fixed. Enter o blur guarda. REAL mínimo $1.
 
 **Apuesta $1.50 con Settings en $1**  
-El mínimo de Wallet es 1.50; la app lo sube.
+v1.50: Wallet acepta $1. El bot ya no sube $1 a $1.50.
 
 **Dashboard negro / números chicos**  
 v1.40: estilo mate (sin glass cian). Equity grande, cash vs open, anillo de ronda.
@@ -79,7 +79,7 @@ v1.39: solo apuesta el 5m que ya empezó y cierra en ≤6.5 min. El título "5PM
 v1.38: una sola posición por mercado 5m. No compra el lado contrario. Stats REAL leen el journal. LIVE incluye tickets abiertos. No pulses Start otra vez en la misma ronda.
 
 **Con $10 el bot no apuesta**  
-3% de $10 es $0.30 < $1.50. Añade fondos (~$50 para 3%) o pasa a Fixed sabiendo que $1.50 es un 15% del libro.
+3% de $10 es $0.30 < $1. Añade fondos (~$34 para 3%) o pasa a Fixed $1.
 
 **Muchos SKIP**  
 Solo corta favoritos 85¢+ / lotto 15¢ y un 50/50 plano vs el lock. Un DOWN 71–76% sí se apuesta.

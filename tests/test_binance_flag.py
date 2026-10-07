@@ -57,12 +57,12 @@ class BinanceFlagTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manager = SettingsManager(Path(tmp))
             manager.update_trading_settings(bet_amount=1.0, daily_loss_limit=12, confidence_threshold=0.55)
-            self.assertEqual(manager.settings.trading.bet_amount, 1.5)
+            self.assertEqual(manager.settings.trading.bet_amount, 1.0)
             self.assertEqual(manager.settings.trading.max_daily_loss, 12.0)
             payload = manager.settings.trading.to_dict()
             self.assertEqual(payload["daily_loss_limit"], 12.0)
             again = SettingsManager(Path(tmp))
-            self.assertEqual(again.settings.trading.bet_amount, 1.5)
+            self.assertEqual(again.settings.trading.bet_amount, 1.0)
             self.assertEqual(again.settings.trading.max_daily_loss, 12.0)
 
     def test_percent_stake_persists(self):
