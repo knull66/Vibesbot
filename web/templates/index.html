@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
     
-    <link rel="stylesheet" href="/static/styles.css?v=1.49.0">
+    <link rel="stylesheet" href="/static/styles.css?v=1.50.0">
 </head>
 <body class="auth-wait" data-view="signal">
     <div class="restart-banner" id="restart-banner">
@@ -338,7 +338,7 @@
                 <span class="footer-label">Exit:</span>
                 <span id="strategy-status">Hold to settle · 90¢ / 12¢</span>
             </div>
-            <div class="footer-brand">VIBESBOT <span id="app-version">v1.49.0</span></div>
+            <div class="footer-brand">VIBESBOT <span id="app-version">v1.50.0</span></div>
             <div class="footer-time" id="clock">--:--:--</div>
         </footer>
         
@@ -433,10 +433,10 @@
                         </div>
                         <div class="pref-row">
                             <label for="bet-amount">Fixed $</label>
-                            <input type="text" id="bet-amount" inputmode="decimal" value="1.50" autocomplete="off">
+                            <input type="text" id="bet-amount" inputmode="decimal" value="1.00" autocomplete="off">
                         </div>
                     </div>
-                    <p class="pref-foot">Wallet min $1.50. If 3% is below that, skip. Cap 8% per ticket.</p>
+                    <p class="pref-foot">Wallet min $1. If 3% is below that, skip. Cap 8% per ticket.</p>
                     <h3 class="pref-section">Risk</h3>
                     <div class="pref-group">
                         <div class="pref-row">
@@ -584,14 +584,14 @@
                     <div class="pref-group">
                         <div class="pref-row">
                             <span class="pref-static-label">This Mac</span>
-                            <span class="sim-stat-value" id="current-version">v1.49.0</span>
+                            <span class="sim-stat-value" id="current-version">v1.50.0</span>
                         </div>
                         <div class="pref-row">
-                            <span class="pref-static-label">GitHub</span>
+                            <span class="pref-static-label">Latest</span>
                             <span class="sim-stat-value" id="latest-version">--</span>
                         </div>
                     </div>
-                    <p class="pref-foot">Checks GitHub Releases. After Install: Dock → Quit, then open again.</p>
+                    <p class="pref-foot">Checks GitHub (release + main) and Origin git. After Install: Dock → Quit, then open again.</p>
                     <div class="form-actions">
                         <button class="btn" id="btn-check-update" type="button">Check update</button>
                         <button class="btn btn-primary" id="btn-install-update" type="button" disabled>Install</button>
@@ -647,7 +647,7 @@
             </div>
             <div class="modal-body" style="padding:16px 20px 22px;">
                 <p class="settings-hint" style="margin-bottom:12px;">
-                    <span id="update-prompt-from">v1.49.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
+                    <span id="update-prompt-from">v1.50.0</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
                 </p>
                 <p id="update-prompt-notes" class="settings-hint" style="margin-bottom:16px;"></p>
                 <div class="form-actions" style="justify-content:center;">
@@ -670,7 +670,7 @@
                     Switching to <strong>WALLET REAL</strong>
                 </p>
                 <p style="color:var(--text-muted); font-size:10px; margin-bottom:16px;">
-                    Start spends the Binance Prediction Account (Portfolio → Transfer In / Predict.fun). Web3 My Wallet is not spent. Minimum $1.50.
+                    Start spends the Binance Prediction Account (Portfolio → Transfer In / Predict.fun). Web3 My Wallet is not spent. Minimum $1.
                 </p>
                 <div class="form-actions" style="justify-content:center;">
                     <button class="btn" id="btn-cancel-real">Cancel</button>
@@ -683,6 +683,6 @@
     <!-- PWA Install Button -->
     <button id="pwa-install-btn">INSTALL APP</button>
     
-    <script src="/static/app.js?v=1.49.0"></script>
+    <script src="/static/app.js?v=1.50.0"></script>
 </body>
 </html>
