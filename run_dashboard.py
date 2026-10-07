@@ -9,6 +9,12 @@ import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+try:
+    from src.ship_inflate import inflate_ship
+    inflate_ship()
+except Exception:
+    pass
+
 from src.web_server import run_dashboard
 
 
