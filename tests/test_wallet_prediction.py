@@ -8,6 +8,8 @@ from src.wallet_prediction import (
     clamp_bet_amount,
     harvest_amount,
     daily_loss_hit,
+    marked_equity,
+    peak_drawdown_hit,
     session_lock_hit,
     resolve_stake,
     decode_wei_to_usdt,
@@ -72,19 +74,30 @@ class WalletMathTests(unittest.TestCase):
         self.assertLess(fill["lose_pnl"], -1.0)
 
     def test_settings_stake_floor_is_wallet_min(self):
-        self.assertEqual(clamp_bet_amount(1.0), 1.5)
+        self.assertEqual(clamp_bet_amount(1.0), 1.0)
+        self.assertEqual(clamp_bet_amount(0.50), 1.0)
         self.assertEqual(clamp_bet_amount(2.0), 2.0)
-        self.assertEqual(clamp_bet_amount("nope"), 1.5)
+        self.assertEqual(clamp_bet_amount("nope"), 1.0)
 
     def test_percent_stake_on_a_50_dollar_book(self):
         stake = resolve_stake(50, percent=3, mode="percent")
         self.assertTrue(stake["ok"])
         self.assertAlmostEqual(stake["amount"], 1.5, places=2)
 
+    def test_percent_stake_on_a_34_dollar_book_is_one_dollar(self):
+        stake = resolve_stake(34.39, percent=3, mode="percent")
+        self.assertTrue(stake["ok"])
+        self.assertAlmostEqual(stake["amount"], 1.03, places=2)
+
+    def test_fixed_one_dollar_is_allowed(self):
+        stake = resolve_stake(34.39, fixed=1.0, mode="fixed")
+        self.assertTrue(stake["ok"])
+        self.assertAlmostEqual(stake["amount"], 1.0, places=2)
+
     def test_percent_stake_skips_a_10_dollar_book(self):
         stake = resolve_stake(10, percent=3, mode="percent")
         self.assertFalse(stake["ok"])
-        self.assertIn("1.50", stake["reason"])
+        self.assertIn("1.00", stake["reason"])
 
     def test_fixed_1_50_is_too_big_for_6_dollars(self):
         stake = resolve_stake(6.59, fixed=1.5, mode="fixed")
@@ -126,16 +139,31 @@ class WalletMathTests(unittest.TestCase):
     def test_skips_favorite_that_pays_pennies(self):
         skip = tradable_edge(0.92, 1.5)
         take = tradable_edge(0.50, 1.5)
-        lean = tradable_edge(0.65, 1.5)
+        lean = tradable_edge(0.58, 1.5)
+        favorite = tradable_edge(0.68, 1.5)
         crowded = tradable_edge(0.76, 1.5)
         longshot = tradable_edge(0.03, 1.5)
         self.assertFalse(skip["ok"])
         self.assertLess(skip["win_pnl"], 0.20)
         self.assertTrue(take["ok"])
         self.assertTrue(lean["ok"])
-        self.assertTrue(crowded["ok"])
+        self.assertFalse(favorite["ok"])
+        self.assertFalse(crowded["ok"])
         self.assertGreater(take["win_pnl"], 1.0)
         self.assertFalse(longshot["ok"])
+
+    def test_peak_drawdown_stops_a_bleed_from_the_high(self):
+        hit, reason = peak_drawdown_hit(42.40, 50.32, pct_limit=15)
+        self.assertTrue(hit)
+        self.assertIn("peak", reason)
+        ok, _ = peak_drawdown_hit(47.80, 50.32, pct_limit=15)
+        self.assertFalse(ok)
+
+    def test_harvest_to_spot_is_not_a_drawdown(self):
+        equity = marked_equity(36.0, 14.32)
+        self.assertAlmostEqual(equity, 50.32)
+        hit, _ = peak_drawdown_hit(equity, 50.32, pct_limit=15)
+        self.assertFalse(hit)
 
     def test_normalize_share_price_from_percent_or_wei(self):
         self.assertAlmostEqual(normalize_share_price(0.49), 0.49)
