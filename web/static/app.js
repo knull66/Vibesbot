@@ -1,1 +1,6 @@
-LOADED_FROM_/tmp/batch6-push.json_USE_DISK_FILE
+/**
+ * VIBESBOT - Trading Dashboard
+ */
+
+const APP_VERSION = '1.50.0';
+const SOUND_PREFS_KEY = 'vb_sound';
