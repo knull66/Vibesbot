@@ -41,6 +41,13 @@ def free_port():
 
 def start_server():
     try:
+        from src.ship_inflate import inflate_ship
+        restored = inflate_ship()
+        if restored:
+            print("ship inflate restored:", ", ".join(restored))
+    except Exception as e:
+        print(f"ship inflate: {e}")
+    try:
         from src.updater import purge_retired_installs
         purge_retired_installs()
     except Exception:
