@@ -188,7 +188,7 @@ class TradingSettings:
     mode: TradingMode = TradingMode.SIMULATION
     style: TradingStyle = TradingStyle.HOLD  # HOLD o ACTIVE
     symbol: str = "BTCUSDT"
-    bet_amount: float = 1.5  # USD por apuesta si stake_mode=fixed
+    bet_amount: float = 1.0  # USD por apuesta si stake_mode=fixed
     stake_mode: str = DEFAULT_STAKE_MODE
     bet_percent: float = DEFAULT_BET_PERCENT
     max_daily_loss: float = 5.0
