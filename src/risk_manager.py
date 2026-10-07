@@ -277,6 +277,7 @@ class RiskManager:
         
         self._circuit_breaker_active = False
         self._circuit_breaker_until: Optional[datetime] = None
+        self._session_halted = False
         
         self._last_trade_time: Optional[datetime] = None
         self._current_day: Optional[int] = None
@@ -500,17 +501,14 @@ class RiskManager:
     def circuit_status(self) -> tuple:
         """True when _execute_trade may open a new Wallet bet."""
         self._check_day_reset()
-        now = datetime.now(timezone.utc)
-        if self._circuit_breaker_active:
-            if self._circuit_breaker_until and now < self._circuit_breaker_until:
-                until = self._circuit_breaker_until.strftime("%H:%M")
-                return False, f"SKIP: circuit breaker until {until} UTC"
-            self._circuit_breaker_active = False
-            self._circuit_breaker_until = None
         losses = self.position_sizer.consecutive_losses
-        if losses >= self.risk_config.circuit_breaker_consecutive_losses:
-            self._activate_circuit_breaker()
-            return False, f"SKIP: circuit breaker after {losses} consecutive losses"
+        limit = self.risk_config.circuit_breaker_consecutive_losses
+        if self._session_halted or losses >= limit:
+            self._session_halted = True
+            return False, (
+                f"SKIP: {max(losses, limit)} consecutive losses — "
+                "session paused, press Start to resume"
+            )
         return True, ""
 
     def record_settled(self, result: str, pnl: float):
@@ -525,9 +523,37 @@ class RiskManager:
         if not is_win:
             losses = self.position_sizer.consecutive_losses
             if losses >= self.risk_config.circuit_breaker_consecutive_losses:
-                self._activate_circuit_breaker()
-                return f"Circuit breaker ON after {losses} consecutive losses"
+                self._session_halted = True
+                return (
+                    f"{losses} consecutive losses. "
+                    "Session paused — press Start when you want to trade again."
+                )
         return None
+
+    def clear_circuit(self) -> None:
+        """Start clicked: allow a fresh streak. Does not unlock the daily peak stop."""
+        self._session_halted = False
+        self._circuit_breaker_active = False
+        self._circuit_breaker_until = None
+        self.position_sizer._consecutive_losses = 0
+        self.position_sizer._consecutive_wins = 0
+
+    def snapshot(self) -> dict:
+        return {
+            "consecutive_losses": self.position_sizer.consecutive_losses,
+            "circuit_halted": bool(self._session_halted),
+        }
+
+    def restore(self, data: Optional[dict]) -> None:
+        payload = data if isinstance(data, dict) else {}
+        try:
+            losses = max(0, int(payload.get("consecutive_losses") or 0))
+        except (TypeError, ValueError):
+            losses = 0
+        self.position_sizer._consecutive_losses = losses
+        self._session_halted = bool(payload.get("circuit_halted")) or (
+            losses >= self.risk_config.circuit_breaker_consecutive_losses
+        )
     
     def _check_day_reset(self) -> None:
         """Verifica si es un nuevo día y resetea contadores."""

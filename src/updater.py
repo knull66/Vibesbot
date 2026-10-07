@@ -1,7 +1,8 @@
 """
 Sistema de auto-actualización para Vibesbot.
 
-Verifica actualizaciones en GitHub y las aplica automáticamente.
+Checks GitHub (release + main VERSION) and Origin git remotes, then
+overlays the newest zip.
 """
 import asyncio
 import aiohttp
@@ -15,7 +16,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from .utils.logger import get_logger
 
@@ -24,6 +25,10 @@ logger = get_logger("updater")
 # Configuración
 GITHUB_REPO = "knull66/Vibesbot"
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}"
+GITHUB_RAW_VERSION = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/VERSION"
+GITHUB_MAIN_ZIP = f"https://github.com/{GITHUB_REPO}/archive/refs/heads/main.zip"
+ORIGIN_GIT = "https://origin.cursor.com/git/knullproject/Vibesbot.git"
+GIT_SCHEME = "vibesbot-git:"
 VERSION_FILE = "VERSION"
 CURRENT_VERSION = "1.0.0"
 
@@ -148,6 +153,14 @@ def purge_retired_installs(app_path: Optional[Path] = None, extra_roots: Optiona
 
 
 @dataclass
+class UpdateCandidate:
+    version: str
+    download_url: str
+    source: str
+    notes: str = ""
+
+
+@dataclass
 class UpdateInfo:
     """Información sobre una actualización disponible."""
     available: bool
@@ -156,6 +169,55 @@ class UpdateInfo:
     download_url: Optional[str] = None
     release_notes: Optional[str] = None
     published_at: Optional[str] = None
+    source: str = ""
+
+
+def parse_version(value: str) -> Tuple[int, int, int]:
+    raw = (value or "").strip().lstrip("vV")
+    parts = []
+    for chunk in raw.split("."):
+        digits = "".join(ch for ch in chunk if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    while len(parts) < 3:
+        parts.append(0)
+    return (parts[0], parts[1], parts[2])
+
+
+def source_label(source: str) -> str:
+    kind = str(source or "").lower()
+    if kind.startswith("origin") or "cursor.com" in kind:
+        return "Origin"
+    if kind.startswith("github"):
+        return "GitHub"
+    return (source or "update").strip() or "update"
+
+
+def pick_newest(candidates: Iterable[UpdateCandidate]) -> Optional[UpdateCandidate]:
+    best: Optional[UpdateCandidate] = None
+    for item in candidates:
+        if not item or not str(item.version or "").strip():
+            continue
+        if best is None or parse_version(item.version) > parse_version(best.version):
+            best = item
+    return best
+
+
+def redact_git_url(url: str) -> str:
+    text = str(url or "")
+    if "@" in text and "://" in text:
+        scheme, rest = text.split("://", 1)
+        rest = rest.split("@", 1)[-1]
+        return f"{scheme}://{rest}"
+    return text
+
+
+def _git_env() -> dict:
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    ask = env.get("GIT_ASKPASS") or ""
+    if ask and not Path(ask).exists():
+        env.pop("GIT_ASKPASS", None)
+    return env
 
 
 class Updater:
@@ -192,17 +254,10 @@ class Updater:
         return CURRENT_VERSION
 
     def _parse_version(self, value: str):
-        raw = (value or "").strip().lstrip("vV")
-        parts = []
-        for chunk in raw.split("."):
-            digits = "".join(ch for ch in chunk if ch.isdigit())
-            parts.append(int(digits) if digits else 0)
-        while len(parts) < 3:
-            parts.append(0)
-        return tuple(parts[:3])
+        return parse_version(value)
 
     def _is_newer_version(self, latest: str) -> bool:
-        return self._parse_version(latest) > self._parse_version(self.current_version)
+        return parse_version(latest) > parse_version(self.current_version)
     
     def _save_version(self, version: str):
         """Guarda la versión actual."""
@@ -229,78 +284,241 @@ class Updater:
         purge_retired_installs(self.app_path)
     
     async def check_for_updates(self) -> UpdateInfo:
-        """
-        Verifica si hay actualizaciones disponibles.
-        
-        Returns:
-            UpdateInfo con información de la actualización
-        """
+        """Pick the newest VERSION from GitHub (release + main) and Origin git."""
         logger.info(f"Checking for updates... Current version: {self.current_version}")
-        
         try:
             async with aiohttp.ClientSession() as session:
-                # Intentar obtener releases (funciona para repos públicos)
-                logger.info(f"Fetching releases from {GITHUB_API}/releases/latest")
-                async with session.get(
-                    f"{GITHUB_API}/releases/latest",
-                    headers={"Accept": "application/vnd.github.v3+json"},
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    logger.info(f"Release API response: {response.status}")
-                    
-                    if response.status == 200:
-                        data = await response.json()
-                        latest_version = data.get("tag_name", "").lstrip("vV")
-                        logger.info(f"Latest version from releases: {latest_version}")
-                        
-                        is_newer = self._is_newer_version(latest_version)
-                        logger.info(f"Is newer: {is_newer} ({self.current_version} vs {latest_version})")
-                        
-                        return UpdateInfo(
-                            available=is_newer,
-                            current_version=self.current_version,
-                            latest_version=latest_version,
-                            download_url=data.get("zipball_url"),
-                            release_notes=data.get("body"),
-                            published_at=data.get("published_at")
-                        )
-                    elif response.status == 404:
-                        logger.warning("Repo is private or no releases found")
-                
-                # Método alternativo: verificar archivo VERSION en raw.githubusercontent
-                logger.info("Trying raw.githubusercontent method...")
-                raw_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/VERSION"
-                async with session.get(raw_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    logger.info(f"Raw VERSION response: {response.status}")
-                    
-                    if response.status == 200:
-                        latest_version = (await response.text()).strip()
-                        logger.info(f"Latest version from VERSION file: {latest_version}")
-                        
-                        is_newer = self._is_newer_version(latest_version)
-                        logger.info(f"Is newer: {is_newer}")
-                        
-                        return UpdateInfo(
-                            available=is_newer,
-                            current_version=self.current_version,
-                            latest_version=latest_version,
-                            download_url=f"https://github.com/{GITHUB_REPO}/archive/refs/heads/main.zip",
-                            release_notes=f"Actualización a versión {latest_version}",
-                            published_at=None
-                        )
-                    else:
-                        logger.warning(f"Could not fetch VERSION file: {response.status}")
-        
+                http = await self._http_candidates(session)
+            git = await asyncio.to_thread(self._git_candidates)
+            candidates = list(http) + list(git)
+            best = pick_newest(candidates)
+            if not best:
+                logger.warning("No update source returned a VERSION")
+                return UpdateInfo(
+                    available=False,
+                    current_version=self.current_version,
+                    latest_version=self.current_version,
+                )
+            logger.info(
+                f"Newest is {best.version} from {best.source} "
+                f"({len(candidates)} sources)"
+            )
+            return UpdateInfo(
+                available=self._is_newer_version(best.version),
+                current_version=self.current_version,
+                latest_version=best.version.lstrip("vV"),
+                download_url=best.download_url,
+                release_notes=best.notes or f"Actualización a versión {best.version} ({source_label(best.source)})",
+                source=best.source,
+            )
         except Exception as e:
             logger.error(f"Error checking for updates: {e}")
             import traceback
             traceback.print_exc()
-        
         return UpdateInfo(
             available=False,
             current_version=self.current_version,
-            latest_version=self.current_version
+            latest_version=self.current_version,
         )
+
+    async def _http_candidates(self, session: aiohttp.ClientSession) -> List[UpdateCandidate]:
+        found: List[UpdateCandidate] = []
+        try:
+            async with session.get(
+                f"{GITHUB_API}/releases/latest",
+                headers={"Accept": "application/vnd.github.v3+json"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                logger.info(f"GitHub release API: {response.status}")
+                if response.status == 200:
+                    data = await response.json()
+                    version = str(data.get("tag_name") or "").lstrip("vV")
+                    zip_url = data.get("zipball_url") or GITHUB_MAIN_ZIP
+                    if version:
+                        found.append(UpdateCandidate(
+                            version=version,
+                            download_url=zip_url,
+                            source="github-release",
+                            notes=str(data.get("body") or f"GitHub release v{version}"),
+                        ))
+        except Exception as exc:
+            logger.warning(f"GitHub release check failed: {exc}")
+        try:
+            async with session.get(GITHUB_RAW_VERSION, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                logger.info(f"GitHub main VERSION: {response.status}")
+                if response.status == 200:
+                    version = (await response.text()).strip().lstrip("vV")
+                    if version:
+                        found.append(UpdateCandidate(
+                            version=version,
+                            download_url=GITHUB_MAIN_ZIP,
+                            source="github-main",
+                            notes=f"GitHub main v{version}",
+                        ))
+        except Exception as exc:
+            logger.warning(f"GitHub main VERSION check failed: {exc}")
+        return found
+
+    def _git_candidates(self) -> List[UpdateCandidate]:
+        found: List[UpdateCandidate] = []
+        remotes = self._git_remotes()
+        refs = self._git_refs_to_check()
+        seen = set()
+        for name, url in remotes.items():
+            host = redact_git_url(url).lower()
+            if "github.com" in host:
+                continue
+            kind = "origin" if ("origin.cursor.com" in host or "cursor.com" in host) else name
+            for ref in refs:
+                key = (kind, ref)
+                if key in seen:
+                    continue
+                version = self._git_file_version(name, ref)
+                if not version:
+                    continue
+                seen.add(key)
+                found.append(UpdateCandidate(
+                    version=version,
+                    download_url=f"{GIT_SCHEME}{name}:{ref}",
+                    source=f"{kind}-{ref}",
+                    notes=f"{source_label(kind)} {ref} v{version}",
+                ))
+                logger.info(f"{kind} {ref} VERSION {version}")
+        return found
+
+    def _git_root(self) -> Optional[Path]:
+        root = Path(self.app_path)
+        if (root / ".git").exists() or (root / ".git").is_file():
+            return root
+        return None
+
+    def _git_remotes(self) -> Dict[str, str]:
+        root = self._git_root()
+        if not root:
+            return {}
+        try:
+            out = subprocess.check_output(
+                ["git", "-C", str(root), "remote", "-v"],
+                timeout=8,
+                env=_git_env(),
+                stderr=subprocess.DEVNULL,
+            ).decode()
+        except Exception:
+            return {}
+        remotes: Dict[str, str] = {}
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            remotes[parts[0]] = parts[1]
+        return remotes
+
+    def _git_refs_to_check(self) -> List[str]:
+        refs = ["main"]
+        root = self._git_root()
+        if not root:
+            return refs
+        try:
+            branch = subprocess.check_output(
+                ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+                timeout=8,
+                env=_git_env(),
+                stderr=subprocess.DEVNULL,
+            ).decode().strip()
+        except Exception:
+            branch = ""
+        if branch and branch not in ("HEAD", "main") and branch not in refs:
+            refs.append(branch)
+        return refs
+
+    def _git_file_version(self, remote: str, ref: str) -> str:
+        root = self._git_root()
+        if not root:
+            return ""
+        spec = f"{remote}/{ref}:{VERSION_FILE}"
+        version = self._git_show(root, spec)
+        if version:
+            return version
+        try:
+            subprocess.run(
+                ["git", "-C", str(root), "fetch", "--depth=1", remote, ref],
+                timeout=20,
+                env=_git_env(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except Exception as exc:
+            logger.warning(f"git fetch {remote} {ref} failed: {exc}")
+            return ""
+        return self._git_show(root, spec) or self._git_show(root, f"FETCH_HEAD:{VERSION_FILE}")
+
+    def _git_show(self, root: Path, spec: str) -> str:
+        try:
+            out = subprocess.check_output(
+                ["git", "-C", str(root), "show", spec],
+                timeout=10,
+                env=_git_env(),
+                stderr=subprocess.DEVNULL,
+            ).decode().strip().lstrip("vV")
+            if out and "\n" not in out and len(out) < 32:
+                return out
+        except Exception:
+            return ""
+        return ""
+
+    def _archive_git_ref(self, remote: str, ref: str) -> Optional[Path]:
+        root = self._git_root()
+        if not root:
+            return None
+        if not self._git_show(root, f"{remote}/{ref}:{VERSION_FILE}"):
+            try:
+                subprocess.run(
+                    ["git", "-C", str(root), "fetch", "--depth=1", remote, ref],
+                    timeout=20,
+                    env=_git_env(),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except Exception:
+                return None
+        temp_dir = Path(tempfile.mkdtemp())
+        zip_path = temp_dir / "update.zip"
+        spec = f"{remote}/{ref}"
+        try:
+            subprocess.check_call(
+                [
+                    "git", "-C", str(root), "archive",
+                    "--format=zip", f"--prefix=Vibesbot/",
+                    "-o", str(zip_path), spec,
+                ],
+                timeout=30,
+                env=_git_env(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            try:
+                subprocess.check_call(
+                    [
+                        "git", "-C", str(root), "archive",
+                        "--format=zip", f"--prefix=Vibesbot/",
+                        "-o", str(zip_path), "FETCH_HEAD",
+                    ],
+                    timeout=30,
+                    env=_git_env(),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception as exc:
+                logger.error(f"git archive {spec} failed: {exc}")
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return None
+        if zip_path.exists() and zip_path.stat().st_size > 1000:
+            return zip_path
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return None
 
     async def download_update(self, url: str, progress_callback=None) -> Optional[Path]:
         """
@@ -313,7 +531,12 @@ class Updater:
         Returns:
             Path al archivo descargado o None si falla
         """
-        logger.info(f"Downloading update from: {url}")
+        logger.info(f"Downloading update from: {redact_git_url(url)}")
+
+        if str(url or "").startswith(GIT_SCHEME):
+            payload = str(url)[len(GIT_SCHEME):]
+            remote, _, ref = payload.partition(":")
+            return self._archive_git_ref(remote, ref or "main")
         
         try:
             temp_dir = Path(tempfile.mkdtemp())
@@ -388,8 +611,15 @@ class Updater:
             if not project_dirs:
                 logger.error("Empty zip file")
                 return False
-            
-            source_dir = project_dirs[0]
+
+            source_dir = extract_dir
+            nested = [p for p in project_dirs if p.is_dir()]
+            if (extract_dir / "src").is_dir() or (extract_dir / VERSION_FILE).is_file():
+                source_dir = extract_dir
+            elif len(nested) == 1:
+                source_dir = nested[0]
+            elif nested:
+                source_dir = nested[0]
             logger.info(f"Source dir: {source_dir}")
             
             items_to_update = [
