@@ -48,6 +48,14 @@ class SessionClockTests(unittest.TestCase):
         self.assertIn("if start <= 1:", server)
         self.assertNotIn("start >= 90", server)
 
+    def test_bleed_stops_pause_the_session(self):
+        server = (ROOT / "src" / "web_server.py").read_text()
+        self.assertIn("peak_drawdown_hit", server)
+        self.assertIn("_halt_if_peak_drawdown", server)
+        self.assertIn("clear_circuit", server)
+        self.assertIn("wallet_day_peak", server)
+        self.assertIn("this is a bleed stop, not a profit lock", server)
+
     def test_ui_has_session_timer(self):
         html = (ROOT / "web" / "templates" / "index.html").read_text()
         js = (ROOT / "web" / "static" / "app.js").read_text()

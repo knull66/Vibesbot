@@ -10,9 +10,14 @@ class RoundSignalTests(unittest.TestCase):
         self.assertGreaterEqual(confidence, 0.52)
         self.assertIn("Multi-strategy", label)
 
-    def test_rsi_alone_is_enough(self):
+    def test_rsi_alone_is_not_enough(self):
         signal, _, _ = combine_indicator_votes(1, 0, 0, 0, 0)
+        self.assertEqual(signal, "WAIT")
+
+    def test_rsi_and_macd_agree_is_enough(self):
+        signal, confidence, _ = combine_indicator_votes(1, 1, 0, 0, 0)
         self.assertEqual(signal, "UP")
+        self.assertGreaterEqual(confidence, 0.56)
 
     def test_weak_mix_waits(self):
         signal, confidence, label = combine_indicator_votes(0, 1, 0, -1, 0)
@@ -49,6 +54,13 @@ class RoundSignalTests(unittest.TestCase):
         self.assertTrue(near)
         fighting, _ = price_confirms("DOWN", 86040.0, 86000.0)
         self.assertFalse(fighting)
+
+    def test_six_dollar_wiggle_is_not_a_move(self):
+        ok, reason = price_confirms("UP", 83362.01, 83356.01)
+        self.assertFalse(ok)
+        self.assertIn("above beat", reason)
+        strong, _ = price_confirms("UP", 83368.01, 83356.01)
+        self.assertTrue(strong)
 
 
 if __name__ == "__main__":
