@@ -1,7 +1,7 @@
 [
   {
     "path": "web/static/app.js",
-    "sha256": "d9787364d1f3392a470517870e8de7d45fede9e19de3c309457792c4b3da54d2",
+    "sha256": "96fa801a2b0c69a9171f5bca262f58526cc51ca0c9bf949e32f051dea49bf8e5",
     "parts": [
       "web__static__app.js.00.b64",
       "web__static__app.js.01.b64",
@@ -58,7 +58,7 @@
   },
   {
     "path": "src/web_server.py",
-    "sha256": "2f0abd6f2a00a3d22fcac8102130e6485464bc9fb555dcd62a0cacb16b822be6",
+    "sha256": "9c97ce13fb901ffdd82f11641728be47d961fd8549415264e5b513107aad7058",
     "parts": [
       "src__web_server.py.00.b64",
       "src__web_server.py.01.b64",
@@ -89,12 +89,12 @@
       "src__web_server.py.26.b64",
       "src__web_server.py.27.b64"
     ],
-    "size": 124580,
+    "size": 124848,
     "encoding": "base64"
   },
   {
     "path": "web/templates/index.html",
-    "sha256": "01995b4463d3a2a4a031a14a54f5ea3d526d1dc01c2b03f6a8665255331dbed8",
+    "sha256": "7a0680c0574325c1f759a1e47fea57a1ac86f7f7d7742ddb54231d5b6c180399",
     "parts": [
       "web__templates__index.html.00.b64",
       "web__templates__index.html.01.b64",
