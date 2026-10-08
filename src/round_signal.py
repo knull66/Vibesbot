@@ -1,7 +1,8 @@
 """Round-level signal: indicators + tape, never a naked 50/50 coin flip."""
 from typing import Dict, Optional, Tuple
 
-MIN_CONFIRM_MOVE = 10.0
+# $5 already filters coin-flips; $10 was skipping real setups near the lock.
+MIN_CONFIRM_MOVE = 5.0
 CROWD_FADE_LIMIT = 0.88
 VOTE_THRESHOLD = 3
 
