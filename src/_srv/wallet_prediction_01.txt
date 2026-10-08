@@ -1,0 +1,862 @@
+d") or row.get("token_id") or "") == str(token_id):
+        return True
+    if order_id and str(row.get("orderId") or row.get("order_id") or "") == str(order_id):
+        return True
+    if topic_id and str(
+        row.get("marketTopicId") or row.get("topicId") or row.get("market_topic_id") or ""
+    ) == str(topic_id):
+        return True
+    return False
+
+
+def pick_matching_position(
+    rows: List[Dict[str, Any]],
+    topic_id: str = "",
+    token_id: str = "",
+    order_id: str = "",
+) -> Optional[Dict[str, Any]]:
+    scored: List[Tuple[int, Dict[str, Any]]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        score = 0
+        if token_id and str(row.get("tokenId") or "") == str(token_id):
+            score += 4
+        if order_id and str(row.get("orderId") or "") == str(order_id):
+            score += 3
+        if topic_id and str(row.get("marketTopicId") or row.get("topicId") or "") == str(topic_id):
+            score += 2
+        if score:
+            scored.append((score, row))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored[0][1]
+
+
+def position_still_open(row: Dict[str, Any]) -> bool:
+    status = str(
+        row.get("positionStatus") or row.get("status") or row.get("tab") or ""
+    ).upper()
+    if status in ("ONGOING", "OPEN", "ACTIVE", "PENDING", "LIVE"):
+        return True
+    if row.get("isWinner") is None and not (
+        row.get("finalOutcome") or row.get("settledDate") or row.get("realizedPnl") is not None
+    ):
+        return status in ("", "ONGOING")
+    return False
+
+
+def position_side(row: Any) -> str:
+    if not isinstance(row, dict):
+        return ""
+    for key in ("marketTitle", "outcomeName", "tokenName", "name", "title"):
+        text = str(row.get(key) or "").upper()
+        if "DOWN" in text:
+            return "DOWN"
+        if text == "UP" or text.endswith(" UP") or text.startswith("UP "):
+            return "UP"
+    return ""
+
+
+def position_topic_id(row: Any) -> str:
+    if not isinstance(row, dict):
+        return ""
+    return str(
+        row.get("marketTopicId") or row.get("topicId") or row.get("market_topic_id") or ""
+    ).strip()
+
+
+def position_mark_price(row: Any) -> float:
+    if not isinstance(row, dict):
+        return 0.0
+    for key in ("currentPrice", "markPrice", "price", "avgPrice", "averagePrice"):
+        parsed = parse_usdt_amount(row.get(key))
+        if parsed and 0 < parsed < 2:
+            return float(parsed)
+    return 0.0
+
+
+def position_value(row: Any) -> float:
+    if not isinstance(row, dict):
+        return 0.0
+    for key in ("currentValue", "positionValue", "value", "notional", "usdValue"):
+        parsed = parse_usdt_amount(row.get(key))
+        if parsed and parsed > 0:
+            return float(parsed)
+    shares = shares_from_position_row(row, 0.0)
+    mark = position_mark_price(row)
+    if shares > 0 and mark > 0:
+        return shares * mark
+    return 0.0
+
+
+def position_cost(row: Any) -> float:
+    if not isinstance(row, dict):
+        return 0.0
+    for key in ("cost", "totalCost", "investedAmount", "amountIn"):
+        parsed = parse_usdt_amount(row.get(key))
+        if parsed and parsed > 0:
+            return float(parsed)
+    shares = shares_from_position_row(row, 0.0)
+    avg = parse_usdt_amount(row.get("avgCost") or row.get("averageCost") or row.get("avgPrice"))
+    if shares > 0 and avg and 0 < avg < 2:
+        return shares * float(avg)
+    return 0.0
+
+
+def is_open_btc_position(row: Any) -> bool:
+    if not isinstance(row, dict) or not position_still_open(row):
+        return False
+    title = " ".join(
+        str(row.get(key) or "")
+        for key in ("marketTopicTitle", "translatedMarketTopicTitle", "title", "symbol")
+    ).lower()
+    if "btc" in title or "bitcoin" in title:
+        return True
+    return bool(position_side(row))
+
+
+def open_market_exposure(rows: Any, topic_id: str = "") -> Dict[str, Any]:
+    """Open Wallet tickets on this 5m market (or any open BTC ticket if topic is empty)."""
+    want = str(topic_id or "").strip()
+    legs: List[Dict[str, Any]] = []
+    for row in rows or []:
+        if not is_open_btc_position(row):
+            continue
+        rid = position_topic_id(row)
+        if want and rid and rid != want:
+            continue
+        shares = shares_from_position_row(row, 0.0)
+        value = position_value(row)
+        cost = position_cost(row) or value
+        mark = position_mark_price(row)
+        pnl = parse_usdt_amount(row.get("unrealizedPnl") if row.get("unrealizedPnl") not in (None, "") else row.get("pnl"))
+        if pnl is None:
+            pnl = (value - cost) if value and cost else 0.0
+        legs.append({
+            "side": position_side(row) or "?",
+            "shares": shares,
+            "value": value,
+            "cost": cost,
+            "mark": mark,
+            "pnl": float(pnl or 0),
+            "topic_id": rid,
+            "token_id": str(row.get("tokenId") or row.get("token_id") or ""),
+        })
+    sides = sorted({str(leg["side"]) for leg in legs if leg["side"] in ("UP", "DOWN")})
+    return {
+        "legs": legs,
+        "sides": sides,
+        "hedged": set(sides) >= {"UP", "DOWN"},
+        "value": sum(float(leg["value"] or 0) for leg in legs),
+        "cost": sum(float(leg["cost"] or 0) for leg in legs),
+        "pnl": sum(float(leg["pnl"] or 0) for leg in legs),
+    }
+
+
+def skip_duplicate_entry(exposure: Dict[str, Any], signal: str = "") -> Dict[str, Any]:
+    """Never add a second ticket, and never buy the other side of an open market."""
+    legs = exposure.get("legs") if isinstance(exposure, dict) else None
+    if not legs:
+        return {"skip": False, "reason": ""}
+    sides = [str(side) for side in (exposure.get("sides") or [])]
+    if exposure.get("hedged"):
+        return {
+            "skip": True,
+            "reason": "already holding UP and DOWN on this market — wait for Binance",
+        }
+    want = str(signal or "").upper()
+    if want and want in sides:
+        return {"skip": True, "reason": f"already holding {want} on this market"}
+    if want and sides:
+        held = "+".join(sides)
+        return {"skip": True, "reason": f"already holding {held} — will not buy the other side"}
+    return {"skip": True, "reason": "already have an open Wallet ticket"}
+
+
+def settlement_from_position(
+    row: Optional[Dict[str, Any]],
+    signal: str,
+    shares: float,
+    cost: float,
+) -> Optional[Dict[str, Any]]:
+    """Map a Binance position row to WIN/LOSS. None = not resolved yet."""
+    if not isinstance(row, dict) or position_still_open(row):
+        return None
+    winner = row.get("isWinner")
+    if isinstance(winner, str):
+        winner = winner.strip().lower() in ("1", "true", "yes", "win")
+    pnl = parse_usdt_amount(row.get("realizedPnl") if row.get("realizedPnl") not in (None, "") else row.get("pnl"))
+    title = str(row.get("marketTitle") or row.get("outcomeName") or row.get("finalOutcome") or "").upper()
+    actual = "UP" if "UP" in title else "DOWN" if "DOWN" in title else str(signal).upper()
+    if winner is True:
+        if pnl is None or abs(pnl) > max(50.0, abs(float(shares)) * 2):
+            pnl = float(shares) - float(cost)
+        result = "WIN" if pnl >= 0 else "LOSS"
+        return {
+            "ready": True,
+            "result": result,
+            "pnl": float(pnl),
+            "actual": str(signal).upper() if result == "WIN" else actual,
+            "source": "binance",
+            "title": str(row.get("marketTopicTitle") or row.get("translatedMarketTopicTitle") or ""),
+        }
+    if winner is False:
+        if pnl is None or pnl > 0:
+            pnl = -abs(float(cost))
+        return {
+            "ready": True,
+            "result": "LOSS",
+            "pnl": float(pnl),
+            "actual": "DOWN" if str(signal).upper() == "UP" else "UP",
+            "source": "binance",
+            "title": str(row.get("marketTopicTitle") or row.get("translatedMarketTopicTitle") or ""),
+        }
+    final = str(row.get("finalOutcome") or "").upper()
+    market_title = str(row.get("marketTitle") or "").upper()
+    if final in ("YES", "NO") and market_title in ("UP", "DOWN"):
+        won = (final == "YES")
+        side = market_title
+        if won:
+            pnl = pnl if pnl is not None else float(shares) - float(cost)
+            return {
+                "ready": True,
+                "result": "WIN" if pnl >= 0 else "LOSS",
+                "pnl": float(pnl),
+                "actual": side,
+                "source": "binance",
+                "title": str(row.get("marketTopicTitle") or ""),
+            }
+        return {
+            "ready": True,
+            "result": "LOSS",
+            "pnl": float(pnl) if pnl is not None else -abs(float(cost)),
+            "actual": "DOWN" if side == "UP" else "UP",
+            "source": "binance",
+            "title": str(row.get("marketTopicTitle") or ""),
+        }
+    return None
+
+
+def topic_is_resolved(topic: Dict[str, Any]) -> bool:
+    status = str(topic.get("status") or topic.get("topicStatus") or "").upper()
+    if status in ("RESOLVED", "SETTLED", "CLOSED", "FINALIZED", "COMPLETED", "ENDED"):
+        return True
+    if topic.get("finalOutcome") or topic.get("winningOutcome") or topic.get("resolvedOutcome"):
+        return True
+    for market in topic.get("markets") or []:
+        if isinstance(market, dict) and (
+            market.get("isWinner") is not None or str(market.get("result") or "").upper() in ("WIN", "LOSE", "WON", "LOST")
+        ):
+            return True
+    return False
+
+
+def topic_winning_signal(topic: Dict[str, Any]) -> str:
+    for market in topic.get("markets") or []:
+        if not isinstance(market, dict):
+            continue
+        title = str(market.get("title") or "").upper()
+        if title not in ("UP", "DOWN"):
+            continue
+        if market.get("isWinner") is True or str(market.get("result") or "").upper() in ("WIN", "WON"):
+            return title
+        for outcome in market.get("outcomes") or []:
+            if not isinstance(outcome, dict):
+                continue
+            name = str(outcome.get("name") or "").upper()
+            if outcome.get("isWinner") is True and name in ("YES", title):
+                return title
+    final = str(
+        topic.get("finalOutcome") or topic.get("winningOutcome") or topic.get("resolvedOutcome") or ""
+    ).upper()
+    if final in ("UP", "DOWN"):
+        return final
+    return ""
+
+
+def title_window_minutes(text: Any) -> float:
+    """Parse '8:00PM-8:05PM ET' / '3PM-3:05PM' into duration minutes."""
+    match = re.search(
+        r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:[-–]|to)\s*(\d{1,2}):(\d{2})\s*(am|pm)",
+        str(text or ""),
+        re.I,
+    )
+    if not match:
+        return 0.0
+
+    def _minutes(hour: str, minute: str, ampm: str) -> int:
+        hour_i = int(hour)
+        minute_i = int(minute or 0)
+        stamp = ampm.lower()
+        if stamp == "pm" and hour_i != 12:
+            hour_i += 12
+        if stamp == "am" and hour_i == 12:
+            hour_i = 0
+        return hour_i * 60 + minute_i
+
+    start = _minutes(match.group(1), match.group(2), match.group(3))
+    end = _minutes(match.group(4), match.group(5), match.group(6))
+    if end < start:
+        end += 24 * 60
+    return float(end - start)
+
+
+def is_btc_up_or_down(topic: Dict[str, Any]) -> bool:
+    text = f"{topic.get('slug') or ''} {topic.get('title') or ''}".lower()
+    symbol = str(topic.get("symbol") or "").upper()
+    is_btc = symbol == "BTCUSDT" or "btc" in text or "bitcoin" in text
+    return is_btc and "up" in text and "down" in text
+
+
+def is_btc_short_window(topic: Dict[str, Any], minutes: int = 5) -> bool:
+    slug = str(topic.get("slug") or "").lower()
+    title = str(topic.get("title") or "").lower()
+    symbol = str(topic.get("symbol") or "").upper()
+    text = f"{slug} {title}"
+    is_btc = symbol == "BTCUSDT" or "btc" in text or "bitcoin" in text
+    window = (
+        f"{minutes}m" in text
+        or f"{minutes}-m" in text
+        or f"{minutes} min" in text
+        or f"{minutes}min" in text
+        or f"{minutes}-min" in text
+        or "updown-5m" in text
+        or "up-or-down-5m" in text
+    )
+    if any(marker in text for marker in ("1h", "2h", "4h", "12h", "15m", "30m", "1 hour", "hourly", "daily")):
+        return False
+    duration = topic_duration_minutes(topic)
+    if duration and not (float(minutes) - 1.5 <= duration <= float(minutes) + 1.5):
+        return False
+    clock = title_window_minutes(text)
+    if clock and not (float(minutes) - 1.5 <= clock <= float(minutes) + 1.5):
+        return False
+    return is_btc and (window or (3.5 <= duration <= 6.5) or (3.5 <= clock <= 6.5))
+
+
+def pick_active_btc_window(topics: List[Any], minutes: int = 5, now_ms: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """Only the live 5m candle: already started, ends within ~6.5 minutes. Never 5PM-5:05 hours out."""
+    now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
+    max_ms = int((float(minutes) + 1.5) * 60_000)
+    matches: List[Dict[str, Any]] = []
+    rows = topics if isinstance(topics, list) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if not is_btc_short_window(row, minutes):
+            continue
+        status = str(row.get("status") or "").upper()
+        if status and status not in ("REGISTERED", "OPEN", "ACTIVE", "LIVE", "TRADING"):
+            continue
+        start = topic_timestamp_ms(row.get("startDate") or row.get("beginDate") or row.get("openDate"))
+        end = topic_timestamp_ms(row.get("endDate") or row.get("closeDate"))
+        if end and end <= now_ms:
+            continue
+        if start and start > now_ms + 15_000:
+            continue
+        if end and (end - now_ms) > max_ms:
+            continue
+        matches.append(row)
+    if not matches:
+        return None
+    matches.sort(key=lambda item: topic_timestamp_ms(item.get("endDate")))
+    return matches[0]
+
+
+def as_probability(value: Any, default: float = 0.5) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number > 1.0:
+        number = number / 100.0
+    if number <= 0:
+        return default
+    return min(max(number, 0.01), 0.99)
+
+
+TOPIC_LOCK_KEYS = (
+    "priceToBeat",
+    "lockPrice",
+    "lockedPrice",
+    "startPrice",
+    "openPrice",
+    "strikePrice",
+    "startValue",
+    "initialPrice",
+    "eventStartPrice",
+    "openOraclePrice",
+    "resolutionOpenPrice",
+    "chainlinkLockPrice",
+    "lockOraclePrice",
+    "start_price",
+    "open_price",
+    "price_to_beat",
+    "lock_price",
+    "oracleStartPrice",
+    "startFeedPrice",
+    "feedStartPrice",
+    "indexStartPrice",
+    "referencePrice",
+    "benchmarkPrice",
+)
+
+TOPIC_LIVE_KEYS = (
+    "currentPrice",
+    "livePrice",
+    "lastPrice",
+    "midPrice",
+    "oraclePrice",
+    "chainlinkPrice",
+    "lastOraclePrice",
+    "currentOraclePrice",
+    "indexPrice",
+    "current_price",
+    "live_price",
+)
+
+TOPIC_CLOSE_KEYS = (
+    "closePrice",
+    "endPrice",
+    "resolutionPrice",
+    "settlePrice",
+    "finalPrice",
+    "closeOraclePrice",
+    "chainlinkClosePrice",
+    "resolvedPrice",
+    "endOraclePrice",
+    "close_price",
+    "end_price",
+)
+
+
+def topic_blobs(topic: Dict[str, Any]) -> List[Any]:
+    blobs: List[Any] = [topic]
+    for nested in (
+        "data",
+        "marketTopic",
+        "topic",
+        "event",
+        "metadata",
+        "market",
+        "stats",
+        "oracle",
+        "resolution",
+        "condition",
+        "info",
+    ):
+        row = topic.get(nested)
+        if isinstance(row, dict):
+            blobs.append(row)
+    for market in topic.get("markets") or []:
+        if isinstance(market, dict):
+            blobs.append(market)
+    return blobs
+
+
+def first_btc_price(blobs: List[Any], keys: Tuple[str, ...]) -> float:
+    for blob in blobs:
+        if not isinstance(blob, dict):
+            continue
+        for key in keys:
+            price = parse_btc_price(blob.get(key))
+            if price:
+                return price
+    return 0.0
+
+
+LOCK_KEY_PARTS = (
+    "pricetobeat",
+    "lockprice",
+    "lockedprice",
+    "startprice",
+    "openprice",
+    "strikeprice",
+    "startvalue",
+    "initialprice",
+    "eventstartprice",
+    "openoracleprice",
+    "resolutionopenprice",
+    "chainlinklock",
+    "lockoracleprice",
+    "referenceprice",
+    "benchmarkprice",
+    "targetprice",
+    "oraclestartprice",
+    "startfeedprice",
+    "feedstartprice",
+    "indexstartprice",
+    "pricebeat",
+    "beatprice",
+)
+LIVE_KEY_NOISE = (
+    "current",
+    "live",
+    "lastprice",
+    "midprice",
+    "closeprice",
+    "endprice",
+    "finalprice",
+    "settleprice",
+)
+
+
+def _key_token(name: Any) -> str:
+    return "".join(ch for ch in str(name or "").lower() if ch.isalnum())
+
+
+def walk_lock_price(obj: Any) -> float:
+    """Find a lock-like BTC price anywhere in a market/detail payload."""
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            token = _key_token(key)
+            if any(part in token for part in LOCK_KEY_PARTS) and not any(noise in token for noise in LIVE_KEY_NOISE):
+                price = parse_btc_price(value)
+                if price:
+                    return price
+            nested = walk_lock_price(value)
+            if nested:
+                return nested
+    elif isinstance(obj, list):
+        for item in obj:
+            nested = walk_lock_price(item)
+            if nested:
+                return nested
+    return 0.0
+
+
+def _as_topic_dict(value: Any) -> Dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def unwrap_topic_row(topic: Any) -> Dict[str, Any]:
+    """Lift marketTopic / data wrappers so search + detail share one shape."""
+    row = _as_topic_dict(topic)
+    if not row:
+        return {}
+    for key in ("data", "marketTopic", "topic"):
+        inner = row.get(key)
+        if not isinstance(inner, dict):
+            continue
+        if any(
+            inner.get(field)
+            for field in (
+                "marketTopicId",
+                "topicId",
+                "id",
+                "title",
+                "markets",
+                "startPrice",
+                "priceToBeat",
+                "lockPrice",
+                "startDate",
+            )
+        ):
+            outer = {k: v for k, v in row.items() if k != key}
+            return merge_topics(outer, inner)
+    return row
+
+
+def merge_topics(base: Any, overlay: Any) -> Dict[str, Any]:
+    """Keep search-list dates/ids when detail is a thin or wrapped payload."""
+    merged = _as_topic_dict(base)
+    extra = _as_topic_dict(overlay)
+    if not extra:
+        return merged
+    for key, value in extra.items():
+        if value in (None, "", [], {}):
+            continue
+        current = merged.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            merged[key] = merge_topics(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def resolve_cached_lock(cache: Dict[str, Any], book: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Keep the Binance lock on the same Wallet topic. Wipe only on a new topic."""
+    cache = cache if isinstance(cache, dict) else {}
+    book = book or {}
+    topic_id = str(book.get("topic_id") or "")
+    cached_topic = str(cache.get("topic_id") or "")
+    cached_beat = float(cache.get("price_to_beat") or 0)
+    cached_source = str(cache.get("source") or cache.get("price_to_beat_source") or "")
+    from_book = float(book.get("price_to_beat") or 0)
+
+    if topic_id and cached_topic and topic_id != cached_topic:
+        cached_beat = 0.0
+        cached_source = ""
+
+    if looks_like_btc_price(from_book):
+        source = str(book.get("price_to_beat_source") or "wallet")
+        same_topic = not topic_id or not cached_topic or topic_id == cached_topic
+        if (
+            source != "wallet"
+            and looks_like_btc_price(cached_beat)
+            and cached_source == "wallet"
+            and same_topic
+        ):
+            cache["price_to_beat"] = cached_beat
+            cache["source"] = cached_source
+            if topic_id:
+                cache["topic_id"] = topic_id
+            return {
+                "price_to_beat": cached_beat,
+                "price_to_beat_source": cached_source,
+                "topic_id": str(cache.get("topic_id") or topic_id),
+            }
+        cache["price_to_beat"] = from_book
+        cache["source"] = source
+        cache["topic_id"] = topic_id or cached_topic
+        return {
+            "price_to_beat": from_book,
+            "price_to_beat_source": source,
+            "topic_id": cache["topic_id"],
+        }
+
+    if looks_like_btc_price(cached_beat) and cached_source == "wallet":
+        if not topic_id or not cached_topic or topic_id == cached_topic:
+            cache["price_to_beat"] = cached_beat
+            cache["source"] = cached_source
+            if topic_id:
+                cache["topic_id"] = topic_id
+            return {
+                "price_to_beat": cached_beat,
+                "price_to_beat_source": cached_source,
+                "topic_id": str(cache.get("topic_id") or topic_id),
+            }
+
+    cache["price_to_beat"] = 0.0
+    cache["source"] = ""
+    if topic_id:
+        cache["topic_id"] = topic_id
+    return {
+        "price_to_beat": 0.0,
+        "price_to_beat_source": "",
+        "topic_id": topic_id or cached_topic,
+    }
+
+
+def topic_start_price(topic: Dict[str, Any]) -> float:
+    """Chainlink lock / Binance Price to Beat. Never the live tick."""
+    topic = unwrap_topic_row(topic or {})
+    direct = first_btc_price(topic_blobs(topic), TOPIC_LOCK_KEYS)
+    if direct:
+        return direct
+    return walk_lock_price(topic)
+
+
+def topic_live_price(topic: Dict[str, Any]) -> float:
+    """Live oracle/Chainlink print on the topic, if Binance sends one."""
+    return first_btc_price(topic_blobs(topic or {}), TOPIC_LIVE_KEYS)
+
+
+def topic_close_price(topic: Dict[str, Any]) -> float:
+    """Resolved Chainlink close, if the market already settled."""
+    return first_btc_price(topic_blobs(topic or {}), TOPIC_CLOSE_KEYS)
+
+
+def market_book(topic: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Binance Wallet Up/Down odds and Chainlink lock for the active BTC 5m market."""
+    topic = unwrap_topic_row(topic or {})
+    up = outcome_token(topic, "UP") or {}
+    down = outcome_token(topic, "DOWN") or {}
+    up_p = as_probability(up.get("price"), 0.5)
+    down_p = as_probability(down.get("price"), 0.5)
+    lock = topic_start_price(topic)
+    return {
+        "up": up_p,
+        "down": down_p,
+        "up_odds": (1.0 / up_p) if up_p else 2.0,
+        "down_odds": (1.0 / down_p) if down_p else 2.0,
+        "price_to_beat": lock,
+        "price_to_beat_source": "wallet" if lock else "",
+        "live_price": topic_live_price(topic),
+        "close_price": topic_close_price(topic),
+        "title": str(topic.get("title") or "BTC Up or Down 5m"),
+        "topic_id": topic_id_of(topic),
+        "source": "wallet",
+    }
+
+
+_START_PRICE_PAIR_RE = re.compile(
+    r"startPrice\\?\"\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*,\\?\"startPricePublishTime\\?\"\s*:\s*\\?\"([^\\\"]+)",
+    re.I,
+)
+_START_PRICE_LOOSE_RE = re.compile(r"startPrice\\?\"\s*:\s*([0-9]+(?:\.[0-9]+)?)", re.I)
+
+
+def current_btc_5m_slot(now: Optional[float] = None) -> int:
+    stamp = int(now if now is not None else time.time())
+    return stamp - (stamp % 300)
+
+
+def parse_predict_fun_start_price(html: str, slot: int = 0) -> float:
+    """Official Chainlink startPrice from the public Predict.fun 5m page."""
+    text = str(html or "")
+    for raw_price, raw_when in _START_PRICE_PAIR_RE.findall(text):
+        price = parse_btc_price(raw_price)
+        if not price:
+            continue
+        if not slot:
+            return price
+        try:
+            when = datetime.fromisoformat(str(raw_when).strip().rstrip("\\").replace("Z", "+00:00"))
+            if abs(when.timestamp() - float(slot)) <= 90:
+                return price
+        except (TypeError, ValueError):
+            continue
+    if slot:
+        return 0.0
+    loose = _START_PRICE_LOOSE_RE.search(text)
+    return parse_btc_price(loose.group(1) if loose else 0)
+
+
+async def fetch_predict_fun_lock(now: Optional[float] = None) -> Dict[str, Any]:
+    """Public Predict.fun page — same Price to Beat Binance Wallet shows."""
+    slot = current_btc_5m_slot(now)
+    url = f"https://predict.fun/market/btc-updown-5m-{slot}"
+    timeout = aiohttp.ClientTimeout(total=8)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers={"User-Agent": "Vibesbot/1.44"}) as response:
+                if response.status != 200:
+                    logger.warning(f"Predict.fun lock page HTTP {response.status}")
+                    return {}
+                html = await response.text()
+    except Exception as exc:
+        logger.warning(f"Predict.fun lock page failed: {exc}")
+        return {}
+    lock = parse_predict_fun_start_price(html, slot)
+    if not looks_like_btc_price(lock):
+        return {"topic_id": f"btc-updown-5m-{slot}", "slot": slot}
+    return {
+        "price_to_beat": lock,
+        "price_to_beat_source": "wallet",
+        "topic_id": f"btc-updown-5m-{slot}",
+        "slot": slot,
+    }
+
+
+async def fetch_spot_five_minute_open(symbol: str = "BTCUSDT") -> float:
+    """Binance Spot 5m candle open — same window the Up/Down market locks against."""
+    timeout = aiohttp.ClientTimeout(total=6)
+    url = "https://api.binance.com/api/v3/klines"
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                url, params={"symbol": symbol, "interval": "5m", "limit": 1}
+            ) as response:
+                if response.status != 200:
+                    return 0.0
+                rows = await response.json()
+        if not isinstance(rows, list) or not rows:
+            return 0.0
+        open_price = parse_btc_price((rows[0] or [None, None])[1])
+        return open_price if looks_like_btc_price(open_price) else 0.0
+    except Exception as exc:
+        logger.warning(f"Spot 5m kline failed: {exc}")
+        return 0.0
+
+
+async def fetch_spot_top_of_book(symbol: str = "BTCUSDT") -> float:
+    """Binance Spot bid/ask mid — same underlying as Chainlink BTC/USDT TopOfBook DataLink."""
+    timeout = aiohttp.ClientTimeout(total=6)
+    url = "https://api.binance.com/api/v3/ticker/bookTicker"
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, params={"symbol": symbol}) as response:
+                if response.status != 200:
+                    return 0.0
+                data = await response.json()
+        if not isinstance(data, dict):
+            return 0.0
+        bid = float(data.get("bidPrice") or 0)
+        ask = float(data.get("askPrice") or 0)
+        if bid > 0 and ask > 0:
+            mid = (bid + ask) / 2.0
+            return mid if looks_like_btc_price(mid) else 0.0
+        last = float(data.get("price") or 0)
+        return last if looks_like_btc_price(last) else 0.0
+    except Exception as exc:
+        logger.warning(f"Spot bookTicker failed: {exc}")
+        return 0.0
+
+
+def outcome_token(topic: Dict[str, Any], signal: str) -> Optional[Dict[str, Any]]:
+    want = "UP" if str(signal).upper() == "UP" else "DOWN"
+    markets = topic.get("markets") or []
+    for market in markets:
+        if not isinstance(market, dict):
+            continue
+        title = str(market.get("title") or "").upper()
+        for outcome in market.get("outcomes") or []:
+            if not isinstance(outcome, dict):
+                continue
+            name = str(outcome.get("name") or outcome.get("outcome") or "").upper()
+            token_id = str(outcome.get("tokenId") or outcome.get("id") or "")
+            if not token_id:
+                continue
+            price = as_probability(outcome.get("price") or outcome.get("chance") or 0.5)
+            if title == want and name in ("YES", want):
+                return {"token_id": token_id, "label": f"{title}:{name}", "price": price, "market": market}
+            if name == want:
+                return {"token_id": token_id, "label": name, "price": price, "market": market}
+    return None
+
+
+@dataclass
+class PendingWalletTrade:
+    session_id: str
+    round_number: int
+    signal: str
+    stake: float
+    open_price: float
+    share_price: float
+    shares: float
+    fee: float
+    cost: float
+    live: bool = False
+    order_id: str = ""
+    market_title: str = ""
+    balance_before: float = 0.0
+    topic_id: str = ""
+    token_id: str = ""
+    end_date_ms: int = 0
+    next_poll_at: float = 0.0
+    opened_at: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "round_number": self.round_number,
+            "signal": self.signal,
+            "stake": self.stake,
+            "open_price": self.open_price,
+            "share_price": self.share_price,
+            "shares": self.shares,
+            "fee": self.fee,
+            "cost": self.cost,
+            "live": self.live,
+            "order_id": self.order_id,
+            "market_title": self.market_title,
+            "balance_before": self.balance_before,
+            "topic_id": self.topic_id,
+            "token_id": self.token_id,
+            "end_date_ms": self.end_date_ms,
+            "opened_at": self.opened_at,
+        }
+
+
+def pending_trade_from_dict(data: Any) -> Optional[PendingWalletTrade]:
+    if not isinstance(data, dict):
+        return None
+    try:
+        return PendingWalletTrade(
+            session_id=str(data.get("session_id") or ""),
+            round_number=int(data.get("round_number") or 0),
+            signal=str(data.get("signal") or ""),
+       
