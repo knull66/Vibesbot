@@ -1,0 +1,636 @@
+code=403,
+                )
+            return await call_next(request)
+
+        local = _is_local(request)
+        user = _user_from_request(request)
+        session = auth.session_from_cookies(request.cookies)
+
+        if not local:
+            if not companion.enabled:
+                if path.startswith("/api/"):
+                    return JSONResponse({"error": "companion_disabled"}, status_code=403)
+                return RedirectResponse("/companion", status_code=302)
+            if not user or not session or not session.companion:
+                if path.startswith("/api/"):
+                    return JSONResponse({"error": "unauthorized"}, status_code=401)
+                return RedirectResponse("/companion", status_code=302)
+        elif not user:
+            if path.startswith("/api/") or path.startswith("/ws"):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            return RedirectResponse("/login", status_code=302)
+
+        request.state.user = user
+        request.state.is_companion = bool(session and session.companion)
+        return await call_next(request)
+    
+    @app.on_event("startup")
+    async def startup():
+        # Accept connections immediately so the Mac splash does not time out
+        # while Binance time sync / candle load is still running.
+        async def _boot():
+            try:
+                await bot.initialize()
+            except Exception as exc:
+                logger.error(f"Bot initialize failed: {exc}")
+            try:
+                from .updater import maybe_daily_update
+                result = await maybe_daily_update(apply=False)
+                if result.get("available"):
+                    logger.info(f"Update available: {result.get('latest')}")
+                    await bot.manager.broadcast({
+                        "type": "update",
+                        "available": True,
+                        "current_version": result.get("current"),
+                        "latest_version": result.get("latest"),
+                        "release_notes": result.get("message") or "",
+                    })
+            except Exception as exc:
+                logger.warning(f"Daily update skipped: {exc}")
+
+        asyncio.create_task(_boot())
+
+    @app.on_event("shutdown")
+    async def shutdown():
+        await bot.cleanup()
+
+    @app.get("/healthz")
+    async def healthz():
+        ver_path = Path(__file__).parent.parent / "VERSION"
+        version = ver_path.read_text().strip() if ver_path.exists() else "0"
+        return {"ok": True, "version": version}
+
+    @app.get("/login", response_class=HTMLResponse)
+    async def login_page(request: Request):
+        if not _is_local(request):
+            return RedirectResponse("/companion", status_code=302)
+        if _user_from_request(request):
+            return RedirectResponse("/", status_code=302)
+        return templates.TemplateResponse(request, "login.html")
+
+    @app.exception_handler(404)
+    async def not_found_handler(request: Request, exc):
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            target = "/static/lobby.html" if _is_local(request) else "/companion"
+            return RedirectResponse(target, status_code=302)
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+    @app.get("/companion", response_class=HTMLResponse)
+    async def companion_page(request: Request):
+        if _is_local(request):
+            return RedirectResponse("/login" if not _user_from_request(request) else "/", status_code=302)
+        session = auth.session_from_cookies(request.cookies)
+        if session and session.companion and auth.user_from_token(session.token):
+            return RedirectResponse("/", status_code=302)
+        return templates.TemplateResponse(request, "companion.html")
+
+    @app.get("/api/companion/status")
+    async def companion_status(request: Request):
+        return {
+            "is_local": _is_local(request),
+            "setup_required": not auth.has_users(),
+            **companion.public_status(),
+        }
+
+    @app.get("/api/companion/info")
+    async def companion_info(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        return companion.info(port=8080)
+
+    @app.post("/api/companion/enable")
+    async def companion_enable(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        data = await request.json()
+        companion.set_enabled(bool(data.get("enabled", False)))
+        payload = {"success": True, **companion.info(port=8080)}
+        if companion.enabled:
+            payload["listen"] = "0.0.0.0"
+            payload["hint"] = "Quit and reopen so the app listens on LAN for the phone."
+        else:
+            payload["listen"] = "127.0.0.1"
+        return payload
+
+    @app.post("/api/companion/pin")
+    async def companion_pin(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        companion.rotate_pin()
+        return {"success": True, **companion.info(port=8080)}
+
+    @app.post("/api/companion/pair")
+    async def companion_pair(request: Request):
+        if _is_local(request):
+            return JSONResponse({"success": False, "error": "Pairing is only for the phone"}, status_code=400)
+        if not auth.has_users():
+            return JSONResponse({"success": False, "error": "Set up Vibesbot on your Mac first"}, status_code=400)
+        data = await request.json()
+        ok, error = companion.verify_pin(data.get("pin", ""))
+        if not ok:
+            return JSONResponse({"success": False, "error": error}, status_code=401)
+        token, user, login_error = auth.login_companion()
+        if login_error or not token or not user:
+            return JSONResponse({"success": False, "error": login_error or "Pairing failed"}, status_code=400)
+        response = JSONResponse({"success": True, "user": user.public_dict(), "companion": True})
+        _set_session_cookie(request, response, token, days=1)
+        return response
+
+    @app.get("/logout")
+    async def logout_page(request: Request):
+        auth.logout(request.cookies.get(COOKIE_NAME))
+        response = RedirectResponse("/static/lobby.html", status_code=302)
+        _clear_session_cookie(response)
+        return response
+
+    @app.get("/api/auth/status")
+    async def auth_status(request: Request):
+        return {**auth.status(), "is_local": _is_local(request)}
+
+    @app.get("/api/auth/me")
+    async def auth_me(request: Request):
+        user = _user_from_request(request)
+        if not user:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        session = auth.session_from_cookies(request.cookies)
+        return {
+            "success": True,
+            "user": user.public_dict(),
+            "companion": bool(session and session.companion),
+            "is_local": _is_local(request),
+            **auth.status(),
+        }
+
+    @app.post("/api/auth/register")
+    async def auth_register(request: Request):
+        data = await request.json()
+        user, error = auth.register(
+            data.get("username", ""),
+            data.get("password", ""),
+            data.get("invite_code", ""),
+        )
+        if error or user is None:
+            return JSONResponse({"success": False, "error": error}, status_code=400)
+        token, _, login_error = auth.login(user.username, data.get("password", ""))
+        if login_error or not token:
+            return JSONResponse({"success": False, "error": login_error or "Login failed"}, status_code=400)
+        response = JSONResponse({"success": True, "user": user.public_dict()})
+        _set_session_cookie(request, response, token)
+        return response
+
+    @app.post("/api/auth/login")
+    async def auth_login(request: Request):
+        data = await request.json()
+        token, user, error = auth.login(data.get("username", ""), data.get("password", ""))
+        if error or not token or not user:
+            return JSONResponse({"success": False, "error": error}, status_code=401)
+        response = JSONResponse({"success": True, "user": user.public_dict()})
+        _set_session_cookie(request, response, token)
+        return response
+
+    @app.post("/api/auth/logout")
+    async def auth_logout(request: Request):
+        auth.logout(request.cookies.get(COOKIE_NAME))
+        response = JSONResponse({"success": True})
+        _clear_session_cookie(response)
+        return response
+
+    @app.post("/api/system/quit")
+    async def quit_app(request: Request):
+        if not _is_local(request):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+
+        async def _die():
+            await asyncio.sleep(0.15)
+            os._exit(0)
+
+        asyncio.create_task(_die())
+        return {"success": True}
+
+    @app.get("/api/auth/users")
+    async def auth_users(request: Request):
+        user = _native_owner(request)
+        if not user:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        return {"users": auth.list_users(), "invites": auth.invites, **auth.status()}
+
+    @app.post("/api/auth/invite")
+    async def auth_invite(request: Request):
+        user = _native_owner(request)
+        if not user:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        code, error = auth.create_invite(user)
+        if error:
+            return JSONResponse({"success": False, "error": error}, status_code=403)
+        return {"success": True, "code": code, "invites": auth.invites}
+
+    @app.post("/api/auth/registration")
+    async def auth_registration(request: Request):
+        user = _native_owner(request)
+        if not user:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        data = await request.json()
+        error = auth.set_open_registration(user, bool(data.get("enabled", False)))
+        if error:
+            return JSONResponse({"success": False, "error": error}, status_code=403)
+        return {"success": True, **auth.status()}
+
+    @app.post("/api/auth/password")
+    async def auth_password(request: Request):
+        user = getattr(request.state, "user", None)
+        if not user or getattr(request.state, "is_companion", False):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        data = await request.json()
+        error = auth.change_password(user, data.get("current", ""), data.get("new_password", ""))
+        if error:
+            return JSONResponse({"success": False, "error": error}, status_code=400)
+        return {"success": True}
+
+    @app.post("/api/auth/users/delete")
+    async def auth_delete_user(request: Request):
+        user = _native_owner(request)
+        if not user:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        data = await request.json()
+        error = auth.delete_user(user, data.get("user_id", ""))
+        if error:
+            return JSONResponse({"success": False, "error": error}, status_code=400)
+        return {"success": True, "users": auth.list_users()}
+    
+    @app.get("/", response_class=HTMLResponse)
+    async def index(request: Request):
+        return templates.TemplateResponse(request, "index.html")
+    
+    @app.websocket("/ws")
+    async def websocket_endpoint(websocket: WebSocket):
+        await websocket.accept()
+        user = auth.user_from_cookies(websocket.cookies)
+        ws_auth = auth.session_from_cookies(websocket.cookies)
+        is_companion = bool(ws_auth and ws_auth.companion)
+        if not user:
+            try:
+                await websocket.send_text(json.dumps({"type": "error", "message": "unauthorized"}))
+            except Exception:
+                pass
+            await websocket.close(code=4401)
+            return
+        if is_companion and not companion.enabled:
+            await websocket.close(code=4401)
+            return
+
+        manager.active_connections.add(websocket)
+        session = bot.attach_client(websocket, f"user:{user.id}")
+        model_ready = bot.predictor.is_ready if bot.predictor else False
+        if not session.simulation:
+            try:
+                await bot.refresh_live_balances(session)
+            except Exception as exc:
+                logger.error(f"Live balance refresh on connect failed: {exc}")
+        await manager.send_to(websocket, session.status_payload(True))
+        await manager.send_to(websocket, session.stats_payload())
+        try:
+            from .trade_journal import read_trades
+            await manager.send_to(websocket, {"type": "journal", "trades": read_trades(80)})
+        except Exception:
+            pass
+        await manager.send_to(websocket, {
+            "type": "log",
+            "message": f"Signed in as {user.username}",
+            "level": "info",
+        })
+        
+        try:
+            while True:
+                data = await websocket.receive_json()
+                action = data.get("action") or data.get("command")
+                
+                if action in ("hello", "identify"):
+                    session = bot.attach_client(websocket, f"user:{user.id}")
+                    await manager.send_to(websocket, session.status_payload(model_ready))
+                    await manager.send_to(websocket, session.stats_payload())
+                    try:
+                        await bot._send_market()
+                    except Exception as exc:
+                        logger.error(f"Market snapshot failed: {exc}")
+                    continue
+                
+                if action == "start":
+                    if "simulation" in data:
+                        want_sim = bool(data.get("simulation"))
+                        if is_companion or (not user.is_owner and not want_sim):
+                            want_sim = True
+                        session.simulation = want_sim
+                        bot._save_session(session)
+                    await bot.start_session(session)
+                elif action == "stop":
+                    await bot.stop_session(session)
+                elif action == "pause":
+                    await bot.pause_session(session)
+                elif action == "resume":
+                    session.paused = False
+                    await manager.send_to_session(session.session_id, session.status_payload(
+                        bot.predictor.is_ready if bot.predictor else False
+                    ))
+                elif action == "set_mode":
+                    if is_companion or (not user.is_owner and not data.get("simulation", True)):
+                        await manager.send_to(websocket, {
+                            "type": "log",
+                            "message": "REAL mode is only available on the Mac app",
+                            "level": "loss",
+                        })
+                        await manager.send_to(websocket, session.status_payload(model_ready))
+                        await manager.send_to(websocket, session.stats_payload())
+                        continue
+                    session.simulation = data.get("simulation", True)
+                    logger.info(f"[{user.username}] Mode: {'SIM' if session.simulation else 'REAL'}")
+                    if session.simulation:
+                        await manager.send_to(websocket, {
+                            "type": "log",
+                            "message": "SIM · paper only. No Binance orders.",
+                            "level": "info",
+                        })
+                    else:
+                        await bot.refresh_live_balances(session)
+                        if session.live_error:
+                            await manager.send_to(websocket, {
+                                "type": "log",
+                                "message": session.live_error,
+                                "level": "loss",
+                            })
+                        elif not session.live_can_trade:
+                            await manager.send_to(websocket, {
+                                "type": "log",
+                                "message": (
+                                    session.live_trade_error
+                                    or "REAL blocked: no Prediction Account in wallet/list."
+                                ),
+                                "level": "loss",
+                            })
+                        else:
+                            await manager.send_to(websocket, {
+                                "type": "log",
+                                "message": (
+                                    f"Live {session.live_wallet} ${session.live_balance:.2f} "
+                                    f"{session.live_wallet_address}. "
+                                    "This is Binance Prediction → Portfolio (Transfer In). "
+                                    "My Wallet tokens are not spent."
+                                ),
+                                "level": "info",
+                            })
+                    bot._save_session(session)
+                    await manager.send_to(websocket, session.status_payload(model_ready))
+                    await manager.send_to(websocket, session.stats_payload())
+                    
+        except WebSocketDisconnect:
+            manager.disconnect(websocket)
+    
+    # API Endpoints para Settings
+    
+    from .user_settings import get_settings_manager, TradingMode, binance_testnet_from_payload
+    from .updater import get_updater
+    
+    @app.get("/api/settings")
+    async def get_settings():
+        sm = get_settings_manager()
+        return sm.get_settings_for_frontend()
+    
+    @app.get("/api/journal")
+    async def get_journal(request: Request):
+        from .trade_journal import read_trades
+        return {"trades": read_trades(200)}
+
+    @app.post("/api/settings/trading")
+    async def update_trading_settings(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can change trading settings"}, status_code=403)
+        data = await request.json()
+        sm = get_settings_manager()
+        sm.update_trading_settings(**data)
+        return {"success": True, "settings": sm.settings.trading.to_dict()}
+    
+    @app.post("/api/settings/binance")
+    async def update_binance_credentials(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can save API keys"}, status_code=403)
+        data = await request.json()
+        sm = get_settings_manager()
+        sm.update_binance_credentials(
+            api_key=data.get("api_key", ""),
+            api_secret=data.get("api_secret", ""),
+            is_testnet=binance_testnet_from_payload(data),
+            prediction_wallet=data.get("prediction_wallet") or data.get("wallet_address") or "",
+        )
+        return {"success": True}
+    
+    @app.post("/api/settings/binance/test")
+    async def test_binance_connection(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can test API keys"}, status_code=403)
+        data = await request.json()
+        sm = get_settings_manager()
+        sm.update_binance_credentials(
+            api_key=data.get("api_key", ""),
+            api_secret=data.get("api_secret", ""),
+            is_testnet=binance_testnet_from_payload(data),
+            prediction_wallet=data.get("prediction_wallet") or data.get("wallet_address") or "",
+        )
+        result = await sm.test_binance_connection()
+        return result
+
+    @app.get("/api/binance/balances")
+    async def binance_balances(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can read balances"}, status_code=403)
+        sm = get_settings_manager()
+        return await sm.fetch_live_balances()
+    
+    def _reset_mode_stats(session: Optional[ClientSession], live: bool) -> int:
+        from .trade_journal import clear_trades, read_trades, summarize_trades
+        removed = clear_trades(live=live)
+        if session is None:
+            return removed
+        session.trades = [row for row in (session.trades or []) if bool(row.get("live")) != live]
+        journal = summarize_trades(read_trades(0), live=live)
+        if live:
+            if not session.simulation:
+                session.wins = 0
+                session.losses = 0
+                session.cumulative_pnl = 0.0
+                session.streak = 0
+                session.best_streak = 0
+                session.worst_streak = 0
+                session.max_drawdown = 0.0
+                if session.live_balance:
+                    session.wallet_start = float(session.live_balance)
+                    session.wallet_day_start = float(session.live_balance)
+                    session.wallet_day = datetime.now(timezone.utc).date().isoformat()
+        else:
+            session.initial_capital = 100.0
+            if session.simulation:
+                session.reset(100.0)
+                session.wins = journal["wins"]
+                session.losses = journal["losses"]
+                session.cumulative_pnl = journal["pnl"]
+        bot._save_session(session)
+        return removed
+
+    @app.post("/api/simulation/reset")
+    async def reset_simulation(request: Request):
+        user = getattr(request.state, "user", None)
+        session_id = f"user:{user.id}" if user else None
+        session = bot.get_session(session_id) if session_id else None
+        _reset_mode_stats(session, live=False)
+        sm = get_settings_manager()
+        sm.reset_simulation(100.0)
+        if session:
+            from .trade_journal import read_trades
+            await bot.manager.send_to_session(session.session_id, session.stats_payload())
+            await bot.manager.send_to_session(session.session_id, {"type": "journal", "trades": read_trades(200)})
+        return {"success": True, "simulation": sm.settings.simulation.to_dict()}
+
+    @app.post("/api/stats/reset")
+    async def reset_stats(request: Request):
+        user = getattr(request.state, "user", None)
+        if not user:
+            return JSONResponse({"error": "Sign in first"}, status_code=401)
+        data = {}
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        mode = str(data.get("mode") or "sim").strip().lower()
+        live = mode in ("real", "live")
+        session = bot.get_session(f"user:{user.id}")
+        removed = _reset_mode_stats(session, live=live)
+        if not live:
+            get_settings_manager().reset_simulation(100.0)
+        await bot.manager.send_to_session(session.session_id, session.stats_payload())
+        from .trade_journal import read_trades
+        await bot.manager.send_to_session(session.session_id, {"type": "journal", "trades": read_trades(200)})
+        return {"success": True, "mode": "real" if live else "sim", "removed": removed}
+    
+    @app.get("/api/simulation/history")
+    async def get_simulation_history():
+        sm = get_settings_manager()
+        return {
+            "history": sm.settings.simulation.history,
+            "stats": sm.settings.simulation.to_dict()
+        }
+    
+    @app.get("/api/updates/check")
+    async def check_for_updates():
+        from .updater import Updater, source_label, update_is_snoozed
+        updater = Updater()
+        info = await updater.check_for_updates()
+        logger.info(f"Update check: current={info.current_version}, latest={info.latest_version}, available={info.available}")
+        prompt = bool(info.available) and not update_is_snoozed(info.latest_version)
+        return {
+            "available": info.available,
+            "prompt": prompt,
+            "current_version": info.current_version,
+            "latest_version": info.latest_version,
+            "release_notes": info.release_notes,
+            "download_url": info.download_url,
+            "source": getattr(info, "source", "") or "",
+            "source_label": source_label(getattr(info, "source", "") or ""),
+        }
+
+    @app.post("/api/updates/later")
+    async def snooze_update_prompt(request: Request):
+        from .updater import snooze_update
+        data = {}
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        latest = str(data.get("latest_version") or data.get("version") or "")
+        return snooze_update(latest)
+    
+    @app.post("/api/updates/install")
+    async def install_update(request: Request):
+        if not _is_local(request):
+            return JSONResponse({"error": "Updates can only be installed on the Mac app"}, status_code=403)
+        payload = {}
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        force = bool(payload.get("force"))
+        client_version = str(payload.get("client_version") or payload.get("version") or "")
+        updater = get_updater()
+        updater.refresh_current_version()
+        success, message = await updater.update(
+            force=force,
+            client_version=client_version or None,
+        )
+        if success:
+            from .runtime import relaunch_app
+            relaunch_app(delay=1.4)
+        return {"success": success, "message": message, "relaunching": bool(success)}
+    
+    @app.get("/api/version")
+    async def get_version():
+        version_path = Path(__file__).resolve().parent.parent / "VERSION"
+        version = version_path.read_text().strip() if version_path.exists() else "0.0.0"
+        return {"version": version.lstrip("vV")}
+    
+    from .strategy_manager import get_strategy_manager
+    
+    @app.get("/api/strategies")
+    async def get_strategies():
+        sm = get_strategy_manager()
+        return {
+            "strategies": sm.get_all_strategies(),
+            "active": sm.active_strategy
+        }
+    
+    @app.get("/api/strategies/active")
+    async def get_active_strategy():
+        sm = get_strategy_manager()
+        strategy = sm.get_active_strategy()
+        return {"id": sm.active_strategy, **strategy.to_dict()}
+    
+    @app.post("/api/strategies/active")
+    async def set_active_strategy(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can change strategy"}, status_code=403)
+        data = await request.json()
+        sm = get_strategy_manager()
+        success = sm.set_active_strategy(data.get("id", "default"))
+        return {"success": success, "active": sm.active_strategy}
+    
+    @app.post("/api/strategies")
+    async def create_strategy(request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can change strategy"}, status_code=403)
+        data = await request.json()
+        sm = get_strategy_manager()
+        strategy = sm.create_strategy(data.get("name", "Custom"), data)
+        return {"success": True, "strategy": strategy.to_dict()}
+    
+    @app.put("/api/strategies/{strategy_id}")
+    async def update_strategy(strategy_id: str, request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can change strategy"}, status_code=403)
+        data = await request.json()
+        sm = get_strategy_manager()
+        strategy = sm.update_strategy(strategy_id, data)
+        if strategy:
+            return {"success": True, "strategy": strategy.to_dict()}
+        return {"success": False, "error": "Strategy not found"}
+    
+    @app.delete("/api/strategies/{strategy_id}")
+    async def delete_strategy(strategy_id: str, request: Request):
+        if not _native_owner(request):
+            return JSONResponse({"error": "Only the Mac owner can change strategy"}, status_code=403)
+        sm = get_strategy_manager()
+        success = sm.delete_strategy(strategy_id)
+        return {"success": success}
+    
+    @app.get("/api/strategies/compare")
+    async def compare_strategies():
+        sm = get_strategy_manager()
+        return {"comparison": sm.compare_strategies()}
+    
+    from .dashboard_backtest import get_backtest
