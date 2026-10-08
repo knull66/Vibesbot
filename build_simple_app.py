@@ -79,9 +79,7 @@ if ! check_deps; then
     
     # Mostrar ventana de progreso
     osascript <<'APPLESCRIPT' &
-        display dialog "Instalando dependencias de Vibesbot...
-
-Esto solo ocurre la primera vez." buttons {"OK"} default button 1 giving up after 120 with title "Vibesbot Setup"
+        display dialog "Instalando dependencias de Vibesbot...\n\nEsto solo ocurre la primera vez." buttons {"OK"} default button 1 giving up after 120 with title "Vibesbot Setup"
 APPLESCRIPT
     
     python3 -m pip install --user -q fastapi uvicorn jinja2 aiohttp pandas numpy ta lightgbm scikit-learn websockets python-dotenv pyobjc-framework-WebKit pyobjc-framework-Cocoa 2>> "$LOG_FILE"
@@ -100,6 +98,8 @@ pkill -f "app_launcher.py" 2>/dev/null || true
 sleep 0.4
 
 # Ejecutar la app
+log "Inflating ship parts if needed..."
+PYTHONPATH="." python3 -c "from src.ship_inflate import inflate_ship; print(inflate_ship())" >> "$LOG_FILE" 2>&1 || true
 log "Launching app..."
 exec python3 "$VIBESBOT_DIR/app_launcher.py" 2>> "$LOG_FILE"
 '''
@@ -160,6 +160,13 @@ def create_icns():
         (1024, "512x512@2x"),
     ]
     
+    if not shutil.which("sips") or not shutil.which("iconutil"):
+        print("  ⚠ sips/iconutil no disponibles (build en Linux); usando PNG")
+        fallback = RESOURCES_DIR / "AppIcon.png"
+        shutil.copy(icon_png, fallback)
+        shutil.rmtree(iconset_dir, ignore_errors=True)
+        return fallback
+
     print("  → Generando tamaños de icono...")
     for size, name in icon_sizes:
         out_file = iconset_dir / f"icon_{name}.png"
@@ -220,8 +227,9 @@ def build_app():
     vibesbot_dir = RESOURCES_DIR / "vibesbot"
     
     # Copiar archivos necesarios
-    dirs_to_copy = ['src', 'web', 'models', 'assets']
-    files_to_copy = ['config.example.json', 'VERSION', 'app_launcher.py']
+    dirs_to_copy = ['src', 'web', 'models', 'assets', '.ship']
+    files_to_copy = ['config.example.json', 'VERSION', 'app_launcher.py', 'requirements.txt',
+                     'fix_blank_mac.command', 'restart_mac.command']
     
     vibesbot_dir.mkdir()
     
@@ -251,66 +259,150 @@ def build_app():
 
 
 def create_dmg():
-    """Crea el DMG de forma simple y confiable"""
-    print("\n📦 Creando DMG...")
-    
+    """Crea el DMG con icono, fondo y enlace a Applications (como antes)."""
+    print("\n📦 Creando DMG con diseño personalizado...")
+
     dmg_path = DIST_DIR / f"{APP_NAME}-{VERSION}.dmg"
-    
-    # Eliminar DMG anterior si existe
+    temp_dmg = DIST_DIR / "temp.dmg"
+
     if dmg_path.exists():
         dmg_path.unlink()
-    
-    # Crear carpeta temporal para DMG
+    if temp_dmg.exists():
+        temp_dmg.unlink()
+
     dmg_staging = DIST_DIR / "dmg_staging"
     if dmg_staging.exists():
         shutil.rmtree(dmg_staging)
     dmg_staging.mkdir()
-    
-    print(f"  Preparando contenido...")
-    
-    # Copiar app
+
+    print("  Preparando contenido...")
     shutil.copytree(APP_DIR, dmg_staging / f"{APP_NAME}.app")
-    
-    # Symlink a Applications
     (dmg_staging / "Applications").symlink_to("/Applications")
-    
-    print(f"  Creando imagen DMG...")
-    
-    # Crear DMG directamente (sin AppleScript problemático)
-    result = subprocess.run([
-        "hdiutil", "create",
-        "-volname", APP_NAME,
-        "-srcfolder", str(dmg_staging),
-        "-ov",
-        "-format", "UDZO",
-        str(dmg_path)
-    ], capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        print(f"  ⚠️ Error creando DMG: {result.stderr}")
-        # Intentar método alternativo
-        print(f"  Intentando método alternativo...")
-        result = subprocess.run([
+
+    bg_source = PROJECT_DIR / "assets" / "dmg_background.png"
+    if bg_source.exists():
+        bg_dir = dmg_staging / ".background"
+        bg_dir.mkdir()
+        shutil.copy(bg_source, bg_dir / "background.png")
+        print("  ✓ Fondo DMG")
+
+    readme = dmg_staging / "LÉEME.txt"
+    readme.write_text(
+        f"Vibesbot {VERSION}\n\n"
+        "1. Arrastra Vibesbot.app a Applications\n"
+        "2. Abre Applications → Vibesbot\n"
+        "3. Primera vez: clic derecho → Abrir\n\n"
+        "Min apuesta $1 · chips $1/$5/$10/$50\n",
+        encoding="utf-8",
+    )
+
+    if not shutil.which("hdiutil"):
+        print("  ⚠ hdiutil no disponible (hace falta macOS); se omite DMG")
+        zip_fallback = DIST_DIR / f"{APP_NAME}-{VERSION}-mac.app.zip"
+        if zip_fallback.exists():
+            zip_fallback.unlink()
+        shutil.make_archive(
+            str(DIST_DIR / f"{APP_NAME}-{VERSION}-mac.app"),
+            "zip",
+            root_dir=dmg_staging,
+            base_dir=".",
+        )
+        print(f"  → Fallback ZIP: {zip_fallback}")
+        return None
+
+    print("  Creando imagen DMG writable...")
+    result = subprocess.run(
+        [
             "hdiutil", "create",
             "-volname", APP_NAME,
             "-srcfolder", str(dmg_staging),
             "-ov",
-            "-format", "UDBZ",
-            str(dmg_path)
-        ], capture_output=True, text=True)
-    
-    # Limpiar staging
-    shutil.rmtree(dmg_staging)
-    
+            "-format", "UDRW",
+            str(temp_dmg),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not temp_dmg.exists():
+        print(f"  ⚠ UDRW falló ({result.stderr.strip()}); intento UDZO directo")
+        result = subprocess.run(
+            [
+                "hdiutil", "create",
+                "-volname", APP_NAME,
+                "-srcfolder", str(dmg_staging),
+                "-ov",
+                "-format", "UDZO",
+                str(dmg_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        shutil.rmtree(dmg_staging, ignore_errors=True)
+        if dmg_path.exists():
+            size_mb = dmg_path.stat().st_size / (1024 * 1024)
+            print(f"  ✓ DMG creado: {dmg_path} ({size_mb:.1f} MB)")
+            return dmg_path
+        print(f"  ❌ Error: No se pudo crear el DMG: {result.stderr}")
+        return None
+
+    mount_result = subprocess.run(
+        ["hdiutil", "attach", str(temp_dmg), "-readwrite", "-noverify"],
+        capture_output=True,
+        text=True,
+    )
+    if mount_result.returncode == 0:
+        mount_point = f"/Volumes/{APP_NAME}"
+        applescript = f'''
+tell application "Finder"
+    tell disk "{APP_NAME}"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set bounds of container window to {{100, 100, 640, 480}}
+        set theViewOptions to the icon view options of container window
+        set arrangement of theViewOptions to not arranged
+        set icon size of theViewOptions to 100
+        set position of item "{APP_NAME}.app" of container window to {{140, 180}}
+        set position of item "Applications" of container window to {{400, 180}}
+        try
+            set background picture of theViewOptions to file ".background:background.png"
+        end try
+        close
+        open
+        update without registering applications
+        delay 2
+        close
+    end tell
+end tell
+'''
+        if shutil.which("osascript"):
+            subprocess.run(["osascript", "-e", applescript], capture_output=True)
+            print("  ✓ Layout Finder + fondo")
+        subprocess.run(["hdiutil", "detach", mount_point, "-quiet"], capture_output=True)
+    else:
+        print(f"  ⚠ No se pudo montar temp DMG: {mount_result.stderr.strip()}")
+
+    convert = subprocess.run(
+        [
+            "hdiutil", "convert", str(temp_dmg),
+            "-format", "UDZO",
+            "-imagekey", "zlib-level=9",
+            "-o", str(dmg_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if temp_dmg.exists():
+        temp_dmg.unlink()
+    shutil.rmtree(dmg_staging, ignore_errors=True)
+
     if dmg_path.exists():
         size_mb = dmg_path.stat().st_size / (1024 * 1024)
         print(f"  ✓ DMG creado: {dmg_path} ({size_mb:.1f} MB)")
         return dmg_path
-    else:
-        print(f"  ❌ Error: No se pudo crear el DMG")
-        return None
-        return dmg_path
-    
+
+    print(f"  ❌ Error convirtiendo DMG: {convert.stderr}")
     return None
 
 
