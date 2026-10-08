@@ -35,12 +35,11 @@ def inflate_ship(root: Optional[Path] = None) -> List[str]:
         if not rel or not digest or not parts:
             continue
         target = base / rel
-        if target.is_file():
-            try:
-                if _sha256(target.read_bytes()) == digest:
-                    continue
-            except OSError:
-                pass
+        # Only fill missing files. Never overwrite a live install that already
+        # has content — hash-mismatch rewrite undid GitHub Install updates when
+        # .ship lagged behind VERSION / app.js.
+        if target.is_file() and target.stat().st_size > 0:
+            continue
         buf = bytearray()
         ok = True
         for name in parts:

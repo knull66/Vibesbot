@@ -1,7 +1,7 @@
 [
   {
     "path": "web/static/app.js",
-    "sha256": "52133b9d23bcd7f7c846c44614d51c41d55614aec2ada7d97701cf41448ce1dc",
+    "sha256": "e20f5a390317b7d977bb6dd6b29b5632c6cacd434c981ea02fa638f8dd473daa",
     "parts": [
       "web__static__app.js.00.b64",
       "web__static__app.js.01.b64",
@@ -23,14 +23,21 @@
       "web__static__app.js.17.b64",
       "web__static__app.js.18.b64",
       "web__static__app.js.19.b64",
-      "web__static__app.js.20.b64"
+      "web__static__app.js.20.b64",
+      "web__static__app.js.21.b64",
+      "web__static__app.js.22.b64",
+      "web__static__app.js.23.b64",
+      "web__static__app.js.24.b64",
+      "web__static__app.js.25.b64",
+      "web__static__app.js.26.b64",
+      "web__static__app.js.27.b64"
     ],
-    "size": 93238,
+    "size": 93696,
     "encoding": "base64"
   },
   {
     "path": "src/wallet_prediction.py",
-    "sha256": "aace82b66d4e2ce2df14404409faf9e0a72e2c10bea559f2828bb776107300df",
+    "sha256": "1e9203cdc28192e1e315fa62e389776217857dbfcc81dfa11c41039ce77ad0aa",
     "parts": [
       "src__wallet_prediction.py.00.b64",
       "src__wallet_prediction.py.01.b64",
@@ -51,14 +58,20 @@
       "src__wallet_prediction.py.16.b64",
       "src__wallet_prediction.py.17.b64",
       "src__wallet_prediction.py.18.b64",
-      "src__wallet_prediction.py.19.b64"
+      "src__wallet_prediction.py.19.b64",
+      "src__wallet_prediction.py.20.b64",
+      "src__wallet_prediction.py.21.b64",
+      "src__wallet_prediction.py.22.b64",
+      "src__wallet_prediction.py.23.b64",
+      "src__wallet_prediction.py.24.b64",
+      "src__wallet_prediction.py.25.b64"
     ],
-    "size": 86890,
+    "size": 87032,
     "encoding": "base64"
   },
   {
     "path": "src/web_server.py",
-    "sha256": "b218227c80ea406eabbd5a1ef89a7673586fbb0693c951ff78339544858f544b",
+    "sha256": "732d194f48c0701081651c2faf12127684224838b841b2bdce6242407cbb6934",
     "parts": [
       "src__web_server.py.00.b64",
       "src__web_server.py.01.b64",
@@ -87,14 +100,24 @@
       "src__web_server.py.24.b64",
       "src__web_server.py.25.b64",
       "src__web_server.py.26.b64",
-      "src__web_server.py.27.b64"
+      "src__web_server.py.27.b64",
+      "src__web_server.py.28.b64",
+      "src__web_server.py.29.b64",
+      "src__web_server.py.30.b64",
+      "src__web_server.py.31.b64",
+      "src__web_server.py.32.b64",
+      "src__web_server.py.33.b64",
+      "src__web_server.py.34.b64",
+      "src__web_server.py.35.b64",
+      "src__web_server.py.36.b64",
+      "src__web_server.py.37.b64"
     ],
-    "size": 125698,
+    "size": 126088,
     "encoding": "base64"
   },
   {
     "path": "web/templates/index.html",
-    "sha256": "d1cd4e5ed2718bd27b2b94de9846514b75535c95a9e4ade288f22aafd3dc15a7",
+    "sha256": "7ebe4ea3c167c3b1f92d73448eff06c56ffd0e2ba68ab5a3f0b1d7447531a4f4",
     "parts": [
       "web__templates__index.html.00.b64",
       "web__templates__index.html.01.b64",
@@ -104,14 +127,17 @@
       "web__templates__index.html.05.b64",
       "web__templates__index.html.06.b64",
       "web__templates__index.html.07.b64",
-      "web__templates__index.html.08.b64"
+      "web__templates__index.html.08.b64",
+      "web__templates__index.html.09.b64",
+      "web__templates__index.html.10.b64",
+      "web__templates__index.html.11.b64"
     ],
-    "size": 38834,
+    "size": 39027,
     "encoding": "base64"
   },
   {
     "path": "web/static/styles.css",
-    "sha256": "e6504fc7d6bddd184ffaef2b38c3ce2fe19f05f175147135c9f2e03663bbd9ae",
+    "sha256": "556fa1a8e5d41ee15a0e70523db733a6aa878459fefcc660c1d4363a97c75618",
     "parts": [
       "web__static__styles.css.00.b64",
       "web__static__styles.css.01.b64",
@@ -125,9 +151,32 @@
       "web__static__styles.css.09.b64",
       "web__static__styles.css.10.b64",
       "web__static__styles.css.11.b64",
-      "web__static__styles.css.12.b64"
+      "web__static__styles.css.12.b64",
+      "web__static__styles.css.13.b64",
+      "web__static__styles.css.14.b64",
+      "web__static__styles.css.15.b64",
+      "web__static__styles.css.16.b64",
+      "web__static__styles.css.17.b64"
     ],
-    "size": 56673,
+    "size": 58092,
+    "encoding": "base64"
+  },
+  {
+    "path": "src/updater.py",
+    "sha256": "320da03c3d2cb7d3f36e52a522e90c149211d8af0c9b732431788cc32ba63326",
+    "parts": [
+      "src__updater.py.00.b64",
+      "src__updater.py.01.b64",
+      "src__updater.py.02.b64",
+      "src__updater.py.03.b64",
+      "src__updater.py.04.b64",
+      "src__updater.py.05.b64",
+      "src__updater.py.06.b64",
+      "src__updater.py.07.b64",
+      "src__updater.py.08.b64",
+      "src__updater.py.09.b64"
+    ],
+    "size": 30789,
     "encoding": "base64"
   }
 ]
