@@ -2,6 +2,7 @@
 # Crea Vibesbot.app con icono propio e instala en ~/Applications
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+# Also work if dropped next to a nested extract
 for d in "$ROOT" "$ROOT/Vibesbot-1.51.1" "$HOME/Downloads/Vibesbot-1.51.1/Vibesbot-1.51.1" "$HOME/Downloads/Vibesbot"; do
   if [ -f "$d/build_simple_app.py" ] && [ -f "$d/app_launcher.py" ]; then
     ROOT="$d"
@@ -14,21 +15,24 @@ echo "  Vibesbot — instalador .app (macOS)"
 echo "  Carpeta: $ROOT"
 echo "════════════════════════════════════════"
 
+# Stop old
 if command -v lsof >/dev/null 2>&1; then
   PIDS=$(lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null || true)
   if [ -n "$PIDS" ]; then kill -9 $PIDS 2>/dev/null || true; fi
 fi
 pkill -f "app_launcher.py" 2>/dev/null || true
 
+# Pull latest launcher + filters + builder from main
+# Do NOT curl VERSION alone — that desyncs VERSION vs app.js and breaks Install.
 echo "→ Actualizando archivos clave..."
 curl -fsSL -o app_launcher.py "https://raw.githubusercontent.com/knull66/Vibesbot/main/app_launcher.py"
 curl -fsSL -o build_simple_app.py "https://raw.githubusercontent.com/knull66/Vibesbot/main/build_simple_app.py"
-curl -fsSL -o VERSION "https://raw.githubusercontent.com/knull66/Vibesbot/main/VERSION"
+curl -fsSL -o src/updater.py "https://raw.githubusercontent.com/knull66/Vibesbot/main/src/updater.py" || true
 curl -fsSL -o src/round_signal.py "https://raw.githubusercontent.com/knull66/Vibesbot/main/src/round_signal.py"
 mkdir -p scripts
 curl -fsSL -o scripts/patch_server_boot.py \
   "https://raw.githubusercontent.com/knull66/Vibesbot/main/scripts/patch_server_boot.py" || true
-
+# Always loosen entry filters locally (curl may still serve older main)
 python3 - <<'PY'
 from pathlib import Path
 p = Path("src/wallet_prediction.py")
@@ -52,6 +56,7 @@ if rt2 != rt:
     print("patched round_signal: confirm move $5")
 PY
 
+# Boot patch (nonblocking /healthz) if still old
 if [ -f scripts/patch_server_boot.py ]; then
   python3 scripts/patch_server_boot.py || true
 fi
@@ -73,6 +78,7 @@ mkdir -p "$HOME/Applications"
 if [ -d "$APP_SRC" ]; then
   rm -rf "$APP_DST"
   cp -R "$APP_SRC" "$APP_DST"
+  # Clear quarantine so first open works
   xattr -cr "$APP_DST" 2>/dev/null || true
   echo ""
   echo "✅ Instalado: $APP_DST"
