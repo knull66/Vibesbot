@@ -1,7 +1,7 @@
 [
   {
     "path": "web/static/app.js",
-    "sha256": "08cc0b5571e957829631616888a53bf134bfdc797add004bc57cc3cecf4c285f",
+    "sha256": "e20f5a390317b7d977bb6dd6b29b5632c6cacd434c981ea02fa638f8dd473daa",
     "parts": [
       "web__static__app.js.00.b64",
       "web__static__app.js.01.b64",
@@ -117,7 +117,7 @@
   },
   {
     "path": "web/templates/index.html",
-    "sha256": "a37e06621eb009db01a0dbf70b632ce2bf855ec0f84f5e3a4d756a09522e1c9d",
+    "sha256": "7ebe4ea3c167c3b1f92d73448eff06c56ffd0e2ba68ab5a3f0b1d7447531a4f4",
     "parts": [
       "web__templates__index.html.00.b64",
       "web__templates__index.html.01.b64",
