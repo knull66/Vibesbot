@@ -1,1 +1,1 @@
-$file:/tmp/real_files/src/updater.py
+$file:/cursor/stores/self/UPD.py
