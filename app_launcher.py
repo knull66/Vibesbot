@@ -4,12 +4,26 @@ import os
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 from pathlib import Path
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 os.chdir(SCRIPT_DIR)
+
+LOG_PATH = Path.home() / "Library" / "Logs" / "Vibesbot.log"
+_SERVER_ERROR = ""
+
+
+def _log(msg: str) -> None:
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {msg}\n")
+    except Exception:
+        pass
+    print(msg, flush=True)
 
 
 def read_version() -> str:
@@ -45,25 +59,28 @@ def ensure_ship_files() -> None:
         from src.ship_inflate import inflate_ship
         restored = inflate_ship(Path(SCRIPT_DIR))
         if restored:
-            print("ship inflate restored:", ", ".join(restored))
+            _log("ship inflate restored: " + ", ".join(restored))
     except Exception as e:
-        print(f"ship inflate: {e}")
+        _log(f"ship inflate: {e}")
 
 
 def start_server():
+    global _SERVER_ERROR
     ensure_ship_files()
     try:
         from src.updater import purge_retired_installs
         purge_retired_installs()
-    except Exception:
-        pass
+    except Exception as e:
+        _log(f"purge skipped: {e}")
     try:
+        _log("importing web_server...")
         from src.web_server import run_dashboard
+        _log("starting dashboard on :8080")
         run_dashboard(port=8080)
     except Exception as e:
-        print(f"Server error: {e}")
-        import traceback
-        traceback.print_exc()
+        _SERVER_ERROR = f"{type(e).__name__}: {e}"
+        _log(f"Server error: {_SERVER_ERROR}")
+        _log(traceback.format_exc())
 
 
 def main():
@@ -210,26 +227,36 @@ def main():
         def checkServer_(self, timer):
             self.attempts += 1
             try:
-                urllib.request.urlopen("http://127.0.0.1:8080", timeout=1)
+                urllib.request.urlopen("http://127.0.0.1:8080/healthz", timeout=1)
                 timer.invalidate()
                 self.window.setTitle_("Vibesbot")
-                # Lobby first on the Mac; /login redirects to a broken stub index
-                # if ship inflate has not restored templates yet.
                 url = NSURL.URLWithString_("http://127.0.0.1:8080/static/lobby.html")
                 self.webView.loadRequest_(NSURLRequest.requestWithURL_(url))
+                _log("UI connected to lobby")
             except Exception:
-                if self.attempts > 60:
+                if self.attempts > 180:
                     timer.invalidate()
                     self.window.setTitle_("VIBESBOT - Error")
-                    error_html = """<!DOCTYPE html>
-<html><body style="background:#0a0a0a;color:#f07187;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;text-align:center">
-<div>
-<p style="font-size:20px;font-weight:600;margin-bottom:12px;color:#f2f2f2">Vibesbot</p>
-<p style="font-size:14px">Server failed</p>
-<p style="color:#6d6d6d;margin-top:20px;font-size:12px">Check ~/Library/Logs/Vibesbot.log</p>
+                    detail = (_SERVER_ERROR or "No response on :8080").replace("<", "&lt;")
+                    tail = ""
+                    try:
+                        if LOG_PATH.exists():
+                            lines = LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
+                            tail = "\n".join(lines[-8:]).replace("<", "&lt;")
+                    except Exception:
+                        pass
+                    error_html = f"""<!DOCTYPE html>
+<html><body style="background:#0a0a0a;color:#f07187;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;text-align:center;padding:24px">
+<div style="max-width:520px">
+<p style="font-size:22px;font-weight:700;margin-bottom:10px;color:#00e5ff;letter-spacing:0.04em">VIBESBOT</p>
+<p style="font-size:14px;margin-bottom:12px">Server failed</p>
+<p style="color:#cfcfcf;font-size:12px;margin-bottom:16px">{detail}</p>
+<pre style="text-align:left;color:#8e8e93;font-size:10px;white-space:pre-wrap;background:#141414;padding:12px;border-radius:8px">{tail}</pre>
+<p style="color:#6d6d6d;margin-top:16px;font-size:11px">Log: ~/Library/Logs/Vibesbot.log</p>
 </div>
 </body></html>"""
                     self.webView.loadHTMLString_baseURL_(error_html, None)
+                    _log("UI gave up waiting for server")
 
         def applicationShouldTerminateAfterLastWindowClosed_(self, sender):
             return True
@@ -248,6 +275,7 @@ def main():
 
 
 if __name__ == "__main__":
+    _log(f"launcher start v{read_version()} cwd={SCRIPT_DIR}")
     ensure_ship_files()
     free_port()
     time.sleep(0.2)
