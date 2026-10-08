@@ -1,0 +1,144 @@
+er
+    
+    @app.post("/api/backtest/run")
+    async def run_backtest(request: Request):
+        """Ejecuta un backtest."""
+        data = await request.json()
+        
+        backtester = get_backtester()
+        
+        if backtester.is_running:
+            return {"success": False, "error": "Backtest already running"}
+        
+        try:
+            # Obtener estrategia
+            strategy = None
+            strategy_id = data.get("strategy_id")
+            if strategy_id:
+                sm = get_strategy_manager()
+                if strategy_id in sm.strategies:
+                    strategy = sm.strategies[strategy_id]
+            
+            result = await backtester.run_backtest(
+                strategy=strategy,
+                days=data.get("days", 7),
+                initial_capital=data.get("initial_capital", 100.0),
+                bet_amount=data.get("bet_amount", 1.0)
+            )
+            
+            return {"success": True, "result": result.to_dict()}
+            
+        except Exception as e:
+            logger.error(f"Backtest error: {e}")
+            return {"success": False, "error": str(e)}
+    
+    @app.get("/api/backtest/status")
+    async def get_backtest_status():
+        """Obtiene el estado del backtest."""
+        backtester = get_backtester()
+        return {
+            "running": backtester.is_running,
+            "progress": backtester.progress,
+            "has_result": backtester.current_result is not None
+        }
+    
+    @app.get("/api/backtest/result")
+    async def get_backtest_result():
+        """Obtiene el resultado del último backtest."""
+        backtester = get_backtester()
+        if backtester.current_result:
+            return {"success": True, "result": backtester.current_result.to_dict()}
+        return {"success": False, "error": "No backtest result available"}
+    
+    # ═══════════════════════════════════════════════════════════
+    # API Endpoints para Exportación
+    # ═══════════════════════════════════════════════════════════
+    
+    from .data_exporter import get_exporter
+    from fastapi.responses import Response
+    
+    @app.get("/api/export/trades/csv")
+    async def export_trades_csv():
+        """Exporta trades a CSV."""
+        sm = get_settings_manager()
+        exporter = get_exporter()
+        
+        trades = sm.settings.simulation.history
+        csv_content = exporter.generate_csv_content(trades)
+        
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename=vibesbot_trades_{datetime.now().strftime('%Y%m%d')}.csv"
+            }
+        )
+    
+    @app.get("/api/export/trades/json")
+    async def export_trades_json():
+        """Exporta trades a JSON."""
+        sm = get_settings_manager()
+        
+        return {
+            "exported_at": datetime.now().isoformat(),
+            "trades": sm.settings.simulation.history,
+            "stats": sm.settings.simulation.to_dict()
+        }
+    
+    @app.get("/api/export/report")
+    async def export_report():
+        """Genera un reporte de análisis."""
+        sm = get_settings_manager()
+        strategy_mgr = get_strategy_manager()
+        exporter = get_exporter()
+        
+        trades = sm.settings.simulation.history
+        stats = sm.settings.simulation.to_dict()
+        strategy_name = strategy_mgr.get_active_strategy().name
+        
+        report = exporter.generate_report(trades, stats, strategy_name)
+        return report
+    
+    return app
+
+
+def run_dashboard(host: Optional[str] = None, port: int = 8080, config_path: Optional[str] = None):
+    """Inicia el servidor del dashboard."""
+    setup_logger("web_server", console_output=True)
+    try:
+        from .ship_inflate import inflate_ship
+        restored = inflate_ship()
+        if restored:
+            logger.info(f"Ship inflate restored: {', '.join(restored)}")
+    except Exception as exc:
+        logger.warning(f"Ship inflate skipped: {exc}")
+    try:
+        from .updater import purge_retired_installs
+        purge_retired_installs()
+    except Exception as exc:
+        logger.warning(f"Leftover Playwright cleanup skipped: {exc}")
+    
+    config = load_config(config_path)
+    app = create_app(config)
+    bind_host = dashboard_bind_host(host)
+    
+    logger.info(f"Starting dashboard at http://{bind_host}:{port}")
+    uvicorn.run(app, host=bind_host, port=port, log_level="info")
+
+
+# Lazy app for `uvicorn src.web_server:app` — avoid double create_app on
+# import from the native Mac launcher (import + run_dashboard).
+app = None
+
+
+def __getattr__(name: str):
+    global app
+    if name == "app":
+        if app is None:
+            app = create_app()
+        return app
+    raise AttributeError(name)
+
+
+if __name__ == "__main__":
+    run_dashboard()
