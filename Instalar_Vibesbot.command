@@ -1,9 +1,10 @@
 #!/bin/bash
-# Crea Vibesbot.app con icono propio e instala en ~/Applications
+# Instala Vibesbot.app desde ESTA carpeta (código local).
+# No descarga src/web_server.py ni otros archivos grandes desde GitHub main:
+# main ha llegado a publicar stubs de 0 bytes y eso deja la app sin abrir.
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-# Also work if dropped next to a nested extract
-for d in "$ROOT" "$ROOT/Vibesbot-1.51.1" "$HOME/Downloads/Vibesbot-1.51.1/Vibesbot-1.51.1" "$HOME/Downloads/Vibesbot"; do
+for d in "$ROOT" "$ROOT/Vibesbot-1.52.0" "$HOME/Downloads/Vibesbot"; do
   if [ -f "$d/build_simple_app.py" ] && [ -f "$d/app_launcher.py" ]; then
     ROOT="$d"
     break
@@ -13,63 +14,45 @@ cd "$ROOT"
 echo "════════════════════════════════════════"
 echo "  Vibesbot — instalador .app (macOS)"
 echo "  Carpeta: $ROOT"
+echo "  Versión: $(tr -d '[:space:]' < VERSION 2>/dev/null || echo '?')"
 echo "════════════════════════════════════════"
 
-# Stop old
 if command -v lsof >/dev/null 2>&1; then
   PIDS=$(lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null || true)
   if [ -n "$PIDS" ]; then kill -9 $PIDS 2>/dev/null || true; fi
 fi
 pkill -f "app_launcher.py" 2>/dev/null || true
 
-# Pull latest launcher + filters + builder from main
-# Do NOT curl VERSION alone — that desyncs VERSION vs app.js and breaks Install.
-echo "→ Actualizando archivos clave..."
-curl -fsSL -o app_launcher.py "https://raw.githubusercontent.com/knull66/Vibesbot/main/app_launcher.py"
-curl -fsSL -o build_simple_app.py "https://raw.githubusercontent.com/knull66/Vibesbot/main/build_simple_app.py"
-curl -fsSL -o src/updater.py "https://raw.githubusercontent.com/knull66/Vibesbot/main/src/updater.py" || true
-curl -fsSL -o src/round_signal.py "https://raw.githubusercontent.com/knull66/Vibesbot/main/src/round_signal.py"
-mkdir -p scripts
-curl -fsSL -o scripts/patch_server_boot.py \
-  "https://raw.githubusercontent.com/knull66/Vibesbot/main/scripts/patch_server_boot.py" || true
-# Always loosen entry filters locally (curl may still serve older main)
-python3 - <<'PY'
+# Rebuild large files from local .ship if any are empty/missing.
+if [ -f src/ship_inflate.py ] && [ -f .ship/manifest.json ]; then
+  echo "→ Comprobando archivos grandes (.ship local)..."
+  PYTHONPATH=. python3 - <<'PY'
 from pathlib import Path
-p = Path("src/wallet_prediction.py")
-t = p.read_text(encoding="utf-8")
-orig = t
-t = t.replace("MAX_SHARE_PRICE = 0.60", "MAX_SHARE_PRICE = 0.65")
-t = t.replace("MIN_WIN_PNL_RATIO = 0.40", "MIN_WIN_PNL_RATIO = 0.35")
-t = t.replace("need 20–60%", "need 20–65%")
-t = t.replace("need 20-60%", "need 20-65%")
-t = t.replace("Skip 61¢+", "Skip 66¢+")
-if t != orig:
-    p.write_text(t, encoding="utf-8")
-    print("patched wallet_prediction: max share 65¢")
-else:
-    print("wallet_prediction filters already updated or markers missing")
-r = Path("src/round_signal.py")
-rt = r.read_text(encoding="utf-8")
-rt2 = rt.replace("MIN_CONFIRM_MOVE = 10.0", "MIN_CONFIRM_MOVE = 5.0")
-if rt2 != rt:
-    r.write_text(rt2, encoding="utf-8")
-    print("patched round_signal: confirm move $5")
+from src.ship_inflate import inflate_ship, verify_ship
+restored = inflate_ship(Path("."), fetch=False)
+if restored:
+    print("restaurados:", ", ".join(restored))
+problems = verify_ship(Path("."))
+if problems:
+    raise SystemExit("Archivos incompletos: " + ", ".join(f"{k}={v}" for k, v in problems.items()))
+print("verify: OK")
 PY
-
-# Boot patch (nonblocking /healthz) if still old
-if [ -f scripts/patch_server_boot.py ]; then
-  python3 scripts/patch_server_boot.py || true
 fi
+
+BYTES=$(wc -c < src/web_server.py | tr -d ' ')
+if [ "$BYTES" -lt 10000 ] || ! grep -q "def run_dashboard" src/web_server.py; then
+  echo "ERROR: src/web_server.py está vacío o incompleto ($BYTES bytes)."
+  echo "Usa la carpeta completa de la versión, no un zip a medias."
+  exit 1
+fi
+echo "→ web_server.py = $BYTES bytes"
 
 echo "→ Dependencias..."
 python3 -m pip install --user -q \
   fastapi uvicorn jinja2 aiohttp pandas numpy ta lightgbm scikit-learn \
   websockets python-dotenv pyobjc-framework-WebKit pyobjc-framework-Cocoa || true
 
-echo "→ Inflate .ship..."
-PYTHONPATH=. python3 -c "from src.ship_inflate import inflate_ship; print(inflate_ship())" || true
-
-echo "→ Construyendo Vibesbot.app + DMG..."
+echo "→ Construyendo Vibesbot.app..."
 python3 build_simple_app.py
 
 APP_SRC="$ROOT/dist/Vibesbot.app"
@@ -78,17 +61,16 @@ mkdir -p "$HOME/Applications"
 if [ -d "$APP_SRC" ]; then
   rm -rf "$APP_DST"
   cp -R "$APP_SRC" "$APP_DST"
-  # Clear quarantine so first open works
   xattr -cr "$APP_DST" 2>/dev/null || true
   echo ""
-  echo "✅ Instalado: $APP_DST"
-  echo "   Abriendo (Dock debe mostrar icono Vibesbot, no Python)..."
+  echo "Instalado: $APP_DST"
   open "$APP_DST"
 else
-  echo "⚠ No se creó .app — abriendo con icono forzado vía launcher"
+  echo "No se creó .app — lanzando launcher"
   python3 app_launcher.py
 fi
 
 echo ""
 echo "Si macOS bloquea: clic derecho en Vibesbot.app → Abrir"
-read -n 1 -s -r -p "Listo. Pulsa una tecla para cerrar esta ventana..."
+echo "No uses Check update / Install hasta que main en GitHub tenga el servidor completo."
+read -n 1 -s -r -p "Listo. Pulsa una tecla para cerrar..."
