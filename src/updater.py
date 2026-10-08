@@ -1,1 +1,1 @@
-test write probe
+$file:/tmp/real_files/src/updater.py
