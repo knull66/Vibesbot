@@ -1,0 +1,1 @@
+$file:/tmp/clean_push/_f05_content.py
