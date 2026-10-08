@@ -1,33 +1,32 @@
-# Vibesbot 1.51.1 — instalar ahora
+# Vibesbot 1.51.2 — DMG con icono
 
-Los enlaces del chat de Cursor dicen **File not found**. Usa GitHub.
+El DMG se genera **en macOS** (`hdiutil` + `sips`/`iconutil`), igual que antes.
 
-## Opción rápida (Terminal en Mac)
+## Generar el instalador (tu Mac)
 
-Copia y pega **todo** esto:
-
-```bash
-curl -fsSL -o ~/Downloads/vb1511.zip https://github.com/knull66/Vibesbot/archive/refs/tags/v1.51.1.zip && rm -rf ~/Downloads/Vibesbot-1.51.1 && mkdir -p ~/Downloads/Vibesbot-1.51.1 && unzip -q ~/Downloads/vb1511.zip -d ~/Downloads/Vibesbot-1.51.1 && cd ~/Downloads/Vibesbot-1.51.1/Vibesbot-1.51.1 && PYTHONPATH=. python3 -c "from src.ship_inflate import inflate_ship; print('OK', inflate_ship())" && python3 app_launcher.py
-```
-
-## Opción manual
-
-1. Borra carpetas viejas: `~/Downloads/Vibesbot-1.51.0` y apps rotas.
-2. Abre: https://github.com/knull66/Vibesbot/releases/tag/v1.51.1
-3. Descarga **Source code (zip)** (abajo en Assets).
-4. Descomprime → entra a la carpeta → en Terminal:
+En la carpeta del proyecto (`~/Downloads/Vibesbot`):
 
 ```bash
-cd ~/Downloads/Vibesbot-1.51.1
-PYTHONPATH=. python3 -c "from src.ship_inflate import inflate_ship; print(inflate_ship())"
-python3 app_launcher.py
+cd ~/Downloads/Vibesbot
+curl -fsSL -o build_simple_app.py https://raw.githubusercontent.com/knull66/Vibesbot/main/build_simple_app.py
+curl -fsSL -o make_dmg_mac.command https://raw.githubusercontent.com/knull66/Vibesbot/main/make_dmg_mac.command
+curl -fsSL -o VERSION https://raw.githubusercontent.com/knull66/Vibesbot/main/VERSION
+chmod +x make_dmg_mac.command
+python3 build_simple_app.py
+open dist/Vibesbot-1.51.2.dmg
 ```
 
-## Qué debes ver
+O doble clic en **make_dmg_mac.command**.
 
-- Login / lobby (no pantalla negra)
-- Versión **v1.51.1**
-- Apuesta mínima **$1**
-- Chips **$1 / $5 / $10 / $50**
+Salida:
+- `dist/Vibesbot.app` (con **AppIcon**)
+- `dist/Vibesbot-1.51.2.dmg` (app + Applications + fondo)
 
-Si falla: `~/Library/Logs/Vibesbot.log`
+Instalar: abre el DMG → arrastra Vibesbot a Applications → clic derecho → Abrir.
+
+## Qué incluye el DMG
+
+- Icono de app (bunny)
+- Fondo profesional
+- Enlace a Applications
+- Min **$1** · chips **$1/$5/$10/$50** · v**1.51.2**
