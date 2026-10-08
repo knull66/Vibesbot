@@ -17,7 +17,11 @@ def _sha256(data: bytes) -> str:
 
 
 def inflate_ship(root: Optional[Path] = None) -> List[str]:
-    """Write files listed in .ship/manifest.json when missing or hash-mismatched."""
+    """Restore manifest paths from .ship when missing, empty, or hash-mismatched.
+
+    Ship parts are the source of truth for listed files. A stale full copy in a
+    zip (e.g. old wallet_prediction.py) must not win over matching .ship parts.
+    """
     base = Path(root) if root else _root()
     ship = base / ".ship"
     manifest_path = ship / "manifest.json"
@@ -35,11 +39,12 @@ def inflate_ship(root: Optional[Path] = None) -> List[str]:
         if not rel or not digest or not parts:
             continue
         target = base / rel
-        # Only fill missing files. Never overwrite a live install that already
-        # has content — hash-mismatch rewrite undid GitHub Install updates when
-        # .ship lagged behind VERSION / app.js.
         if target.is_file() and target.stat().st_size > 0:
-            continue
+            try:
+                if _sha256(target.read_bytes()) == digest:
+                    continue
+            except OSError:
+                pass
         buf = bytearray()
         ok = True
         for name in parts:
