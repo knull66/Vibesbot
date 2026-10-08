@@ -1,0 +1,918 @@
+"""Binance Wallet → Predict.fun (web3.binance.com/en/prediction).
+
+Two different Binance products exist. This module is only product B.
+
+A) Binance Exchange Event Contracts — binance.com/prediction
+   CEX binary options. No official bet API. Never used here.
+
+B) Binance Wallet Prediction Markets — web3.binance.com/en/prediction
+   Predict.fun markets on BNB Smart Chain. Official SAPI:
+   https://api.binance.com/sapi/v1/w3w/wallet/prediction
+   Official SAPI wallet/list returns the Prediction Account (MPC), not
+   web3 My Wallet. REAL spends that listed account. My Wallet is Web3
+   assets (Send/Receive) and is not used for Predict.fun orders.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import hmac
+import re
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlencode
+
+import aiohttp
+
+from .utils.logger import get_logger
+
+logger = get_logger("wallet_prediction")
+
+PREDICTION_API = "https://api.binance.com/sapi/v1/w3w/wallet/prediction"
+USDT_WEI = 10**18
+DEFAULT_FEE_BPS = 200
+DEFAULT_SLIPPAGE_BPS = 500
+SELL_SLIPPAGE_BPS = 1500
+SELL_FRACTION = 0.995
+MIN_BET_USDT = 1.0
+MAX_BET_USDT = 100.0
+DEFAULT_STAKE_MODE = "percent"
+DEFAULT_BET_PERCENT = 3.0
+MIN_BET_PERCENT = 1.0
+MAX_BET_PERCENT = 8.0
+DEFAULT_DAILY_LOSS_PCT = 20.0
+DEFAULT_SESSION_LOCK_USD = 0.0
+DEFAULT_SESSION_TRAIL_PCT = 0.0
+MIN_SESSION_PEAK_PNL = 5.0
+MAX_SESSION_LOCK_USD = 500.0
+MAX_SESSION_TRAIL_PCT = 80.0
+DEFAULT_WORKING_BANKROLL = 0.0
+DEFAULT_HARVEST_MIN = 5.0
+MAX_WORKING_BANKROLL = 500.0
+MAX_HARVEST_MIN = 100.0
+MIN_SHARE_PRICE = 0.20
+# Allow lean favorites up to 65¢ — 62¢ still pays ~$0.50 on a $1 ticket.
+# Block only true grinders (66¢+) that win pennies if they hit.
+MAX_SHARE_PRICE = 0.65
+MIN_WIN_PNL_RATIO = 0.35
+DEFAULT_PEAK_DD_PCT = 15.0
+# Mid-round scalp is -EV on 5m (second taker fee). Hold to Binance
+# unless the ticket is almost resolved.
+EXIT_MIN_HOLD_SECONDS = 75
+TAKE_PROFIT_MIN_MARK = 0.90
+TAKE_PROFIT_MIN_USD = 0.70
+TAKE_PROFIT_MIN_SECONDS = 40
+CUT_LOSS_MAX_MARK = 0.12
+CUT_LOSS_MIN_SECONDS = 45
+CUT_LOSS_MIN_SAVE = 0.20
+BTC_PRICE_MIN = 1000.0
+BTC_PRICE_MAX = 1_000_000.0
+BSC_USDT = "0x55d398326f99059fF775485246999027B3197955"
+BSC_CHAIN_ID = "56"
+# Required by place-order-bundle even when spending the MPC Prediction Account.
+# SPOT/FUNDING is the CEX fallback type; we do not send fundTransferAmount.
+PREDICTION_ACCOUNT_TYPE = "SPOT"
+BSC_RPCS = (
+    "https://bsc-dataseed.binance.org/",
+    "https://bsc-dataseed1.binance.org/",
+    "https://bsc-dataseed2.binance.org/",
+)
+
+
+def normalize_evm_address(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if not text.startswith("0x") and len(text) == 40:
+        text = "0x" + text
+    if not text.startswith("0x") or len(text) != 42:
+        return ""
+    body = text[2:]
+    if any(char not in "0123456789abcdefABCDEF" for char in body):
+        return ""
+    return "0x" + body
+
+
+def same_address(left: Any, right: Any) -> bool:
+    a = normalize_evm_address(left)
+    b = normalize_evm_address(right)
+    return bool(a) and a.lower() == b.lower()
+
+
+def resolve_preferred_address(value: Any = None) -> str:
+    """Optional override. Empty means spend the listed Prediction Account."""
+    return normalize_evm_address(value)
+
+
+def short_wallet_label(address: str) -> str:
+    text = normalize_evm_address(address) or str(address or "").strip()
+    if not text:
+        return "My Wallet"
+    if len(text) > 12:
+        return f"{text[:6]}…{text[-4:]}"
+    return text
+
+
+def match_wallet_row(wallets: List[Dict[str, Any]], preferred: str) -> Optional[Dict[str, Any]]:
+    target = normalize_evm_address(preferred)
+    if not target:
+        return None
+    for row in wallets or []:
+        if same_address(wallet_address_of(row), target):
+            return row
+    return None
+
+
+def pick_tradable_wallet_row(wallets: List[Dict[str, Any]], preferred: str = "") -> Optional[Dict[str, Any]]:
+    """Spend the official Prediction Account from wallet/list.
+
+    If My Wallet is registered there, use it. Otherwise use the listed
+    Prediction Account Binance created for Predict.fun.
+    """
+    matched = match_wallet_row(wallets, preferred)
+    if matched and wallet_id_of(matched) and wallet_address_of(matched):
+        return matched
+    for row in wallets or []:
+        if wallet_id_of(row) and wallet_address_of(row):
+            return row
+    return None
+
+
+def spend_wallet_label(address: str, my_wallet: str = "") -> str:
+    if same_address(address, my_wallet):
+        return "My Wallet"
+    return "Prediction Account"
+
+
+def wallet_address_of(row: Dict[str, Any]) -> str:
+    for key in ("walletAddress", "address", "evmAddress", "wallet_address"):
+        address = normalize_evm_address(row.get(key))
+        if address:
+            return address
+    return ""
+
+
+def wallet_id_of(row: Dict[str, Any]) -> str:
+    return str(row.get("walletId") or row.get("id") or row.get("wallet_id") or "").strip()
+
+
+def wallets_from_payload(data: Any) -> List[Dict[str, Any]]:
+    """wallet/list may be {wallets:[...]} or wrapped in data."""
+    if isinstance(data, list):
+        return [row for row in data if isinstance(row, dict)]
+    if not isinstance(data, dict):
+        return []
+    for key in ("wallets", "items", "list"):
+        rows = data.get(key)
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+    nested = data.get("data")
+    if isinstance(nested, list):
+        return [row for row in nested if isinstance(row, dict)]
+    if isinstance(nested, dict):
+        return wallets_from_payload(nested)
+    return []
+
+
+def unwrap_prediction_payload(data: Any) -> Any:
+    if not isinstance(data, dict):
+        return data
+    inner = data.get("data")
+    if inner is None:
+        return data
+    if isinstance(inner, (dict, list)) and ("code" in data or "success" in data or "msg" in data or "message" in data):
+        return inner
+    return data
+
+
+def api_error_text(status: int, data: Any) -> str:
+    if isinstance(data, dict):
+        nested = data.get("data")
+        msg = data.get("msg") or data.get("message") or data.get("error")
+        if not msg and isinstance(nested, dict):
+            msg = nested.get("msg") or nested.get("message")
+        code = data.get("code")
+        if msg:
+            return f"HTTP {status} {code or ''} {msg}".strip()
+        return f"HTTP {status} {str(data)[:180]}"
+    return f"HTTP {status} {str(data)[:180]}"
+
+
+def quote_id_of(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("quoteId", "quote_id"):
+        value = payload.get(key)
+        if value not in (None, ""):
+            return str(value)
+    nested = payload.get("data")
+    if isinstance(nested, dict):
+        return quote_id_of(nested)
+    return ""
+
+
+def order_id_of(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("orderId", "order_id"):
+        value = payload.get(key)
+        if value not in (None, ""):
+            return str(value)
+    nested = payload.get("data")
+    if isinstance(nested, dict):
+        return order_id_of(nested)
+    return ""
+
+
+def human_share_amount(qty: float) -> str:
+    text = f"{float(qty):.8f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def sell_amount_candidates(qty: float) -> List[str]:
+    """SELL amountIn is shares. Human first — wei 3e18 is what Binance calls SYSTEM_ERROR."""
+    qty = float(qty or 0)
+    if qty <= 0:
+        return []
+    seen: set[str] = set()
+    out: List[str] = []
+    values = [qty, qty * SELL_FRACTION]
+    if qty >= 1 and abs(qty - round(qty)) < 1e-6:
+        values.append(float(int(round(qty))))
+    for value in values:
+        human = human_share_amount(value)
+        if human and human != "0" and human not in seen:
+            seen.add(human)
+            out.append(human)
+    wei = str(int(round(qty * USDT_WEI)))
+    if wei not in seen:
+        out.append(wei)
+    return out
+
+
+def shares_from_position_row(row: Any, fallback: float = 0.0) -> float:
+    if not isinstance(row, dict):
+        return float(fallback or 0)
+    for key in (
+        "availableAmount",
+        "availableShares",
+        "sellableAmount",
+        "holdAmount",
+        "tokenAmount",
+        "quantity",
+        "qty",
+        "shares",
+        "amount",
+        "balance",
+        "size",
+    ):
+        parsed = parse_usdt_amount(row.get(key))
+        if parsed and parsed > 0:
+            return parsed
+    nested = row.get("position") if isinstance(row.get("position"), dict) else None
+    if nested:
+        found = shares_from_position_row(nested, 0.0)
+        if found > 0:
+            return found
+    return float(fallback or 0)
+
+
+def mismatch_wallet_error(preferred: str, listed: List[str], extra: str = "") -> str:
+    others = [addr for addr in listed if addr and not same_address(addr, preferred)]
+    shown = ", ".join(short_wallet_label(addr) for addr in others) or "none"
+    pref = normalize_evm_address(preferred)
+    if pref:
+        text = (
+            f"Preferred wallet {pref} is not in Binance wallet/list (listed: {shown}). "
+            "Those listed addresses are Binance's Prediction Account, not Web3 My Wallet. "
+            "Leave the wallet field empty to spend the listed Prediction Account."
+        )
+    else:
+        text = (
+            f"No Prediction Account in Binance wallet/list (listed: {shown}). "
+            "Enable Prediction Trading on the API key and restrict it to this Mac's IP."
+        )
+    extra = (extra or "").strip()
+    return f"{text} {extra}".strip() if extra else text
+
+
+def encode_balance_of(address: str) -> str:
+    body = normalize_evm_address(address)[2:]
+    return "0x70a08231" + body.lower().rjust(64, "0")
+
+
+def decode_wei_to_usdt(hex_value: Any) -> float:
+    text = str(hex_value or "0x0").strip()
+    if text.startswith("0x"):
+        text = text[2:]
+    if not text:
+        return 0.0
+    try:
+        return int(text, 16) / float(USDT_WEI)
+    except ValueError:
+        return 0.0
+
+
+async def fetch_bsc_usdt(address: str) -> float:
+    """On-chain USDT on BNB Smart Chain — the same balance web3.binance.com/prediction shows."""
+    checksum = normalize_evm_address(address)
+    if not checksum:
+        return 0.0
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_call",
+        "params": [{"to": BSC_USDT, "data": encode_balance_of(checksum)}, "latest"],
+    }
+    timeout = aiohttp.ClientTimeout(total=8)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for rpc in BSC_RPCS:
+            try:
+                async with session.post(rpc, json=payload) as response:
+                    if response.status != 200:
+                        continue
+                    data = await response.json()
+                    if isinstance(data, dict) and data.get("result"):
+                        return decode_wei_to_usdt(data.get("result"))
+            except Exception as exc:
+                logger.warning(f"BSC USDT read failed via {rpc}: {exc}")
+    return 0.0
+
+
+def clamp_bet_amount(value: Any, default: float = MIN_BET_USDT) -> float:
+    """Wallet Prediction UI takes $1. Same floor for SIM and REAL."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = float(default)
+    if amount <= 0:
+        amount = float(default)
+    return min(max(amount, MIN_BET_USDT), MAX_BET_USDT)
+
+
+def clamp_bet_percent(value: Any, default: float = DEFAULT_BET_PERCENT) -> float:
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        percent = float(default)
+    if percent <= 0:
+        percent = float(default)
+    return min(max(percent, MIN_BET_PERCENT), MAX_BET_PERCENT)
+
+
+def clamp_daily_loss_pct(value: Any, default: float = DEFAULT_DAILY_LOSS_PCT) -> float:
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        percent = float(default)
+    if percent <= 0:
+        percent = float(default)
+    return min(max(percent, 5.0), 50.0)
+
+
+def resolve_stake(
+    capital: Any,
+    percent: Any = DEFAULT_BET_PERCENT,
+    fixed: Any = MIN_BET_USDT,
+    mode: Any = DEFAULT_STAKE_MODE,
+) -> Dict[str, Any]:
+    """Size a ticket as % of capital. Never more than 8%. Never below Wallet $1."""
+    try:
+        bank = float(capital or 0)
+    except (TypeError, ValueError):
+        bank = 0.0
+    kind = str(mode or DEFAULT_STAKE_MODE).strip().lower()
+    if kind not in ("percent", "fixed"):
+        kind = DEFAULT_STAKE_MODE
+    hard_cap = bank * (MAX_BET_PERCENT / 100.0) if bank > 0 else 0.0
+    if kind == "fixed":
+        amount = clamp_bet_amount(fixed)
+        if bank > 0 and amount > hard_cap + 1e-9:
+            need = MIN_BET_USDT / (MAX_BET_PERCENT / 100.0)
+            return {
+                "ok": False,
+                "amount": 0.0,
+                "mode": kind,
+                "reason": (
+                    f"${amount:.2f} is {amount / bank * 100:.0f}% of ${bank:.2f}. "
+                    f"Cap is {MAX_BET_PERCENT:.0f}%. Need ~${need:.0f} or pick a smaller Fixed."
+                ),
+            }
+        return {"ok": True, "amount": amount, "mode": kind, "reason": f"fixed ${amount:.2f}"}
+    pct = clamp_bet_percent(percent)
+    raw = bank * (pct / 100.0)
+    if raw + 1e-9 < MIN_BET_USDT:
+        need = MIN_BET_USDT / (pct / 100.0) if pct else 0
+        return {
+            "ok": False,
+            "amount": 0.0,
+            "mode": kind,
+            "reason": (
+                f"{pct:.0f}% of ${bank:.2f} is ${raw:.2f} < Wallet min ${MIN_BET_USDT:.2f}. "
+                f"Need ~${need:.0f} or switch to Fixed (that is a big slice of a small book)."
+            ),
+        }
+    amount = min(max(raw, MIN_BET_USDT), MAX_BET_USDT, hard_cap if hard_cap >= MIN_BET_USDT else MAX_BET_USDT)
+    amount = float(f"{amount:.2f}")
+    return {"ok": True, "amount": amount, "mode": kind, "reason": f"{pct:.0f}% of ${bank:.2f} = ${amount:.2f}"}
+
+
+def clamp_session_lock_usd(value: Any, default: float = DEFAULT_SESSION_LOCK_USD) -> float:
+    """0 turns the hard session target off."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = float(default)
+    if amount < 0:
+        amount = 0.0
+    return min(amount, MAX_SESSION_LOCK_USD)
+
+
+def clamp_session_trail_pct(value: Any, default: float = DEFAULT_SESSION_TRAIL_PCT) -> float:
+    """0 turns the trailing lock off. 40 means pause after giving back 40% of peak profit."""
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        percent = float(default)
+    if percent < 0:
+        percent = 0.0
+    return min(percent, MAX_SESSION_TRAIL_PCT)
+
+
+def clamp_harvest_min(value: Any, default: float = DEFAULT_HARVEST_MIN) -> float:
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = float(default)
+    if amount < 0:
+        amount = 0.0
+    return min(amount, MAX_HARVEST_MIN)
+
+
+def clamp_working_bankroll(value: Any, default: float = DEFAULT_WORKING_BANKROLL) -> float:
+    """0 means keep whatever was in the wallet at Start."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        amount = float(default)
+    if amount < 0:
+        amount = 0.0
+    return min(amount, MAX_WORKING_BANKROLL)
+
+
+def harvest_amount(
+    available: Any,
+    keep: Any,
+    open_value: Any = 0,
+    min_sweep: Any = DEFAULT_HARVEST_MIN,
+) -> float:
+    """USDT to send Prediction → Spot. 0 while a ticket is open or the extra is tiny."""
+    try:
+        cash = float(available or 0)
+    except (TypeError, ValueError):
+        cash = 0.0
+    try:
+        hold = float(keep or 0)
+    except (TypeError, ValueError):
+        hold = 0.0
+    try:
+        opened = float(open_value or 0)
+    except (TypeError, ValueError):
+        opened = 0.0
+    try:
+        floor = float(min_sweep if min_sweep is not None else DEFAULT_HARVEST_MIN)
+    except (TypeError, ValueError):
+        floor = DEFAULT_HARVEST_MIN
+    if floor < 0:
+        floor = 0.0
+    if opened > 0.01 or hold <= 1 or cash <= 0:
+        return 0.0
+    extra = cash - hold
+    if extra + 1e-9 < max(floor, 0.01):
+        return 0.0
+    return float(f"{extra:.2f}")
+
+
+def prediction_transfer_ok(status: int, data: Any) -> bool:
+    if int(status) != 200:
+        return False
+    if not isinstance(data, dict):
+        return True
+    if data.get("success") is False:
+        return False
+    code = data.get("code")
+    if code not in (None, "", 0, "0", "000000"):
+        try:
+            if int(code) != 0:
+                return False
+        except (TypeError, ValueError):
+            if not (data.get("transferId") or data.get("id") or data.get("txnId")):
+                return False
+    return True
+
+
+def session_lock_hit(
+    equity: Any,
+    start: Any,
+    peak: Any,
+    target_usd: Any = 0,
+    trail_pct: Any = DEFAULT_SESSION_TRAIL_PCT,
+) -> Tuple[bool, str]:
+    """Pause new bets when the session has earned enough, or given a chunk back.
+
+    This is not a Spot transfer. Open tickets still settle.
+    """
+    try:
+        bal = float(equity or 0)
+    except (TypeError, ValueError):
+        bal = 0.0
+    try:
+        basis = float(start or 0)
+    except (TypeError, ValueError):
+        basis = 0.0
+    try:
+        high = float(peak or 0)
+    except (TypeError, ValueError):
+        high = 0.0
+    if bal <= 0 or basis <= 1:
+        return False, ""
+    high = max(high, bal, basis)
+    pnl = bal - basis
+    peak_pnl = high - basis
+    target = clamp_session_lock_usd(target_usd, 0.0)
+    trail = clamp_session_trail_pct(trail_pct, 0.0)
+    if target > 0 and pnl + 1e-9 >= target:
+        return True, f"session +${pnl:.2f} hit the ${target:.2f} bank target"
+    if trail > 0 and peak_pnl + 1e-9 >= MIN_SESSION_PEAK_PNL:
+        giveback = high - bal
+        allowed = peak_pnl * trail / 100.0
+        if giveback + 1e-9 >= allowed:
+            return True, (
+                f"session gave back ${giveback:.2f} of +${peak_pnl:.2f} peak "
+                f"({trail:.0f}% trail)"
+            )
+    return False, ""
+
+
+def daily_loss_hit(
+    day_pnl: Any,
+    day_start: Any,
+    dollar_limit: Any = 0,
+    pct_limit: Any = DEFAULT_DAILY_LOSS_PCT,
+) -> Tuple[bool, str]:
+    try:
+        pnl = float(day_pnl or 0)
+    except (TypeError, ValueError):
+        pnl = 0.0
+    try:
+        start = float(day_start or 0)
+    except (TypeError, ValueError):
+        start = 0.0
+    try:
+        dollar = float(dollar_limit or 0)
+    except (TypeError, ValueError):
+        dollar = 0.0
+    pct = clamp_daily_loss_pct(pct_limit) if pct_limit not in (None, "") else 0.0
+    bits: List[str] = []
+    if dollar > 0 and pnl <= -dollar + 1e-9:
+        bits.append(f"daily ${pnl:.2f} hit the ${dollar:.2f} cap")
+    if pct > 0 and start > 0 and pnl <= -(start * pct / 100.0) + 1e-9:
+        bits.append(f"daily {pnl / start * 100:.0f}% hit the {pct:.0f}% stop")
+    if bits:
+        return True, " · ".join(bits)
+    return False, ""
+
+
+def clamp_peak_dd_pct(value: Any, default: float = DEFAULT_PEAK_DD_PCT) -> float:
+    try:
+        percent = float(value)
+    except (TypeError, ValueError):
+        percent = float(default)
+    if percent <= 0:
+        return 0.0
+    return min(max(percent, 5.0), 50.0)
+
+
+def marked_equity(live: Any, banked: Any = 0) -> float:
+    """Prediction cash plus Spot already harvested today. Harvest is not a drawdown."""
+    try:
+        bal = float(live or 0)
+    except (TypeError, ValueError):
+        bal = 0.0
+    try:
+        saved = float(banked or 0)
+    except (TypeError, ValueError):
+        saved = 0.0
+    return bal + saved
+
+
+def peak_drawdown_hit(
+    equity: Any,
+    peak: Any,
+    pct_limit: Any = DEFAULT_PEAK_DD_PCT,
+) -> Tuple[bool, str]:
+    """Pause when the book has given back `pct_limit` of today's high-water."""
+    try:
+        bal = float(equity or 0)
+    except (TypeError, ValueError):
+        bal = 0.0
+    try:
+        high = float(peak or 0)
+    except (TypeError, ValueError):
+        high = 0.0
+    pct = clamp_peak_dd_pct(pct_limit)
+    if pct <= 0 or high <= 1 or bal <= 0:
+        return False, ""
+    high = max(high, bal)
+    giveback = high - bal
+    allowed = high * pct / 100.0
+    if giveback + 1e-9 >= allowed:
+        return True, (
+            f"down {giveback / high * 100:.0f}% from today's ${high:.2f} peak "
+            f"({pct:.0f}% stop)"
+        )
+    return False, ""
+
+
+def normalize_share_price(value: Any, default: float = 0.5) -> float:
+    """Quote averagePrice may be 0-1, percent, or wei-scaled."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    if number > 1e6:
+        number = number / float(USDT_WEI)
+    if number > 1.0:
+        number = number / 100.0
+    if number <= 0:
+        return float(default)
+    return min(max(number, 0.01), 0.99)
+
+
+def looks_like_btc_price(value: Any) -> bool:
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return False
+    return BTC_PRICE_MIN <= price <= BTC_PRICE_MAX
+
+
+def parse_btc_price(raw: Any) -> float:
+    """Human BTC price, or Chainlink 8/18-decimal integers."""
+    if isinstance(raw, str):
+        raw = raw.replace(",", "").replace("$", "").strip()
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    if looks_like_btc_price(number):
+        return number
+    for div in (1e8, 1e10, 1e18):
+        scaled = number / div
+        if looks_like_btc_price(scaled):
+            return scaled
+    return 0.0
+
+
+def taker_fee(stake: float, share_price: float, fee_bps: int = DEFAULT_FEE_BPS) -> float:
+    price = normalize_share_price(share_price)
+    shares = float(stake) / price
+    return (fee_bps / 10000.0) * min(price, 1.0 - price) * shares
+
+
+def paper_fill(stake: float, share_price: float, fee_bps: int = DEFAULT_FEE_BPS) -> Dict[str, float]:
+    price = normalize_share_price(share_price)
+    fee = taker_fee(stake, price, fee_bps)
+    cost = float(stake) + fee
+    shares = float(stake) / price
+    return {
+        "share_price": price,
+        "shares": shares,
+        "fee": fee,
+        "cost": cost,
+        "win_pnl": shares - cost,
+        "lose_pnl": -cost,
+    }
+
+
+def fill_from_quote(
+    quote: Optional[Dict[str, Any]],
+    stake: float,
+    fallback_price: float,
+    fee_bps: int = DEFAULT_FEE_BPS,
+) -> Dict[str, float]:
+    quote = quote if isinstance(quote, dict) else {}
+    price = normalize_share_price(quote.get("averagePrice") or fallback_price, fallback_price)
+    raw_out = quote.get("amountOut") or quote.get("tokenAmount") or quote.get("shares")
+    try:
+        shares_out = float(raw_out)
+        if shares_out > 1e6:
+            shares_out = shares_out / float(USDT_WEI)
+        if shares_out > 0:
+            derived = float(stake) / shares_out
+            if 0.01 <= derived <= 0.99:
+                price = derived
+    except (TypeError, ValueError):
+        pass
+    return paper_fill(stake, price, fee_bps)
+
+
+def tradable_edge(
+    share_price: Any,
+    stake: float,
+    fee_bps: int = DEFAULT_FEE_BPS,
+) -> Dict[str, Any]:
+    """Skip 66¢+ favorites (win pennies / lose the stake) and 19¢ lotto tickets."""
+    price = normalize_share_price(share_price)
+    fill = paper_fill(stake, price, fee_bps)
+    in_band = MIN_SHARE_PRICE <= price <= MAX_SHARE_PRICE
+    enough_payout = fill["win_pnl"] >= float(stake) * MIN_WIN_PNL_RATIO
+    ok = in_band and enough_payout
+    reason = ""
+    if not ok:
+        reason = (
+            f"{price * 100:.0f}% pays ${fill['win_pnl']:.2f} "
+            f"on ${float(stake):.2f} — need 20–65%"
+        )
+    return {"ok": ok, "reason": reason, "share_price": price, **fill}
+
+
+def sell_proceeds(shares: float, mark: Any, fee_bps: int = DEFAULT_FEE_BPS) -> Tuple[float, float]:
+    """USDT back if we market-sell `shares` at `mark`."""
+    price = normalize_share_price(mark)
+    qty = float(shares or 0)
+    fee = (fee_bps / 10000.0) * price * qty
+    return qty * price - fee, fee
+
+
+def take_profit_ready(
+    entry: Any,
+    mark: Any,
+    shares: float,
+    cost: float,
+    seconds_left: float,
+    fee_bps: int = DEFAULT_FEE_BPS,
+    held_seconds: float = 0.0,
+) -> Tuple[bool, str, float]:
+    """Lock only a near-certain win. A +6¢ bounce after entry is not a win."""
+    if float(held_seconds or 0) < EXIT_MIN_HOLD_SECONDS:
+        return False, "hold after entry", 0.0
+    if float(seconds_left or 0) < TAKE_PROFIT_MIN_SECONDS:
+        return False, "too close to close", 0.0
+    entry_px = normalize_share_price(entry)
+    mark_px = normalize_share_price(mark)
+    if mark_px + 1e-9 < TAKE_PROFIT_MIN_MARK:
+        return False, f"mark {mark_px:.2f} holds under {TAKE_PROFIT_MIN_MARK:.2f}", 0.0
+    proceeds, _fee = sell_proceeds(shares, mark_px, fee_bps)
+    pnl = proceeds - float(cost or 0)
+    if pnl < TAKE_PROFIT_MIN_USD:
+        return False, f"take-profit ${pnl:.2f} < ${TAKE_PROFIT_MIN_USD:.2f}", pnl
+    return True, f"TAKE PROFIT +${pnl:.2f} @ {mark_px:.2f} (in {entry_px:.2f})", pnl
+
+
+def side_still_winning(signal: Any, live_price: Any, lock_price: Any) -> bool:
+    """True when BTC vs Binance lock still agrees with the open ticket."""
+    if not looks_like_btc_price(live_price) or not looks_like_btc_price(lock_price):
+        return False
+    live = float(live_price)
+    lock = float(lock_price)
+    side = str(signal or "").upper()
+    if side == "UP":
+        return live >= lock
+    if side == "DOWN":
+        return live <= lock
+    return False
+
+
+def cut_loss_ready(
+    entry: Any,
+    mark: Any,
+    shares: float,
+    cost: float,
+    seconds_left: float,
+    fee_bps: int = DEFAULT_FEE_BPS,
+    held_seconds: float = 0.0,
+    live_price: Any = None,
+    lock_price: Any = None,
+    signal: Any = None,
+) -> Tuple[bool, str, float]:
+    """Dump only a dead ticket. Never cut while BTC is still on our side of the lock."""
+    if side_still_winning(signal, live_price, lock_price):
+        return False, "btc still on side", 0.0
+    if float(held_seconds or 0) < EXIT_MIN_HOLD_SECONDS:
+        return False, "hold after entry", 0.0
+    if float(seconds_left or 0) < CUT_LOSS_MIN_SECONDS:
+        return False, "let it settle", 0.0
+    entry_px = normalize_share_price(entry)
+    mark_px = normalize_share_price(mark)
+    if mark_px > CUT_LOSS_MAX_MARK:
+        return False, "still in range", 0.0
+    proceeds, _fee = sell_proceeds(shares, mark_px, fee_bps)
+    pnl = proceeds - float(cost or 0)
+    full_loss = -float(cost or 0)
+    saved = pnl - full_loss
+    if saved < CUT_LOSS_MIN_SAVE:
+        return False, "cut saves too little", pnl
+    return True, f"CUT LOSS ${pnl:.2f} @ {mark_px:.2f} (in {entry_px:.2f})", pnl
+
+
+def live_equity_baseline(balance: float, pnl: float, max_equity: float) -> Optional[Tuple[float, float]]:
+    """Replace a $100 paper peak when the real wallet is much smaller."""
+    bal = float(balance or 0)
+    if bal <= 0 or not (float(max_equity or 0) >= 50 and bal < 40):
+        return None
+    peak = max(bal, bal - float(pnl or 0))
+    if peak <= 0:
+        return None
+    drawdown = max(0.0, (peak - bal) / peak * 100)
+    return peak, drawdown
+
+
+def settle_direction(open_price: float, close_price: float) -> str:
+    if close_price > open_price:
+        return "UP"
+    if close_price < open_price:
+        return "DOWN"
+    return "FLAT"
+
+
+def settle_payout(signal: str, open_price: float, close_price: float, shares: float, cost: float) -> tuple:
+    """Paper / SIM only. REAL must use Binance settled-history, not local BTC candles."""
+    actual = settle_direction(open_price, close_price)
+    if actual == "FLAT":
+        return actual, "PUSH", (float(shares) * 0.5) - float(cost)
+    if actual == str(signal).upper():
+        return actual, "WIN", float(shares) - float(cost)
+    return actual, "LOSS", -float(cost)
+
+
+def parse_usdt_amount(value: Any, default: Optional[float] = None) -> Optional[float]:
+    if value in (None, ""):
+        return default
+    text = str(value).strip().replace(",", "").replace("$", "")
+    try:
+        number = float(text)
+    except (TypeError, ValueError):
+        return default
+    if abs(number) > 1e6:
+        number = number / float(USDT_WEI)
+    return number
+
+
+def topic_timestamp_ms(value: Any) -> int:
+    """Binance sometimes sends seconds, sometimes ms. Always return ms."""
+    try:
+        raw = int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+    if raw <= 0:
+        return 0
+    if raw < 10_000_000_000:
+        return raw * 1000
+    return raw
+
+
+def topic_duration_minutes(topic: Dict[str, Any]) -> float:
+    start = topic_timestamp_ms(topic.get("startDate") or topic.get("beginDate") or topic.get("openDate") or 0)
+    end = topic_timestamp_ms(topic.get("endDate") or topic.get("closeDate") or 0)
+    if start and end and end > start:
+        return (end - start) / 60000.0
+    return 0.0
+
+
+def topic_id_of(topic: Dict[str, Any]) -> str:
+    return str(
+        topic.get("marketTopicId")
+        or topic.get("topicId")
+        or topic.get("id")
+        or ""
+    ).strip()
+
+
+def rows_from_position_payload(data: Any) -> List[Dict[str, Any]]:
+    data = unwrap_prediction_payload(data)
+    if isinstance(data, list):
+        return [row for row in data if isinstance(row, dict)]
+    if not isinstance(data, dict):
+        return []
+    for key in ("positions", "items", "list", "records"):
+        rows = data.get(key)
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+    nested = data.get("data")
+    if isinstance(nested, list):
+        return [row for row in nested if isinstance(row, dict)]
+    if isinstance(nested, dict):
+        return rows_from_position_payload(nested)
+    return []
+
+
+def position_matches(
+    row: Dict[str, Any],
+    topic_id: str = "",
+    token_id: str = "",
+    order_id: str = "",
+) -> bool:
+    if token_id and str(row.get("tokenI
