@@ -1,7 +1,7 @@
 [
   {
     "path": "web/static/app.js",
-    "sha256": "e20f5a390317b7d977bb6dd6b29b5632c6cacd434c981ea02fa638f8dd473daa",
+    "sha256": "58f7c15253ee9c0760c4830ed9809aedb19d55387d662434b54a5c1c70b52691",
     "parts": [
       "web__static__app.js.00.b64",
       "web__static__app.js.01.b64",
@@ -117,7 +117,7 @@
   },
   {
     "path": "web/templates/index.html",
-    "sha256": "7ebe4ea3c167c3b1f92d73448eff06c56ffd0e2ba68ab5a3f0b1d7447531a4f4",
+    "sha256": "0d11538aef8718e72e65f9b058c3685a4da078c5b11829723b67b3fa39cc46c8",
     "parts": [
       "web__templates__index.html.00.b64",
       "web__templates__index.html.01.b64",
@@ -163,7 +163,7 @@
   },
   {
     "path": "src/updater.py",
-    "sha256": "320da03c3d2cb7d3f36e52a522e90c149211d8af0c9b732431788cc32ba63326",
+    "sha256": "d998ffb73603b6a18b7788c0fb95c596e7e96034f3042471f5fc02304a6c1cd8",
     "parts": [
       "src__updater.py.00.b64",
       "src__updater.py.01.b64",
@@ -176,7 +176,29 @@
       "src__updater.py.08.b64",
       "src__updater.py.09.b64"
     ],
-    "size": 30789,
+    "size": 33710,
+    "encoding": "base64"
+  },
+  {
+    "path": "src/ship_inflate.py",
+    "sha256": "2a320e1d3e5dafaa361eb1d9faff2b013391c03ed39d8d9a52539e9d97d9647d",
+    "parts": [
+      "src__ship_inflate.py.00.b64",
+      "src__ship_inflate.py.01.b64"
+    ],
+    "size": 5943,
+    "encoding": "base64"
+  },
+  {
+    "path": "app_launcher.py",
+    "sha256": "9278cb7c3604b28372120836ac6e7db93ad8d2967ef2b9487f5549004c7cf368",
+    "parts": [
+      "app_launcher.py.00.b64",
+      "app_launcher.py.01.b64",
+      "app_launcher.py.02.b64",
+      "app_launcher.py.03.b64"
+    ],
+    "size": 13101,
     "encoding": "base64"
   }
 ]
