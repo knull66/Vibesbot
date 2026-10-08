@@ -8,9 +8,22 @@ ROOT = Path(__file__).resolve().parents[1]
 class NativePrefsTests(unittest.TestCase):
     def test_version_is_current(self):
         version = (ROOT / "VERSION").read_text().strip()
-        self.assertEqual(version, "1.51.1")
+        self.assertEqual(version, "1.51.5")
         app_js = (ROOT / "web" / "static" / "app.js").read_text()
-        self.assertIn("const APP_VERSION = '1.51.1'", app_js)
+        self.assertIn("const APP_VERSION = '1.51.5'", app_js)
+
+    def test_topbar_declutter(self):
+        html = (ROOT / "web" / "templates" / "index.html").read_text()
+        self.assertIn('id="trade-dock"', html)
+        self.assertIn('class="header-drag"', html)
+        self.assertNotIn('id="btn-settings"', html)
+        self.assertIn('id="user-chip"', html)
+        self.assertIn('id="stake-chips"', html)
+        self.assertIn('id="round-timer"', html)
+        # Round clock lives in the dock, not the crowded header
+        header = html.split('<header class="header">', 1)[1].split('</header>', 1)[0]
+        self.assertNotIn('id="round-timer"', header)
+        self.assertNotIn('id="stake-chips"', header)
 
     def test_settings_is_sidebar_prefs(self):
         html = (ROOT / "web" / "templates" / "index.html").read_text()
