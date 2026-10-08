@@ -39,14 +39,19 @@ def free_port():
         os.system("lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null | xargs kill -9 2>/dev/null")
 
 
-def start_server():
+def ensure_ship_files() -> None:
+    """Rebuild large files from .ship before importing the web app."""
     try:
         from src.ship_inflate import inflate_ship
-        restored = inflate_ship()
+        restored = inflate_ship(Path(SCRIPT_DIR))
         if restored:
             print("ship inflate restored:", ", ".join(restored))
     except Exception as e:
         print(f"ship inflate: {e}")
+
+
+def start_server():
+    ensure_ship_files()
     try:
         from src.updater import purge_retired_installs
         purge_retired_installs()
@@ -208,7 +213,9 @@ def main():
                 urllib.request.urlopen("http://127.0.0.1:8080", timeout=1)
                 timer.invalidate()
                 self.window.setTitle_("Vibesbot")
-                url = NSURL.URLWithString_("http://127.0.0.1:8080/login")
+                # Lobby first on the Mac; /login redirects to a broken stub index
+                # if ship inflate has not restored templates yet.
+                url = NSURL.URLWithString_("http://127.0.0.1:8080/static/lobby.html")
                 self.webView.loadRequest_(NSURLRequest.requestWithURL_(url))
             except Exception:
                 if self.attempts > 60:
@@ -241,6 +248,7 @@ def main():
 
 
 if __name__ == "__main__":
+    ensure_ship_files()
     free_port()
     time.sleep(0.2)
     main()
