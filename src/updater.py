@@ -1,1 +1,1 @@
-$file:/cursor/stores/bc-07f1fbde-9db1-4679-9391-20d661d3892d/UPD.py
+$file:/tmp/real_files/src/updater.py
