@@ -1,0 +1,166 @@
+         </div>
+                </div>
+
+                <div class="settings-panel" id="panel-account">
+                    <h3 class="pref-section">Profile</h3>
+                    <div class="profile-hero">
+                        <div class="user-avatar lg" id="profile-avatar">VB</div>
+                        <div>
+                            <div class="profile-name" id="profile-name">Guest</div>
+                            <p class="pref-foot" id="account-role" style="margin:0">Signed in</p>
+                        </div>
+                    </div>
+                    <div class="sim-stats">
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">Capital</div>
+                            <div class="sim-stat-value" id="profile-capital">$100.00</div>
+                        </div>
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">P&L</div>
+                            <div class="sim-stat-value" id="profile-pnl">$0.00</div>
+                        </div>
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">Trades</div>
+                            <div class="sim-stat-value" id="profile-trades">0</div>
+                        </div>
+                        <div class="sim-stat">
+                            <div class="sim-stat-label">Win rate</div>
+                            <div class="sim-stat-value" id="profile-winrate">0%</div>
+                        </div>
+                    </div>
+                    <h3 class="pref-section">Password</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <label for="current-password">Current</label>
+                            <input type="password" id="current-password">
+                        </div>
+                        <div class="pref-row">
+                            <label for="new-password">New</label>
+                            <input type="password" id="new-password" minlength="8">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="btn-change-password" type="button">Change password</button>
+                        <a class="btn btn-logout" id="btn-logout-settings" href="/static/lobby.html">Sign out</a>
+                    </div>
+                    <div class="update-status" id="password-status"></div>
+                </div>
+
+                <div class="settings-panel" id="panel-app">
+                    <h3 class="pref-section">Sound</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <label for="sound-enabled">Alerts</label>
+                            <input type="checkbox" id="sound-enabled" checked>
+                        </div>
+                        <div class="pref-row">
+                            <label for="sound-volume">Volume <span id="sound-volume-val">60%</span></label>
+                            <input type="range" id="sound-volume" min="0" max="100" value="60">
+                        </div>
+                    </div>
+                    <h3 class="pref-section">Updates</h3>
+                    <div class="pref-group">
+                        <div class="pref-row">
+                            <span class="pref-static-label">This Mac</span>
+                            <span class="sim-stat-value" id="current-version">v1.51.4</span>
+                        </div>
+                        <div class="pref-row">
+                            <span class="pref-static-label">Latest</span>
+                            <span class="sim-stat-value" id="latest-version">--</span>
+                        </div>
+                    </div>
+                    <p class="pref-foot">Checks GitHub (release + main) and Origin git. After Install: Dock → Quit, then open again.</p>
+                    <div class="form-actions">
+                        <button class="btn" id="btn-check-update" type="button">Check update</button>
+                        <button class="btn btn-primary" id="btn-install-update" type="button" disabled>Install</button>
+                    </div>
+                    <div class="update-status" id="update-status"></div>
+                    <h3 class="pref-section">Data</h3>
+                    <div class="form-actions">
+                        <button class="btn" id="btn-export-csv" type="button">Export CSV</button>
+                        <button class="btn" id="btn-export-json" type="button">Export JSON</button>
+                    </div>
+                    <div id="owner-account-tools" style="display:none;">
+                        <h3 class="pref-section">Sharing</h3>
+                        <div class="pref-group">
+                            <div class="pref-row">
+                                <label for="open-registration">Open registration</label>
+                                <input type="checkbox" id="open-registration">
+                            </div>
+                            <div class="pref-row">
+                                <label for="companion-enabled">Phone companion</label>
+                                <input type="checkbox" id="companion-enabled">
+                            </div>
+                        </div>
+                        <p class="pref-foot">Companion is LAN only. Same Wi-Fi as this Mac.</p>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" id="btn-create-invite" type="button">New invite</button>
+                        </div>
+                        <div id="invite-list" class="invite-list"></div>
+                        <div id="users-list" class="users-list"></div>
+                        <div id="companion-details" style="display:none;">
+                            <div class="pref-group">
+                                <div class="pref-row">
+                                    <span class="pref-static-label">Pairing code</span>
+                                    <span class="sim-stat-value" id="companion-pin">------</span>
+                                </div>
+                            </div>
+                            <p class="pref-foot" id="companion-urls">No LAN URL</p>
+                            <div class="form-actions">
+                                <button class="btn" id="btn-refresh-pin" type="button">New code</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="update-prompt">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content" style="max-width:380px;">
+            <div class="modal-header">
+                <span class="modal-title">Update available</span>
+            </div>
+            <div class="modal-body" style="padding:16px 20px 22px;">
+                <p class="settings-hint" style="margin-bottom:12px;">
+                    <span id="update-prompt-from">v1.51.4</span> → <span id="update-prompt-to" style="color:var(--accent)">—</span>
+                </p>
+                <p id="update-prompt-notes" class="settings-hint" style="margin-bottom:16px;"></p>
+                <div class="form-actions" style="justify-content:center;">
+                    <button class="btn" id="btn-update-later">Later</button>
+                    <button class="btn btn-primary" id="btn-update-now">Update</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Real Mode Warning Modal -->
+    <div class="modal" id="real-mode-modal">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content" style="max-width:360px;">
+            <div class="modal-header">
+                <span class="modal-title" style="color:var(--down);">Warning</span>
+            </div>
+            <div class="modal-body" style="padding:16px; text-align:center;">
+                <p style="color:var(--down); margin-bottom:12px;">
+                    Switching to <strong>WALLET REAL</strong>
+                </p>
+                <p style="color:var(--text-muted); font-size:10px; margin-bottom:16px;">
+                    Start spends the Binance Prediction Account (Portfolio → Transfer In / Predict.fun). Web3 My Wallet is not spent. Minimum $1.
+                </p>
+                <div class="form-actions" style="justify-content:center;">
+                    <button class="btn" id="btn-cancel-real">Cancel</button>
+                    <button class="btn btn-danger" id="btn-confirm-real">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PWA Install Button -->
+    <button id="pwa-install-btn">INSTALL APP</button>
+    
+    <script src="/static/app.js?v=1.51.7"></script>
+</body>
+</html>
