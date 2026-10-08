@@ -24,7 +24,9 @@
       "web__static__app.js.18.b64",
       "web__static__app.js.19.b64",
       "web__static__app.js.20.b64"
-    ]
+    ],
+    "size": 93238,
+    "encoding": "base64"
   },
   {
     "path": "src/wallet_prediction.py",
@@ -50,7 +52,9 @@
       "src__wallet_prediction.py.17.b64",
       "src__wallet_prediction.py.18.b64",
       "src__wallet_prediction.py.19.b64"
-    ]
+    ],
+    "size": 86890,
+    "encoding": "base64"
   },
   {
     "path": "src/web_server.py",
@@ -84,6 +88,46 @@
       "src__web_server.py.25.b64",
       "src__web_server.py.26.b64",
       "src__web_server.py.27.b64"
-    ]
+    ],
+    "size": 124580,
+    "encoding": "base64"
+  },
+  {
+    "path": "web/templates/index.html",
+    "sha256": "01995b4463d3a2a4a031a14a54f5ea3d526d1dc01c2b03f6a8665255331dbed8",
+    "parts": [
+      "web__templates__index.html.00.b64",
+      "web__templates__index.html.01.b64",
+      "web__templates__index.html.02.b64",
+      "web__templates__index.html.03.b64",
+      "web__templates__index.html.04.b64",
+      "web__templates__index.html.05.b64",
+      "web__templates__index.html.06.b64",
+      "web__templates__index.html.07.b64",
+      "web__templates__index.html.08.b64"
+    ],
+    "size": 38834,
+    "encoding": "base64"
+  },
+  {
+    "path": "web/static/styles.css",
+    "sha256": "e6504fc7d6bddd184ffaef2b38c3ce2fe19f05f175147135c9f2e03663bbd9ae",
+    "parts": [
+      "web__static__styles.css.00.b64",
+      "web__static__styles.css.01.b64",
+      "web__static__styles.css.02.b64",
+      "web__static__styles.css.03.b64",
+      "web__static__styles.css.04.b64",
+      "web__static__styles.css.05.b64",
+      "web__static__styles.css.06.b64",
+      "web__static__styles.css.07.b64",
+      "web__static__styles.css.08.b64",
+      "web__static__styles.css.09.b64",
+      "web__static__styles.css.10.b64",
+      "web__static__styles.css.11.b64",
+      "web__static__styles.css.12.b64"
+    ],
+    "size": 56673,
+    "encoding": "base64"
   }
 ]
