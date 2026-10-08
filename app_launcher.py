@@ -53,15 +53,37 @@ def free_port():
         os.system("lsof -nP -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null | xargs kill -9 2>/dev/null")
 
 
-def ensure_ship_files() -> None:
-    """Rebuild large files from .ship before importing the web app."""
+def ensure_ship_files(fetch: bool = False) -> None:
+    """Rebuild large files from .ship before importing the web app.
+
+    fetch=True also pulls missing/corrupt parts from GitHub so a half-applied
+    update (empty web_server.py) repairs itself on next launch.
+    """
     try:
-        from src.ship_inflate import inflate_ship
+        from src.ship_inflate import inflate_ship, verify_ship
         restored = inflate_ship(Path(SCRIPT_DIR))
         if restored:
             _log("ship inflate restored: " + ", ".join(restored))
+        problems = verify_ship(Path(SCRIPT_DIR))
+        if problems and fetch:
+            _log(f"ship verify: {problems}; fetching parts from GitHub")
+            restored = inflate_ship(Path(SCRIPT_DIR), fetch=True)
+            if restored:
+                _log("ship inflate (fetch) restored: " + ", ".join(restored))
+            problems = verify_ship(Path(SCRIPT_DIR))
+        if problems:
+            _log(f"ship verify still failing: {problems}")
     except Exception as e:
         _log(f"ship inflate: {e}")
+
+
+def _import_dashboard():
+    import importlib
+    for name in list(sys.modules):
+        if name == "src.web_server" or name.startswith("src.web_server."):
+            del sys.modules[name]
+    module = importlib.import_module("src.web_server")
+    return getattr(module, "run_dashboard")
 
 
 def start_server():
@@ -72,9 +94,22 @@ def start_server():
         purge_retired_installs()
     except Exception as e:
         _log(f"purge skipped: {e}")
+    run_dashboard = None
+    for attempt in (1, 2):
+        try:
+            _log("importing web_server...")
+            run_dashboard = _import_dashboard()
+            break
+        except Exception as e:
+            _SERVER_ERROR = f"{type(e).__name__}: {e}"
+            _log(f"Server import error (attempt {attempt}): {_SERVER_ERROR}")
+            if attempt == 1:
+                _log("self-heal: refetching .ship parts from GitHub")
+                ensure_ship_files(fetch=True)
+            else:
+                _log(traceback.format_exc())
+                return
     try:
-        _log("importing web_server...")
-        from src.web_server import run_dashboard
         _log("starting dashboard on :8080")
         run_dashboard(port=8080)
     except Exception as e:
@@ -88,12 +123,32 @@ def main():
     from Foundation import NSObject, NSURL, NSURLRequest, NSMakeRect, NSTimer
     from AppKit import (
         NSAppearance, NSApplication, NSWindow, NSApp, NSMenu, NSMenuItem,
+        NSImage,
         NSWindowStyleMaskTitled, NSWindowStyleMaskClosable,
         NSWindowStyleMaskMiniaturizable, NSWindowStyleMaskResizable,
         NSWindowStyleMaskFullSizeContentView, NSWindowTitleHidden,
         NSBackingStoreBuffered, NSApplicationActivationPolicyRegular,
     )
     from WebKit import WKWebView, WKWebViewConfiguration
+
+    def apply_dock_icon():
+        """So Dock shows Vibesbot, not the generic Python rocket."""
+        candidates = [
+            Path(SCRIPT_DIR) / "assets" / "icon.png",
+            Path(SCRIPT_DIR) / "Contents" / "Resources" / "AppIcon.icns",
+            Path(SCRIPT_DIR) / "Contents" / "Resources" / "AppIcon.png",
+        ]
+        for icon_path in candidates:
+            if not icon_path.is_file():
+                continue
+            try:
+                img = NSImage.alloc().initWithContentsOfFile_(str(icon_path))
+                if img is not None:
+                    NSApp.setApplicationIconImage_(img)
+                    _log(f"dock icon: {icon_path.name}")
+                    return
+            except Exception as e:
+                _log(f"dock icon skip {icon_path.name}: {e}")
 
     NATIVE_JS = """
     (function(){
@@ -118,6 +173,7 @@ def main():
 
         def applicationDidFinishLaunching_(self, notification):
             self.attempts = 0
+            apply_dock_icon()
             self.installMenu()
             self.createWindow()
             self.timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
