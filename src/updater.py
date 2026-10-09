@@ -92,4 +92,22 @@ def known_install_roots(primary: Optional[Path] = None) -> List[Path]:
         key = str(path).lower()
         if key in seen or not path.is_dir():
             continue
-        if not (path / "src").is_dir() and not (path / "run_bot.py").
+        if not (path / "src").is_dir() and not (path / "run_bot.py").is_file():
+            continue
+        seen.add(key)
+        roots.append(path)
+    return roots
+
+
+def purge_retired_from(root: Path) -> int:
+    """Delete Playwright clicker leftovers and unused deploy files under root."""
+    root = Path(root)
+    if not root.is_dir():
+        return 0
+    removed = 0
+    for rel in RETIRED_CLICKER_FILES:
+        path = root / rel
+        if path.exists() and _remove_path(path):
+            removed += 1
+    for dir_name in RETIRED_DIR_NAMES:
+        path = ro
