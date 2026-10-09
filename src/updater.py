@@ -691,4 +691,97 @@ class Updater:
                 self._restore_critical(backup_dir)
                 self.last_error = "Archivos incompletos (" + ", ".join(
                     f"{k}: {v}" for k, v in problems.items()
-              
+                ) + "). Se restauró la versión anterior."
+                shutil.rmtree(zip_path.parent, ignore_errors=True)
+                return False
+
+            self._purge_retired_clicker()
+            self._save_version(new_version)
+            shutil.rmtree(zip_path.parent, ignore_errors=True)
+            logger.info(f"Update applied: {new_version}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error applying update: {e}")
+            self.last_error = str(e)
+            return False
+
+    # Files that the overlay + ship pipeline must leave importable.
+    CRITICAL_PATHS = (
+        "VERSION",
+        "app_launcher.py",
+        "src/ship_inflate.py",
+        "src/updater.py",
+        "src/web_server.py",
+        "src/wallet_prediction.py",
+        "web/static/app.js",
+        "web/static/styles.css",
+        "web/templates/index.html",
+        ".ship/manifest.json",
+    )
+
+    def _backup_critical(self, backup_dir: Path) -> Path:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        for rel in self.CRITICAL_PATHS:
+            src = self.app_path / rel
+            if src.is_file():
+                dest = backup_dir / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.copy2(src, dest)
+                except OSError as exc:
+                    logger.warning(f"backup {rel} failed: {exc}")
+        return backup_dir
+
+    def _restore_critical(self, backup_dir: Path) -> None:
+        for rel in self.CRITICAL_PATHS:
+            src = backup_dir / rel
+            if src.is_file():
+                dest = self.app_path / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.copy2(src, dest)
+                except OSError as exc:
+                    logger.warning(f"restore {rel} failed: {exc}")
+
+    def _heal_ship(self) -> Dict[str, str]:
+        """Inflate .ship (fetching parts from GitHub if needed) and verify."""
+        try:
+            from .ship_inflate import inflate_ship, verify_ship
+        except Exception as exc:
+            return {"src/ship_inflate.py": f"import failed: {exc}"}
+        try:
+            restored = inflate_ship(self.app_path)
+            if restored:
+                logger.info(f"Ship inflate restored: {', '.join(restored)}")
+            problems = verify_ship(self.app_path)
+            if problems:
+                logger.warning(f"Ship verify after local inflate: {problems}; fetching parts")
+                restored = inflate_ship(self.app_path, fetch=True)
+                if restored:
+                    logger.info(f"Ship inflate (fetch) restored: {', '.join(restored)}")
+                problems = verify_ship(self.app_path)
+            return problems
+        except Exception as exc:
+            logger.warning(f"Ship heal failed: {exc}")
+            return {".ship": str(exc)}
+    
+    async def update(
+        self,
+        progress_callback=None,
+        force: bool = False,
+        client_version: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """
+        Full update. force/client_version reinstall when VERSION is ahead of the UI.
+        """
+        if progress_callback:
+            progress_callback(5)
+
+        update_info = await self.check_for_updates()
+
+        client_v = (client_version or "").strip().lstrip("vV")
+        client_behind = bool(
+            client_v
+            and update_info.latest_version
+            and pa
