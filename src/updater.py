@@ -147,4 +147,79 @@ def purge_retired_installs(app_path: Optional[Path] = None, extra_roots: Optiona
                 roots.append(path)
     removed = 0
     for root in roots:
-        removed += purge_re
+        removed += purge_retired_from(root)
+    if removed:
+        logger.info(f"Purged {removed} leftover Playwright/clicker files")
+    return removed
+
+
+@dataclass
+class UpdateCandidate:
+    version: str
+    download_url: str
+    source: str
+    notes: str = ""
+
+
+@dataclass
+class UpdateInfo:
+    """Información sobre una actualización disponible."""
+    available: bool
+    current_version: str
+    latest_version: str
+    download_url: Optional[str] = None
+    release_notes: Optional[str] = None
+    published_at: Optional[str] = None
+    source: str = ""
+
+
+def parse_version(value: str) -> Tuple[int, int, int]:
+    raw = (value or "").strip().lstrip("vV")
+    parts = []
+    for chunk in raw.split("."):
+        digits = "".join(ch for ch in chunk if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    while len(parts) < 3:
+        parts.append(0)
+    return (parts[0], parts[1], parts[2])
+
+
+def source_label(source: str) -> str:
+    kind = str(source or "").lower()
+    if kind.startswith("origin") or "cursor.com" in kind:
+        return "Origin"
+    if kind.startswith("github"):
+        return "GitHub"
+    return (source or "update").strip() or "update"
+
+
+def pick_newest(candidates: Iterable[UpdateCandidate]) -> Optional[UpdateCandidate]:
+    best: Optional[UpdateCandidate] = None
+    for item in candidates:
+        if not item or not str(item.version or "").strip():
+            continue
+        if best is None or parse_version(item.version) > parse_version(best.version):
+            best = item
+    return best
+
+
+def redact_git_url(url: str) -> str:
+    text = str(url or "")
+    if "@" in text and "://" in text:
+        scheme, rest = text.split("://", 1)
+        rest = rest.split("@", 1)[-1]
+        return f"{scheme}://{rest}"
+    return text
+
+
+def _git_env() -> dict:
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    ask = env.get("GIT_ASKPASS") or ""
+    if ask and not Path(ask).exists():
+        env.pop("GIT_ASKPASS", None)
+    return env
+
+
+class Updater:
+  
