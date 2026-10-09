@@ -1,7 +1,7 @@
 [
   {
     "path": "web/static/app.js",
-    "sha256": "99daf8196bfb3d7847a94216353abd4a72e08167110c0abbfb46eb89f1a197bb",
+    "sha256": "4b7b3b1786ba4500adcb86a5a118dddef56b78b37224bbe001de907b71b84a8a",
     "parts": [
       "web__static__app.js.00.b64",
       "web__static__app.js.01.b64",
@@ -38,7 +38,7 @@
   },
   {
     "path": "src/wallet_prediction.py",
-    "sha256": "a0b01efe087b2fa7552bb7f7c46f259bf4c32adc9a9ec9332ba27def84b0f472",
+    "sha256": "f5f20da9e0746f166163a3322f5cf2434f3e96490bb5f14806c26ef4f908bf9c",
     "parts": [
       "src__wallet_prediction.py.00.b64",
       "src__wallet_prediction.py.01.b64",
@@ -68,12 +68,12 @@
       "src__wallet_prediction.py.25.b64",
       "src__wallet_prediction.py.26.b64"
     ],
-    "size": 90833,
+    "size": 90992,
     "encoding": "base64"
   },
   {
     "path": "src/web_server.py",
-    "sha256": "0cb3c0ab7e3240e03dfcfd9cc86cf93faaca36b6c1fcae0cb4e50d6825e43505",
+    "sha256": "9af31331725f93fe892615191afa64f176006bc09a4cb01a02e0e5ed20231610",
     "parts": [
       "src__web_server.py.00.b64",
       "src__web_server.py.01.b64",
@@ -115,12 +115,12 @@
       "src__web_server.py.37.b64",
       "src__web_server.py.38.b64"
     ],
-    "size": 130628,
+    "size": 131003,
     "encoding": "base64"
   },
   {
     "path": "web/templates/index.html",
-    "sha256": "cb551f79fbe2291640f26fe4cadfb3c71a1cb6b5c3e94223a0443d6aabec3491",
+    "sha256": "e3b9d3e8fd8676b429b3770753c48f23894cc693747997f4342ec0cf8a5d4f9d",
     "parts": [
       "web__templates__index.html.00.b64",
       "web__templates__index.html.01.b64",
