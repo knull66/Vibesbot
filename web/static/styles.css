@@ -15,4 +15,172 @@
 
     --accent: #ececec;
     --accent-bright: #ffffff;
-    --accent-di
+    --accent-dim: rgba(255, 255, 255, 0.06);
+    --accent-glow: transparent;
+    --accent-stroke: #2a2a2a;
+    --system-blue: #0a84ff;
+
+    --up: #3dd68c;
+    --up-dim: rgba(61, 214, 140, 0.10);
+    --up-glow: transparent;
+
+    --down: #f07187;
+    --down-dim: rgba(240, 113, 135, 0.10);
+    --down-glow: transparent;
+
+    --warning: #d6c27a;
+    --warning-dim: rgba(214, 194, 122, 0.10);
+
+    --text: #f2f2f2;
+    --text-dim: #9a9a9a;
+    --text-muted: #6d6d6d;
+
+    --radius-xl: 12px;
+    --radius-lg: 10px;
+    --radius-md: 8px;
+    --radius-sm: 6px;
+    --radius-pill: 6px;
+
+    --blur: none;
+    --shadow: none;
+    --inset: none;
+
+    --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+    /* legacy aliases used by inline HTML */
+    --bg-dark: var(--bg);
+    --bg-main: var(--bg-elevated);
+    --bg-card: var(--glass-strong);
+    --bg-panel: var(--glass);
+    --bg-hover: rgba(255, 255, 255, 0.06);
+    --border: var(--stroke);
+    --border-glow: var(--stroke-strong);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+body {
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 450;
+    letter-spacing: 0.01em;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+.brand-name,
+.panel-title,
+.tab,
+.settings-tab,
+.login-tab,
+.mobile-nav-btn,
+.modal-title,
+.status-label,
+.main-stat-label,
+.stat-label,
+.price-label,
+.form-group label,
+.lobby-kicker {
+    font-family: var(--font);
+    font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   APP LAYOUT
+   ═══════════════════════════════════════════════════════════ */
+
+.app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    max-width: 100%;
+    overflow: hidden;
+    background: var(--bg);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HEADER
+   ═══════════════════════════════════════════════════════════ */
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 14px;
+    margin: 0;
+    min-height: 48px;
+    background: #141414;
+    border: none;
+    border-bottom: 1px solid var(--stroke);
+    border-radius: 0;
+    box-shadow: none;
+    flex-shrink: 0;
+}
+
+.header-drag {
+    flex: 1 1 auto;
+    min-width: 28px;
+    align-self: stretch;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-icon {
+    width: 36px;
+    height: 36px;
+    background: #161616;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid var(--stroke);
+    box-shadow: none;
+    position: relative;
+}
+
+.brand-icon::before { content: none; }
+
+.brand-icon .eye {
+    width: 9px;
+    height: 3px;
+    border-radius: 99px;
+    background: var(--text);
+    box-shadow: none;
+    animation: blink 4.5s infinite;
+}
+
+@keyframes blink {
+    0%, 92%, 100% { opacity: 1; transform: scaleY(1); }
+    95% { opacity: 0.25; transform: scaleY(0.15); }
+}
+
+.brand-name {
+    font-family: var(--font);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: 0.14em;
+}
+
+.brand-tag {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase
