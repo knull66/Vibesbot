@@ -1,0 +1,24 @@
+"""
+Sistema de auto-actualización para Vibesbot.
+
+Checks GitHub (release + main VERSION) and Origin git remotes, then
+overlays the newest zip.
+"""
+import asyncio
+import aiohttp
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import zipfile
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Tuple
+
+from .utils.logger import get_logger
+
+logger = ge
