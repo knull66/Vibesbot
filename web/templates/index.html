@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VIBESBOT</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="description" content="Automated Trading Bot for Binance Prediction">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Vibesbot">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="Vibesbot">
+    <meta name="msapplication-TileColor" content="#050508">
+    <meta name="msapplication-TileImage" content="/static/icons/icon-144.png">
+    
+    <!-- PWA Links -->
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/static/icons/icon-152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
+    
+    <link rel="stylesheet" href="/static/styles.css?v=1.52.0">
+</head>
+<body class="auth-wait" data-view="signal">
+    <div class="restart-banner" id="restart-banner">
+        <div class="restart-card">
+            <h2>Update installed</h2>
+            <p>The app is restarting now. If it does not, Dock → Vibesbot → Quit, then open it again.</p>
+        </div>
+    </div>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="brand">
+                <div class="brand-icon">
+                    <div class="eye"></div>
+                    <div class="eye"></div>
+                </div>
+                <span class="brand-name">VIBESBOT</span>
+                <span class="brand-tag" id="brand-tag">Prediction</span>
+            </div>
+
+            <div class="status-bar">
+                <div class="status-item">
+                    <div class="status-dot" id="status-dot"></div>
+                    <span class="status-label">DATA</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">BTC/USDT</span>
+                    <span class="status-value price" id="current-price">--</span>
+                </div>
+                <div class="status-item" title="Time since Start">
+                    <span class="status-label">SESSION</span>
+                    <span class="status-value timer session" id="session-timer">00:00</span>
+                </div>
+            </div>
+
+            <div class="header-drag" aria-hidden="true"></div>
+
+            <div class="controls">
+                <div class="mode-switch">
+                    <span class="mode-indicator sim" id="mode-label">SIM</span>
+                    <div class="mode-toggle simulation" id="mode-toggle" title="Toggle SIM/REAL"></div>
+                </div>
+                <label class="stake-control" title="Percent of the live book, or a fixed USDT size">
+                    <span class="stake-label">STAKE</span>
+                    <select id="header-stake-mode" aria-label="Stake mode">
+                        <option value="percent">%</option>
+                        <option value="fixed">$</option>
+                    </select>
+                    <input id="header-stake-value" type="text" inputmode="decimal" value="3" autocomplete="off" spellcheck="false">
+                </label>
+                <button class="btn btn-start" id="btn-start">Start</button>
+                <button class="btn btn-pause" id="btn-pause" disabled>Pause</button>
+                <button class="btn btn-stop" id="btn-stop" disabled>Stop</button>
+                <button class="btn btn-icon" id="btn-refresh" title="Refresh">↻</button>
+                <button class="btn btn-icon" id="btn-sound" title="Sound on" aria-pressed="true">
+                    <span id="sound-icon">♪</span>
+                </button>
+                <button class="user-chip" type="button" id="user-chip" title="Settings">
+                    <span class="user-avatar" id="user-avatar">VB</span>
+                    <span class="user-meta">
+                        <span class="user-name" id="user-name">Guest</span>
+                        <span class="user-role" id="user-role-chip">Account</span>
+                    </span>
+                </button>
+                <a class="btn btn-logout" id="btn-logout" href="/static/lobby.html" title="Sign out">Out</a>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Left Panel - Signal & Price -->
+            <div class="panel panel-signal" data-view="signal">
+                <div class="panel-header">
+                    <span class="panel-icon">◉</span>
+                    <span class="panel-title">Signal</span>
+                </div>
+                <div class="panel-body">
+                    <!-- Signal Display -->
+                    <div class="signal-display">
+                        <div class="signal-direction wait" id="signal-display">
+                            <span class="signal-arrow">—</span>
+                            <span class="signal-text">WAITING</span>
+                        </div>
+                        <div class="signal-confidence">
+                            <div class="confidence-bar">
+                                <div class="confidence-fill" id="confidence-fill" style="width: 0%"></div>
+                            </div>
+                            <div class="confidence-value" id="confidence-value">0%</div>
+                        </div>
+                        <p class="round-plan" id="round-plan">Buys the move. Holds to Binance. Sells only a 90¢ lock or a 12¢ dump.</p>
+                    </div>
+
+                    <div class="prob-row">
+                        <div class="prob-item">
+                            <div class="prob-label">UP</div>
+                            <div class="prob-value up" id="prob-up">50.0%</div>
+                            <div class="prob-label" id="prob-up-odds">2.00x</div>
+                        </div>
+                        <div class="prob-item">
+                            <div class="prob-label">DOWN</div>
+                            <div class="prob-value down" id="prob-down">50.0%</div>
+                            <div class="prob-label" id="prob-down-odds">2.00x</div>
+                        </div>
+                    </div>
+
+                    <!-- Price to Beat Section (like Binance) -->
+                    <div class="price-target-section">
+                        <div class="price-beat">
+                            <span class="price-label">PRICE TO BEAT</span>
+                            <span class="price-value target" id="price-to-beat">$--</span>
+                            <span class="price-label" id="price-to-beat-source">Waiting for lock</span>
+                        </div>
+                        <div class="price-current-box">
+                            <span class="price-label">CURRENT PRICE</span>
+                            <span class="price-value live" id="live-price">$--</span>
+                            <span class="price-diff" id="price-diff">--</span>
+                        </div>
+                    </div>
+
+                    <!-- Mini Chart -->
+                    <div class="mini-chart-container">
+                        <canvas id="mini-chart"></canvas>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div class="features-list">
+                        <div class="feature-row">
+                            <span class="feature-label">RSI(14)</span>
+                            <span class="feature-
