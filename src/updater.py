@@ -110,4 +110,41 @@ def purge_retired_from(root: Path) -> int:
         if path.exists() and _remove_path(path):
             removed += 1
     for dir_name in RETIRED_DIR_NAMES:
-        path = ro
+        path = root / dir_name
+        if path.exists() and _remove_path(path):
+            removed += 1
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [name for name in dirnames if name not in _SKIP_WALK_DIRS]
+        here = Path(dirpath)
+        if here.name == "__pycache__":
+            for name in filenames:
+                if name.split(".")[0] in RETIRED_CLICKER_PYC_PREFIXES:
+                    if _remove_path(here / name):
+                        removed += 1
+            continue
+        for name in list(dirnames):
+            if "playwright" in name.lower():
+                if _remove_path(here / name):
+                    removed += 1
+                dirnames.remove(name)
+        for name in filenames:
+            lowered = name.lower()
+            if name in _KEEP_PLAYWRIGHT_NAMES:
+                continue
+            if name in ("run_bot.py", "browser_execution.py") or "playwright" in lowered:
+                if _remove_path(here / name):
+                    removed += 1
+    return removed
+
+
+def purge_retired_installs(app_path: Optional[Path] = None, extra_roots: Optional[Iterable[Path]] = None) -> int:
+    """Clean every known Vibesbot folder, including Downloads leftovers."""
+    roots = known_install_roots(app_path)
+    if extra_roots:
+        for item in extra_roots:
+            path = Path(item)
+            if path.is_dir() and path not in roots:
+                roots.append(path)
+    removed = 0
+    for root in roots:
+        removed += purge_re
