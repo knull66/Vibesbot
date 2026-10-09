@@ -410,4 +410,145 @@ class Updater:
                 seen.add(key)
                 found.append(UpdateCandidate(
                     version=version,
-                    
+                    download_url=f"{GIT_SCHEME}{name}:{ref}",
+                    source=f"{kind}-{ref}",
+                    notes=f"{source_label(kind)} {ref} v{version}",
+                ))
+                logger.info(f"{kind} {ref} VERSION {version}")
+        return found
+
+    def _git_root(self) -> Optional[Path]:
+        root = Path(self.app_path)
+        if (root / ".git").exists() or (root / ".git").is_file():
+            return root
+        return None
+
+    def _git_remotes(self) -> Dict[str, str]:
+        root = self._git_root()
+        if not root:
+            return {}
+        try:
+            out = subprocess.check_output(
+                ["git", "-C", str(root), "remote", "-v"],
+                timeout=8,
+                env=_git_env(),
+                stderr=subprocess.DEVNULL,
+            ).decode()
+        except Exception:
+            return {}
+        remotes: Dict[str, str] = {}
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            remotes[parts[0]] = parts[1]
+        return remotes
+
+    def _git_refs_to_check(self) -> List[str]:
+        refs = ["main"]
+        root = self._git_root()
+        if not root:
+            return refs
+        try:
+            branch = subprocess.check_output(
+                ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+                timeout=8,
+                env=_git_env(),
+                stderr=subprocess.DEVNULL,
+            ).decode().strip()
+        except Exception:
+            branch = ""
+        if branch and branch not in ("HEAD", "main") and branch not in refs:
+            refs.append(branch)
+        return refs
+
+    def _git_file_version(self, remote: str, ref: str) -> str:
+        root = self._git_root()
+        if not root:
+            return ""
+        spec = f"{remote}/{ref}:{VERSION_FILE}"
+        version = self._git_show(root, spec)
+        if version:
+            return version
+        try:
+            subprocess.run(
+                ["git", "-C", str(root), "fetch", "--depth=1", remote, ref],
+                timeout=20,
+                env=_git_env(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except Exception as exc:
+            logger.warning(f"git fetch {remote} {ref} failed: {exc}")
+            return ""
+        return self._git_show(root, spec) or self._git_show(root, f"FETCH_HEAD:{VERSION_FILE}")
+
+    def _git_show(self, root: Path, spec: str) -> str:
+        try:
+            out = subprocess.check_output(
+                ["git", "-C", str(root), "show", spec],
+                timeout=10,
+                env=_git_env(),
+                stderr=subprocess.DEVNULL,
+            ).decode().strip().lstrip("vV")
+            if out and "\n" not in out and len(out) < 32:
+                return out
+        except Exception:
+            return ""
+        return ""
+
+    def _archive_git_ref(self, remote: str, ref: str) -> Optional[Path]:
+        root = self._git_root()
+        if not root:
+            return None
+        if not self._git_show(root, f"{remote}/{ref}:{VERSION_FILE}"):
+            try:
+                subprocess.run(
+                    ["git", "-C", str(root), "fetch", "--depth=1", remote, ref],
+                    timeout=20,
+                    env=_git_env(),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except Exception:
+                return None
+        temp_dir = Path(tempfile.mkdtemp())
+        zip_path = temp_dir / "update.zip"
+        spec = f"{remote}/{ref}"
+        try:
+            subprocess.check_call(
+                [
+                    "git", "-C", str(root), "archive",
+                    "--format=zip", f"--prefix=Vibesbot/",
+                    "-o", str(zip_path), spec,
+                ],
+                timeout=30,
+                env=_git_env(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            try:
+                subprocess.check_call(
+                    [
+                        "git", "-C", str(root), "archive",
+                        "--format=zip", f"--prefix=Vibesbot/",
+                        "-o", str(zip_path), "FETCH_HEAD",
+                    ],
+                    timeout=30,
+                    env=_git_env(),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception as exc:
+                logger.error(f"git archive {spec} failed: {exc}")
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return None
+        if zip_path.exists() and zip_path.stat().st_size > 1000:
+            return zip_path
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return None
+
+    async def download_update(self, url: str, progr
