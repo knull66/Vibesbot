@@ -249,4 +249,30 @@ class Updater:
                 return path
         return running
 
-    d
+    def _read_version_file(self) -> str:
+        if self.version_file.exists():
+            return self.version_file.read_text().strip().lstrip("vV")
+        return CURRENT_VERSION
+
+    def _read_js_app_version(self) -> Optional[str]:
+        """APP_VERSION in web/static/app.js — can lag VERSION after partial updates."""
+        app_js = self.app_path / "web" / "static" / "app.js"
+        if not app_js.is_file():
+            return None
+        try:
+            text = app_js.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        match = re.search(
+            r"const\s+APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]",
+            text,
+        )
+        if not match:
+            return None
+        return match.group(1).strip().lstrip("vV")
+
+    def _get_current_version(self) -> str:
+        """Effective install version: older of VERSION file and APP_VERSION in JS."""
+        file_v = self._read_version_file()
+        js_v = self._read_js_app_version()
+ 
