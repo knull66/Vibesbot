@@ -168,4 +168,66 @@ class ClientSession:
     harvest_at: float = 0.0
     harvest_block_until: float = 0.0
 
+    def session_elapsed_seconds(self) -> float:
+        extra = 0.0
+        tick = float(self.session_tick_at or 0)
+        if self.running and not self.paused and tick:
+            extra = max(0.0, time.time() - tick)
+        return float(self.session_elapsed or 0) + extra
+
+    def session_clock_payload(self) -> Dict[str, Any]:
+        return {
+            "session_elapsed": round(self.session_elapsed_seconds(), 1),
+            "session_running": bool(self.running and not self.paused),
+            "session_started_at": self.session_started_at or "",
+            "wallet_start": 0.0 if self.simulation else float(self.wallet_start or 0),
+        }
+    
+    def reset(self, capital: float = 100.0):
+        self.wins = 0
+        self.losses = 0
+        self.cumulative_pnl = 0.0
+        self.trades = []
+        self.equity_history = [capital]
+        self.streak = 0
+        self.best_streak = 0
+        self.worst_streak = 0
+        self.max_equity = capital
+        self.max_drawdown = 0.0
+        self.initial_capital = capital
+        self.pending_trade = None
+    
+    def status_payload(self, model_loaded: bool = False) -> dict:
+        return {
+            "type": "status",
+            "running": self.running,
+            "paused": self.paused,
+            "model_loaded": True,
+            "signal_engine": "indicators+tape",
+            "session_id": self.session_id,
+            "simulation": self.simulation,
+            **self.session_clock_payload(),
+        }
+    
+    def stats_payload(self) -> dict:
+        total = self.wins + self.losses
+        winrate = (self.wins / max(1, total)) * 100
+        kelly_pct = 0.0
+        if total >= 5:
+            p = self.wins / total
+            kelly_pct = max(0, min(100, ((p * 0.95 - (1 - p)) / 0.95) * 100))
+        profit_factor = (self.wins * 0.95) / max(0.01, self.losses * 1.0)
+        try:
+            from .user_settings import get_settings_manager
+            trading = get_settings_manager().settings.trading
+            if str(getattr(trading, "stake_mode", "percent")) == "fixed":
+                stake_label = f"${float(trading.bet_amount):.2f}"
+            else:
+                stake_label = f"{float(trading.bet_percent):.0f}%"
+        except Exception:
+            stake_label = "3%"
+        from .trade_journal import read_trades, summarize_trades
+        journal = summarize_trades(read_trades(0), live=not self.simulation)
+        if journal["trades"] or not self.simulation:
+            total = journal["trades"]
    
