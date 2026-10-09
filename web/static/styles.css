@@ -183,4 +183,68 @@ body {
     font-weight: 500;
     color: var(--text-muted);
     letter-spacing: 0.08em;
-    text-transform: uppercase
+    text-transform: uppercase;
+}
+
+.status-bar {
+    display: flex;
+    gap: 10px;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+
+.status-dot.connected {
+    background: var(--up);
+    box-shadow: none;
+}
+
+.status-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.status-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-value.price {
+    color: var(--text);
+}
+
+.round-chip {
+    gap: 10px;
+}
+
+.round-ring {
+    --pct: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: conic-gradient(var(--text) calc(var(--pct) * 1%), #222 0);
+    position: relative;
+    flex-shrink: 0;
+}
+
+.round-ring::after {
+    content: '';
+    position: abso
