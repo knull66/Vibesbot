@@ -247,4 +247,36 @@ body {
 
 .round-ring::after {
     content: '';
-    position: abso
+    position: absolute;
+    inset: 6px;
+    border-radius: 50%;
+    background: var(--bg);
+}
+
+.status-value.timer {
+    font-size: 13px;
+    color: var(--warning);
+}
+
+.status-value.timer.session {
+    color: var(--text);
+    min-width: 4.5ch;
+}
+
+.controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mode-switch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-right: 6px;
+    padding-right: 12px;
+    border-right: 1px solid var(--stroke);
+}
+
+.stake-control {
+    display: fl
