@@ -784,4 +784,144 @@ class Updater:
         client_behind = bool(
             client_v
             and update_info.latest_version
-            and pa
+            and parse_version(update_info.latest_version) > parse_version(client_v)
+        )
+        should_install = bool(update_info.available) or (
+            force and bool(update_info.download_url) and bool(update_info.latest_version)
+        ) or (
+            client_behind and bool(update_info.download_url)
+        )
+
+        if not should_install:
+            return (False, "No hay actualizaciones disponibles")
+
+        if not update_info.download_url:
+            return (False, "URL de descarga no disponible")
+
+        def download_progress(p):
+            if progress_callback:
+                progress_callback(10 + int(p * 0.7))
+
+        zip_path = await self.download_update(update_info.download_url, download_progress)
+
+        if not zip_path:
+            return (False, "Error descargando actualización")
+
+        if progress_callback:
+            progress_callback(85)
+
+        success = await self.apply_update(zip_path, update_info.latest_version)
+
+        if progress_callback:
+            progress_callback(100)
+
+        if success:
+            return (True, f"Actualizado a versión {update_info.latest_version}")
+        detail = getattr(self, "last_error", "") or ""
+        return (False, "Error aplicando actualización" + (f": {detail}" if detail else ""))
+
+
+# Singleton para acceso global
+_updater: Optional[Updater] = None
+
+def get_updater() -> Updater:
+    """Obtiene la instancia del updater."""
+    global _updater
+    if _updater is None:
+        _updater = Updater()
+    return _updater
+
+
+async def maybe_daily_update(apply: Optional[bool] = None) -> dict:
+    """Once per ~day: check GitHub and overlay if auto_update is on."""
+    from .user_settings import get_settings_manager
+
+    if apply is None:
+        apply = False
+    sm = get_settings_manager()
+    if not sm.settings.auto_update:
+        return {"skipped": True, "reason": "auto_update off"}
+    now = datetime.now(timezone.utc)
+    last = sm.settings.last_update_check
+    if last:
+        try:
+            prev = datetime.fromisoformat(last)
+            if prev.tzinfo is None:
+                prev = prev.replace(tzinfo=timezone.utc)
+            if now - prev < timedelta(hours=20):
+                return {"skipped": True, "reason": "checked recently"}
+        except ValueError:
+            pass
+    updater = get_updater()
+    info = await updater.check_for_updates()
+    sm.settings.last_update_check = now.isoformat()
+    sm.save()
+    result = {
+        "skipped": not info.available,
+        "available": info.available,
+        "current": info.current_version,
+        "latest": info.latest_version,
+        "applied": False,
+        "message": "",
+    }
+    if info.available and apply:
+        success, message = await updater.update()
+        result["applied"] = success
+        result["message"] = message
+        result["skipped"] = False
+        if success:
+            try:
+                from .runtime import relaunch_app
+                relaunch_app(delay=2.0)
+            except Exception as exc:
+                logger.warning(f"Relaunch after daily update failed: {exc}")
+    elif info.available:
+        result["message"] = f"Update {info.latest_version} available"
+    result["prompt"] = bool(info.available) and not update_is_snoozed(info.latest_version)
+    return result
+
+
+def update_is_snoozed(latest: str) -> bool:
+    from .user_settings import get_settings_manager
+
+    latest = str(latest or "").lstrip("vV")
+    if not latest:
+        return False
+    sm = get_settings_manager()
+    if str(sm.settings.update_snooze_version or "").lstrip("vV") != latest:
+        return False
+    until = sm.settings.update_snooze_until
+    if not until:
+        return False
+    try:
+        end = datetime.fromisoformat(until)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) < end
+
+
+def snooze_update(latest: str, hours: int = 12) -> dict:
+    from .user_settings import get_settings_manager
+
+    sm = get_settings_manager()
+    sm.settings.update_snooze_version = str(latest or "").lstrip("vV")
+    sm.settings.update_snooze_until = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+    sm.save()
+    return {
+        "snoozed": True,
+        "version": sm.settings.update_snooze_version,
+        "until": sm.settings.update_snooze_until,
+    }
+
+
+async def check_updates_on_startup():
+    """Verifica actualizaciones al iniciar."""
+    updater = get_updater()
+    info = await updater.check_for_updates()
+    
+    if info.available:
+        logger.info(f"Update available: {info.current_version} -> {info.latest_version}")
+    
+    return info
