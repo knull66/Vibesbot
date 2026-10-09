@@ -332,4 +332,78 @@ class DashboardBot:
         self._data_task: Optional[asyncio.Task] = None
         self._engine_task: Optional[asyncio.Task] = None
         
-        self.sessions: Dict[str, Cli
+        self.sessions: Dict[str, ClientSession] = {}
+        
+        self._trades = []
+        self._cumulative_pnl = 0.0
+        self._wins = 0
+        self._losses = 0
+        self._time_offset = 0.0
+        
+        # Última predicción
+        self._last_prediction = None
+        self._last_prediction_confidence = 0.5
+        self._last_prediction_round = -1
+        self._market_book: Dict[str, Any] = {}
+        self._market_topic: Optional[Dict[str, Any]] = None
+        self._market_fetched_at = 0.0
+        self._price_to_beat = 0.0
+        self._price_to_beat_round = -1
+        self._price_to_beat_source = ""
+        self._price_to_beat_topic = ""
+        
+        # Estadísticas avanzadas
+        self._equity_history = [100.0]  # Historial de capital
+        self._streak = 0  # Racha actual (positivo = wins, negativo = losses)
+        self._best_streak = 0
+        self._worst_streak = 0
+        self._max_equity = 100.0
+        self._max_drawdown = 0.0
+        
+        # Cargar datos guardados
+        self._load_saved_data()
+    
+    async def initialize(self) -> bool:
+        """Inicializa los componentes del bot."""
+        try:
+            from .utils.helpers import sync_binance_time
+            logger.info("Synchronizing time with Binance...")
+            self._time_offset = await sync_binance_time()
+            logger.info(f"Time offset: {self._time_offset:.3f}s")
+        except Exception as e:
+            logger.warning(f"Time sync failed, using local clock: {e}")
+            self._time_offset = 0.0
+        try:
+            logger.info("Initializing data stream...")
+            self.data_stream = DataStream(self.config.data_stream)
+            await self.data_stream.start()
+        except Exception as e:
+            logger.error(f"Data stream failed: {e}")
+        # Live bets are indicators + tape. Skip LightGBM load — it is not on this path.
+        try:
+            logger.info("Initializing risk manager...")
+            self.risk_manager = RiskManager(self.config.risk, self.config.trading)
+            for loaded in self.sessions.values():
+                self._restore_circuit(loaded)
+        except Exception as e:
+            logger.error(f"Risk manager failed: {e}")
+        try:
+            await self.manager.broadcast({
+                "type": "status",
+                "running": False,
+                "paused": False,
+                "model_loaded": True,
+                "signal_engine": "indicators+tape",
+            })
+        except Exception:
+            pass
+        if self._data_task is None or self._data_task.done():
+            self._data_task = asyncio.create_task(self._data_loop())
+        if self._engine_task is None or self._engine_task.done():
+            self._engine_task = asyncio.create_task(self._session_engine())
+        return True
+    
+    def get_session(self, session_id: str) -> ClientSession:
+        if session_id not in self.sessions:
+            self.sessions[session_id] = ClientSession(session_id=session_id)
+            self._load_session(s
