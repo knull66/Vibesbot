@@ -302,4 +302,100 @@ body {
     border: none;
     color: var(--text);
     font-family: var(--font-mono);
-    font-size: 13p
+    font-size: 13px;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+.stake-control select { color: var(--accent); padding: 0; }
+.stake-control input { width: 52px; padding: 2px 0; }
+.form-group input,
+.form-group select { -webkit-user-select: text; user-select: text; }
+body.companion-mode .stake-control { display: none; }
+body.companion-mode .stake-chips { display: none; }
+
+.stake-chips {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 8px;
+}
+
+.stake-chip {
+    appearance: none;
+    border: 1px solid var(--stroke);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 7px 9px;
+    border-radius: 6px;
+    cursor: pointer;
+    min-width: 36px;
+}
+
+.stake-chip:hover {
+    border-color: rgba(240, 185, 11, 0.45);
+    color: #f0b90b;
+}
+
+.stake-chip.active {
+    border-color: #f0b90b;
+    color: #0b0e11;
+    background: #f0b90b;
+}
+
+.stake-chips.prefs {
+    margin: 0;
+    flex-wrap: wrap;
+}
+
+.pref-row.stake-chip-row {
+    align-items: center;
+}
+
+.pref-row.stake-chip-row .stake-chips {
+    justify-content: flex-end;
+}
+
+.mode-indicator {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: var(--radius-pill);
+    letter-spacing: 0.08em;
+}
+
+.mode-indicator.sim {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border: 1px solid var(--accent-stroke);
+}
+
+.mode-indicator.real {
+    background: var(--down-dim);
+    color: var(--down);
+    border: 1px solid rgba(255, 92, 122, 0.35);
+}
+
+.mode-toggle {
+    width: 42px;
+    height: 24px;
+    background: rgba(0, 0, 0, 0.45);
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    position: relative;
+    border: 1px solid var(--stroke);
+}
+
+.mode-toggle::after {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    background: linear-gradient(180deg, var(--accent-b
