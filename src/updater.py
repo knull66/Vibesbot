@@ -321,4 +321,93 @@ class Updater:
             async with aiohttp.ClientSession() as session:
                 http = await self._http_candidates(session)
             git = await asyncio.to_thread(self._git_candidates)
-            candid
+            candidates = list(http) + list(git)
+            best = pick_newest(candidates)
+            if not best:
+                logger.warning("No update source returned a VERSION")
+                return UpdateInfo(
+                    available=False,
+                    current_version=self.current_version,
+                    latest_version=self.current_version,
+                )
+            logger.info(
+                f"Newest is {best.version} from {best.source} "
+                f"({len(candidates)} sources)"
+            )
+            return UpdateInfo(
+                available=self._is_newer_version(best.version),
+                current_version=self.current_version,
+                latest_version=best.version.lstrip("vV"),
+                download_url=best.download_url,
+                release_notes=best.notes or f"Actualización a versión {best.version} ({source_label(best.source)})",
+                source=best.source,
+            )
+        except Exception as e:
+            logger.error(f"Error checking for updates: {e}")
+            import traceback
+            traceback.print_exc()
+        return UpdateInfo(
+            available=False,
+            current_version=self.current_version,
+            latest_version=self.current_version,
+        )
+
+    async def _http_candidates(self, session: aiohttp.ClientSession) -> List[UpdateCandidate]:
+        found: List[UpdateCandidate] = []
+        try:
+            async with session.get(
+                f"{GITHUB_API}/releases/latest",
+                headers={"Accept": "application/vnd.github.v3+json"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                logger.info(f"GitHub release API: {response.status}")
+                if response.status == 200:
+                    data = await response.json()
+                    version = str(data.get("tag_name") or "").lstrip("vV")
+                    zip_url = data.get("zipball_url") or GITHUB_MAIN_ZIP
+                    if version:
+                        found.append(UpdateCandidate(
+                            version=version,
+                            download_url=zip_url,
+                            source="github-release",
+                            notes=str(data.get("body") or f"GitHub release v{version}"),
+                        ))
+        except Exception as exc:
+            logger.warning(f"GitHub release check failed: {exc}")
+        try:
+            async with session.get(GITHUB_RAW_VERSION, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                logger.info(f"GitHub main VERSION: {response.status}")
+                if response.status == 200:
+                    version = (await response.text()).strip().lstrip("vV")
+                    if version:
+                        found.append(UpdateCandidate(
+                            version=version,
+                            download_url=GITHUB_MAIN_ZIP,
+                            source="github-main",
+                            notes=f"GitHub main v{version}",
+                        ))
+        except Exception as exc:
+            logger.warning(f"GitHub main VERSION check failed: {exc}")
+        return found
+
+    def _git_candidates(self) -> List[UpdateCandidate]:
+        found: List[UpdateCandidate] = []
+        remotes = self._git_remotes()
+        refs = self._git_refs_to_check()
+        seen = set()
+        for name, url in remotes.items():
+            host = redact_git_url(url).lower()
+            if "github.com" in host:
+                continue
+            kind = "origin" if ("origin.cursor.com" in host or "cursor.com" in host) else name
+            for ref in refs:
+                key = (kind, ref)
+                if key in seen:
+                    continue
+                version = self._git_file_version(name, ref)
+                if not version:
+                    continue
+                seen.add(key)
+                found.append(UpdateCandidate(
+                    version=version,
+                    
