@@ -230,4 +230,106 @@ class ClientSession:
         journal = summarize_trades(read_trades(0), live=not self.simulation)
         if journal["trades"] or not self.simulation:
             total = journal["trades"]
-   
+            winrate = journal["winrate"]
+            wins = journal["wins"]
+            losses = journal["losses"]
+            pnl = journal["pnl"]
+            streak = journal["streak"]
+            best_streak = journal["best_streak"]
+            worst_streak = journal["worst_streak"]
+        else:
+            wins = self.wins
+            losses = self.losses
+            pnl = self.cumulative_pnl
+            streak = self.streak
+            best_streak = self.best_streak
+            worst_streak = self.worst_streak
+        if total >= 5:
+            p = wins / total
+            kelly_pct = max(0, min(100, ((p * 0.95 - (1 - p)) / 0.95) * 100))
+        profit_factor = float(journal.get("profit_factor") or 0)
+        if not (journal["trades"] or not self.simulation):
+            profit_factor = (wins * 0.95) / max(0.01, losses * 1.0)
+        if not self.simulation:
+            capital = self.live_balance if self.live_balance is not None else max(0.0, self.initial_capital + pnl)
+            banked = float(getattr(self, "banked_session", 0) or 0)
+            capital = capital + banked
+            start = float(getattr(self, "wallet_start", 0) or 0)
+            if start > 1:
+                pnl = capital - start
+            payload = {
+                "type": "stats",
+                "capital": capital,
+                "available": getattr(self, "live_available", 0.0) or None,
+                "open_value": getattr(self, "live_open_value", 0.0) or None,
+                "banked": banked,
+                "pnl": pnl,
+                "trades": total,
+                "winrate": winrate,
+                "wins": wins,
+                "losses": losses,
+                "kelly": kelly_pct,
+                "stake_label": stake_label,
+                "streak": streak,
+                "best_streak": best_streak,
+                "worst_streak": worst_streak,
+                "max_drawdown": self.max_drawdown,
+                "profit_factor": profit_factor,
+                "equity_history": self.equity_history[-50:] or [capital],
+                "live": True,
+                "simulation": False,
+                "wallet": self.live_wallet,
+                "wallets": self.live_wallets,
+                "wallet_address": self.live_wallet_address,
+                "network": self.live_network or "BNB Smart Chain",
+                "live_error": self.live_error,
+            }
+            payload.update(self.session_clock_payload())
+            return payload
+        payload = {
+            "type": "stats",
+            "capital": self.initial_capital + pnl,
+            "pnl": pnl,
+            "trades": total,
+            "winrate": winrate,
+            "wins": wins,
+            "losses": losses,
+            "kelly": kelly_pct,
+            "stake_label": stake_label,
+            "streak": streak,
+            "best_streak": best_streak,
+            "worst_streak": worst_streak,
+            "max_drawdown": self.max_drawdown,
+            "profit_factor": profit_factor,
+            "equity_history": self.equity_history[-50:],
+            "live": False,
+            "simulation": True,
+            "wallet": "Simulation",
+        }
+        payload.update(self.session_clock_payload())
+        return payload
+
+
+class DashboardBot:
+    """
+    Bot de trading con interfaz web.
+    
+    Versión simplificada del bot principal que funciona sin navegador,
+    enviando actualizaciones al dashboard web.
+    """
+    
+    def __init__(self, config: Config, manager: ConnectionManager):
+        self.config = config
+        self.manager = manager
+        
+        self.data_stream: Optional[DataStream] = None
+        self.predictor: Optional[Predictor] = None
+        self.risk_manager: Optional[RiskManager] = None
+        
+        self._running = False
+        self._paused = False
+        self._task: Optional[asyncio.Task] = None
+        self._data_task: Optional[asyncio.Task] = None
+        self._engine_task: Optional[asyncio.Task] = None
+        
+        self.sessions: Dict[str, Cli
