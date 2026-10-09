@@ -222,4 +222,31 @@ def _git_env() -> dict:
 
 
 class Updater:
-  
+    """
+    Gestor de actualizaciones automáticas.
+    
+    Verifica y aplica actualizaciones desde GitHub.
+    """
+    
+    def __init__(self, app_path: Optional[str] = None):
+        self.app_path = Path(app_path) if app_path else self._find_app_path()
+        self.version_file = self.app_path / VERSION_FILE
+        self.current_version = self._get_current_version()
+        self.last_error = ""
+    
+    def _find_app_path(self) -> Path:
+        """Siempre la copia que está ejecutándose, no Downloads."""
+        running = Path(__file__).resolve().parent.parent
+        if (running / "src").exists() and (running / "web").exists():
+            return running
+        possible_paths = [
+            running,
+            Path("/Applications/Vibesbot.app/Contents/Resources/vibesbot"),
+            Path.home() / "Downloads" / "Vibesbot",
+        ]
+        for path in possible_paths:
+            if path.exists() and (path / "src").exists():
+                return path
+        return running
+
+    d
