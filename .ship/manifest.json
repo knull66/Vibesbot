@@ -1,7 +1,7 @@
 [
   {
     "path": "web/static/app.js",
-    "sha256": "32b67d7f5421c60d4feb8997348ff1d211e0d42222642fab3b79864344c67868",
+    "sha256": "99daf8196bfb3d7847a94216353abd4a72e08167110c0abbfb46eb89f1a197bb",
     "parts": [
       "web__static__app.js.00.b64",
       "web__static__app.js.01.b64",
@@ -30,14 +30,15 @@
       "web__static__app.js.24.b64",
       "web__static__app.js.25.b64",
       "web__static__app.js.26.b64",
-      "web__static__app.js.27.b64"
+      "web__static__app.js.27.b64",
+      "web__static__app.js.28.b64"
     ],
-    "size": 93696,
+    "size": 95085,
     "encoding": "base64"
   },
   {
     "path": "src/wallet_prediction.py",
-    "sha256": "1e9203cdc28192e1e315fa62e389776217857dbfcc81dfa11c41039ce77ad0aa",
+    "sha256": "a0b01efe087b2fa7552bb7f7c46f259bf4c32adc9a9ec9332ba27def84b0f472",
     "parts": [
       "src__wallet_prediction.py.00.b64",
       "src__wallet_prediction.py.01.b64",
@@ -64,14 +65,15 @@
       "src__wallet_prediction.py.22.b64",
       "src__wallet_prediction.py.23.b64",
       "src__wallet_prediction.py.24.b64",
-      "src__wallet_prediction.py.25.b64"
+      "src__wallet_prediction.py.25.b64",
+      "src__wallet_prediction.py.26.b64"
     ],
-    "size": 87032,
+    "size": 90833,
     "encoding": "base64"
   },
   {
     "path": "src/web_server.py",
-    "sha256": "732d194f48c0701081651c2faf12127684224838b841b2bdce6242407cbb6934",
+    "sha256": "0cb3c0ab7e3240e03dfcfd9cc86cf93faaca36b6c1fcae0cb4e50d6825e43505",
     "parts": [
       "src__web_server.py.00.b64",
       "src__web_server.py.01.b64",
@@ -110,14 +112,15 @@
       "src__web_server.py.34.b64",
       "src__web_server.py.35.b64",
       "src__web_server.py.36.b64",
-      "src__web_server.py.37.b64"
+      "src__web_server.py.37.b64",
+      "src__web_server.py.38.b64"
     ],
-    "size": 126088,
+    "size": 130628,
     "encoding": "base64"
   },
   {
     "path": "web/templates/index.html",
-    "sha256": "470f24e6ff2511e86c7fa411ee05cbd41259b952a02fda7f02c4e3f2b35b10fa",
+    "sha256": "cb551f79fbe2291640f26fe4cadfb3c71a1cb6b5c3e94223a0443d6aabec3491",
     "parts": [
       "web__templates__index.html.00.b64",
       "web__templates__index.html.01.b64",
@@ -132,12 +135,12 @@
       "web__templates__index.html.10.b64",
       "web__templates__index.html.11.b64"
     ],
-    "size": 39027,
+    "size": 39922,
     "encoding": "base64"
   },
   {
     "path": "web/static/styles.css",
-    "sha256": "556fa1a8e5d41ee15a0e70523db733a6aa878459fefcc660c1d4363a97c75618",
+    "sha256": "8f44151a877565007e61ec4bc7871138539949c2c44a0315fe9096f0bf113bef",
     "parts": [
       "web__static__styles.css.00.b64",
       "web__static__styles.css.01.b64",
@@ -158,7 +161,7 @@
       "web__static__styles.css.16.b64",
       "web__static__styles.css.17.b64"
     ],
-    "size": 58092,
+    "size": 58791,
     "encoding": "base64"
   },
   {
