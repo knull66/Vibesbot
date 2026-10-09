@@ -183,4 +183,123 @@ body {
     font-weight: 500;
     color: var(--text-muted);
     letter-spacing: 0.08em;
-    text-transform: uppercase
+    text-transform: uppercase;
+}
+
+.status-bar {
+    display: flex;
+    gap: 10px;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+
+.status-dot.connected {
+    background: var(--up);
+    box-shadow: none;
+}
+
+.status-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.status-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-value.price {
+    color: var(--text);
+}
+
+.round-chip {
+    gap: 10px;
+}
+
+.round-ring {
+    --pct: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: conic-gradient(var(--text) calc(var(--pct) * 1%), #222 0);
+    position: relative;
+    flex-shrink: 0;
+}
+
+.round-ring::after {
+    content: '';
+    position: absolute;
+    inset: 6px;
+    border-radius: 50%;
+    background: var(--bg);
+}
+
+.status-value.timer {
+    font-size: 13px;
+    color: var(--warning);
+}
+
+.status-value.timer.session {
+    color: var(--text);
+    min-width: 4.5ch;
+}
+
+.controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mode-switch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-right: 6px;
+    padding-right: 12px;
+    border-right: 1px solid var(--stroke);
+}
+
+.stake-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 6px;
+    padding: 4px 8px 4px 10px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--stroke);
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.stake-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+}
+
+.stake-control select,
+.stake-control input {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13p
