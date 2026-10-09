@@ -1,1 +1,18 @@
-$file:/tmp/grow_styles_FULL.txt
+/* ═══════════════════════════════════════════════════════════
+   VIBESBOT — Matte desk
+   Quiet black, hairline rules, numbers first
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+    --bg: #0a0a0a;
+    --bg-elevated: #111111;
+    --glass: #111111;
+    --glass-strong: #141414;
+    --glass-soft: #161616;
+    --highlight: rgba(255, 255, 255, 0.08);
+    --stroke: #1e1e1e;
+    --stroke-strong: #2a2a2a;
+
+    --accent: #ececec;
+    --accent-bright: #ffffff;
+    --accent-di
