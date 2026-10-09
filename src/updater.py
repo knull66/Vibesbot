@@ -551,4 +551,144 @@ class Updater:
         shutil.rmtree(temp_dir, ignore_errors=True)
         return None
 
-    async def download_update(self, url: str, progr
+    async def download_update(self, url: str, progress_callback=None) -> Optional[Path]:
+        """
+        Descarga una actualización.
+        
+        Args:
+            url: URL del archivo zip
+            progress_callback: Función para reportar progreso (0-100)
+        
+        Returns:
+            Path al archivo descargado o None si falla
+        """
+        logger.info(f"Downloading update from: {redact_git_url(url)}")
+
+        if str(url or "").startswith(GIT_SCHEME):
+            payload = str(url)[len(GIT_SCHEME):]
+            remote, _, ref = payload.partition(":")
+            return self._archive_git_ref(remote, ref or "main")
+        
+        try:
+            temp_dir = Path(tempfile.mkdtemp())
+            zip_path = temp_dir / "update.zip"
+            
+            # GitHub zipball URLs redirect, need to follow
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url, 
+                    timeout=aiohttp.ClientTimeout(total=300),
+                    allow_redirects=True
+                ) as response:
+                    logger.info(f"Download response: {response.status}")
+                    
+                    if response.status != 200:
+                        logger.error(f"Download failed: {response.status}")
+                        return None
+                    
+                    total_size = int(response.headers.get("Content-Length", 0))
+                    downloaded = 0
+                    
+                    with open(zip_path, "wb") as f:
+                        async for chunk in response.content.iter_chunked(8192):
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            
+                            if progress_callback and total_size > 0:
+                                progress = int((downloaded / total_size) * 100)
+                                progress_callback(progress)
+            
+            file_size = zip_path.stat().st_size
+            logger.info(f"Update downloaded to {zip_path} ({file_size} bytes)")
+            
+            if file_size < 1000:
+                logger.error("Downloaded file too small, probably an error")
+                return None
+            
+            return zip_path
+            
+        except Exception as e:
+            logger.error(f"Error downloading update: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    async def apply_update(self, zip_path: Path, new_version: str) -> bool:
+        """
+        Aplica una actualización descargada.
+        
+        Args:
+            zip_path: Path al archivo zip
+            new_version: Nueva versión a guardar
+        
+        Returns:
+            True si se aplicó correctamente
+        """
+        try:
+            logger.info(f"Applying update from {zip_path}")
+            logger.info(f"App path: {self.app_path}")
+            
+            # Extraer a directorio temporal
+            extract_dir = zip_path.parent / "extracted"
+            
+            logger.info(f"Extracting to {extract_dir}")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+            
+            # Encontrar el directorio del proyecto (GitHub añade un prefijo)
+            project_dirs = list(extract_dir.iterdir())
+            logger.info(f"Extracted dirs: {project_dirs}")
+            
+            if not project_dirs:
+                logger.error("Empty zip file")
+                return False
+
+            source_dir = extract_dir
+            nested = [p for p in project_dirs if p.is_dir()]
+            if (extract_dir / "src").is_dir() or (extract_dir / VERSION_FILE).is_file():
+                source_dir = extract_dir
+            elif len(nested) == 1:
+                source_dir = nested[0]
+            elif nested:
+                source_dir = nested[0]
+            logger.info(f"Source dir: {source_dir}")
+            
+            items_to_update = [
+                "src",
+                "web",
+                "assets",
+                ".ship",
+                ".github",
+                "VERSION",
+                "app_launcher.py",
+                "run_dashboard.py",
+                "restart_mac.command",
+                "update_mac.command",
+                "README.md",
+                "SETUP.md",
+            ]
+            
+            # Snapshot the files an overlay can break so a bad zip never
+            # leaves web_server.py empty (1.51.5/1.51.6 Server failed).
+            backup_dir = self._backup_critical(zip_path.parent / "backup")
+
+            for item in items_to_update:
+                source = source_dir / item
+                dest = self.app_path / item
+                logger.info(f"Updating {item}: {source} -> {dest}")
+                if not source.exists():
+                    logger.warning(f"Source not found: {source}")
+                    continue
+                try:
+                    self._overlay_copy(source, dest)
+                    logger.info(f"✓ Updated: {item}")
+                except Exception as e:
+                    logger.error(f"Error updating {item}: {e}")
+
+            problems = self._heal_ship()
+            if problems:
+                logger.error(f"Update left broken files, rolling back: {problems}")
+                self._restore_critical(backup_dir)
+                self.last_error = "Archivos incompletos (" + ", ".join(
+                    f"{k}: {v}" for k, v in problems.items()
+              
