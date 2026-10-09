@@ -102,4 +102,70 @@ class ConnectionManager:
     async def send_to_session(self, session_id: str, message: dict):
         sockets = list(self.session_sockets.get(session_id, set()))
         for connection in sockets:
-            await self.send_to(connec
+            await self.send_to(connection, message)
+    
+    async def broadcast(self, message: dict):
+        """Envía mensaje a todos los clientes (datos de mercado)."""
+        if not self.active_connections:
+            return
+        
+        data = json.dumps(message)
+        disconnected = set()
+        
+        for connection in list(self.active_connections):
+            try:
+                await connection.send_text(data)
+            except Exception:
+                disconnected.add(connection)
+        
+        for conn in disconnected:
+            self.disconnect(conn)
+
+
+@dataclass
+class ClientSession:
+    """Estado de trading independiente por dispositivo/navegador."""
+    
+    session_id: str
+    running: bool = False
+    paused: bool = False
+    simulation: bool = True
+    wins: int = 0
+    losses: int = 0
+    cumulative_pnl: float = 0.0
+    trades: List[dict] = field(default_factory=list)
+    equity_history: List[float] = field(default_factory=lambda: [100.0])
+    streak: int = 0
+    best_streak: int = 0
+    worst_streak: int = 0
+    max_equity: float = 100.0
+    max_drawdown: float = 0.0
+    initial_capital: float = 100.0
+    live_balance: Optional[float] = None
+    live_wallet: str = ""
+    live_wallets: Dict[str, float] = field(default_factory=dict)
+    live_wallet_address: str = ""
+    live_network: str = ""
+    live_error: str = ""
+    live_can_trade: bool = False
+    live_trade_error: str = ""
+    live_fetched_at: float = 0.0
+    live_available: float = 0.0
+    live_open_value: float = 0.0
+    pending_trade: Optional[PendingWalletTrade] = None
+    wallet_start: float = 0.0
+    wallet_day: str = ""
+    wallet_day_start: float = 0.0
+    wallet_day_peak: float = 0.0
+    consecutive_losses: int = 0
+    circuit_halted: bool = False
+    session_started_at: str = ""
+    session_elapsed: float = 0.0
+    session_tick_at: float = 0.0
+    session_peak: float = 0.0
+    banked_session: float = 0.0
+    banked_day: float = 0.0
+    harvest_at: float = 0.0
+    harvest_block_until: float = 0.0
+
+   
