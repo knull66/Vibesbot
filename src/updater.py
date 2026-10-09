@@ -275,4 +275,50 @@ class Updater:
         """Effective install version: older of VERSION file and APP_VERSION in JS."""
         file_v = self._read_version_file()
         js_v = self._read_js_app_version()
- 
+        if not js_v:
+            return file_v
+        return file_v if parse_version(file_v) <= parse_version(js_v) else js_v
+
+    def _parse_version(self, value: str):
+        return parse_version(value)
+
+    def _is_newer_version(self, latest: str) -> bool:
+        return parse_version(latest) > parse_version(self.current_version)
+
+    def refresh_current_version(self) -> str:
+        self.current_version = self._get_current_version()
+        return self.current_version
+    
+    def _save_version(self, version: str):
+        """Guarda la versión actual."""
+        self.version_file.parent.mkdir(parents=True, exist_ok=True)
+        self.version_file.write_text(version.strip().lstrip("vV") + "\n")
+
+    def _overlay_copy(self, source: Path, dest: Path):
+        """Copia encima, sin borrar el árbol (el Python en marcha bloquea rmtree)."""
+        skip = {"__pycache__", ".DS_Store", ".pyc"}
+        if source.is_file():
+            if source.suffix == ".pyc" or source.name in skip:
+                return
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, dest)
+            return
+        dest.mkdir(parents=True, exist_ok=True)
+        for child in source.iterdir():
+            if child.name in skip:
+                continue
+            self._overlay_copy(child, dest / child.name)
+
+    def _purge_retired_clicker(self) -> None:
+        """Remove leftover Playwright clicker files from this install and Downloads."""
+        purge_retired_installs(self.app_path)
+    
+    async def check_for_updates(self) -> UpdateInfo:
+        """Pick the newest VERSION from GitHub (release + main) and Origin git."""
+        self.refresh_current_version()
+        logger.info(f"Checking for updates... Current version: {self.current_version}")
+        try:
+            async with aiohttp.ClientSession() as session:
+                http = await self._http_candidates(session)
+            git = await asyncio.to_thread(self._git_candidates)
+            candid
